@@ -25,7 +25,7 @@ from .api import (
     SiiPetConnectionError,
     SiiPetError,
 )
-from .api.client import WRONG_CODE
+from .api.client import TOO_MANY_REQUESTS, WRONG_CODE
 from .const import CONF_CLIENT_ID, CONF_CODE, CONF_EXPIRE_AT, CONF_TOKEN, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -80,16 +80,17 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
         """Ask for the emailed code and sign in."""
         errors: dict[str, str] = {}
         if user_input is not None:
+            client = self._client()
             try:
-                session = await self._client().login(
-                    self._email, user_input[CONF_CODE].strip()
-                )
+                session = await client.login(self._email, user_input[CONF_CODE].strip())
                 user_id = session.user_id
             except SiiPetConnectionError:
                 errors["base"] = "cannot_connect"
             except SiiPetApiError as err:
                 if err.code == WRONG_CODE:
                     errors[CONF_CODE] = "invalid_code"
+                elif err.code == TOO_MANY_REQUESTS:
+                    errors["base"] = "too_many_requests"
                 else:
                     _LOGGER.debug("Sign-in rejected: %s", err)
                     errors["base"] = "login_failed"
@@ -99,7 +100,9 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected sign-in response")
                 errors["base"] = "unknown"
             else:
-                return await self._async_finish(session, user_id)
+                errors = await self._async_check_session(client)
+                if not errors:
+                    return await self._async_finish(session, user_id)
         return self.async_show_form(
             step_id="code",
             data_schema=CODE_SCHEMA,
@@ -137,10 +140,25 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
         except SiiPetConnectionError:
             return {"base": "cannot_connect"}
         except SiiPetApiError as err:
+            if err.code == TOO_MANY_REQUESTS:
+                return {"base": "too_many_requests"}
             _LOGGER.debug("Code request rejected: %s", err)
             return {"base": "code_request_failed"}
         except SiiPetError:
             _LOGGER.exception("Unexpected code request response")
+            return {"base": "unknown"}
+        return {}
+
+    async def _async_check_session(self, client: SiiPetClient) -> dict[str, str]:
+        """Read the cats once to confirm the new session survives. Return form errors."""
+        try:
+            await client.get_cats()
+        except SiiPetAuthError:
+            return {"base": "session_in_use"}
+        except SiiPetConnectionError:
+            return {"base": "cannot_connect"}
+        except SiiPetError:
+            _LOGGER.exception("Unexpected session check response")
             return {"base": "unknown"}
         return {}
 

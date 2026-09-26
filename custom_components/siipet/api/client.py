@@ -30,6 +30,8 @@ REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=30)
 AUTH_ERROR_CODES: frozenset[int] = frozenset({-2, -4})
 # Envelope code for a wrong email code at sign-in.
 WRONG_CODE = 10004
+# Envelope code for too many email code requests in one day.
+TOO_MANY_REQUESTS = 10010
 
 
 class SiiPetClient:

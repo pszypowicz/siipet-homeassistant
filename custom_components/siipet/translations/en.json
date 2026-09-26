@@ -17,7 +17,7 @@
       },
       "reauth_confirm": {
         "title": "Sign in to SiiPet again",
-        "description": "The SiiPet session for {email} ended. Select Submit to get a new sign-in code."
+        "description": "The SiiPet session for {email} ended. SiiPet allows one signed-in device per account, so a sign-in in the SiiPet app ends the Home Assistant session. Select Submit to get a new sign-in code."
       }
     },
     "error": {
@@ -26,6 +26,8 @@
       "invalid_code": "The code is not correct or it expired.",
       "invalid_email": "Enter a valid email address.",
       "login_failed": "SiiPet rejected the sign-in. Go back and request a new code.",
+      "session_in_use": "SiiPet accepted the code, but another device holds the session for this account. SiiPet allows one signed-in device per account. Sign out of the SiiPet app, or use a second SiiPet account for Home Assistant.",
+      "too_many_requests": "SiiPet allows only a few code requests per day. Try again tomorrow.",
       "unknown": "An unexpected error occurred. Read the log for details."
     },
     "abort": {

@@ -89,6 +89,7 @@ async def test_invalid_email(hass: HomeAssistant, mock_client: AsyncMock) -> Non
     [
         (SiiPetConnectionError("down"), "cannot_connect"),
         (SiiPetApiError(1001, "rejected"), "code_request_failed"),
+        (SiiPetApiError(10010, "Too many request today"), "too_many_requests"),
         (SiiPetError("odd"), "unknown"),
     ],
 )
@@ -116,6 +117,10 @@ async def test_code_request_errors(
     [
         (SiiPetApiError(10004, "wrong code"), {CONF_CODE: "invalid_code"}),
         (SiiPetApiError(1002, "too many attempts"), {"base": "login_failed"}),
+        (
+            SiiPetApiError(10010, "Too many request today"),
+            {"base": "too_many_requests"},
+        ),
         (SiiPetAuthError("rejected"), {"base": "login_failed"}),
         (SiiPetConnectionError("down"), {"base": "cannot_connect"}),
         (SiiPetError("odd"), {"base": "unknown"}),
@@ -144,6 +149,42 @@ async def test_code_errors(
         flow_id, {CONF_CODE: "012345"}
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_code_session_in_use(hass: HomeAssistant, mock_client: AsyncMock) -> None:
+    """A session already held by another device shows an error, and a retry works."""
+    flow_id = await _start(hass)
+    await hass.config_entries.flow.async_configure(
+        flow_id, {CONF_EMAIL: "cat@example.com"}
+    )
+    mock_client.get_cats.side_effect = SiiPetAuthError("-2: token illegal")
+    result = await hass.config_entries.flow.async_configure(
+        flow_id, {CONF_CODE: "012345"}
+    )
+    assert result["step_id"] == "code"
+    assert result["errors"] == {"base": "session_in_use"}
+
+    mock_client.get_cats.side_effect = None
+    result = await hass.config_entries.flow.async_configure(
+        flow_id, {CONF_CODE: "012345"}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_code_session_check_connection_error(
+    hass: HomeAssistant, mock_client: AsyncMock
+) -> None:
+    """A connection error during the session check shows cannot_connect."""
+    flow_id = await _start(hass)
+    await hass.config_entries.flow.async_configure(
+        flow_id, {CONF_EMAIL: "cat@example.com"}
+    )
+    mock_client.get_cats.side_effect = SiiPetConnectionError("down")
+    result = await hass.config_entries.flow.async_configure(
+        flow_id, {CONF_CODE: "012345"}
+    )
+    assert result["step_id"] == "code"
+    assert result["errors"] == {"base": "cannot_connect"}
 
 
 async def test_single_instance(
