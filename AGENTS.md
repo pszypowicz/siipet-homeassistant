@@ -16,10 +16,11 @@ custom_components/siipet/
     client.py          SiiPetClient: headers, envelope, one method per endpoint
     auth.py            challenge encryption, token payload, renewal rule
     challenge_key.py   AES key for the sign-in challenge
-    models.py          Cat, Camera, Visit, DayVisits, DaySummary, AbnormalLabels
+    models.py          Cat, Camera, Visit, VisitType, DayVisits, DaySummary, AbnormalLabels
     errors.py          SiiPetError and its subclasses
   __init__.py          entry setup and unload
   config_flow.py       email step, code step, reauth
+  const.py             constants: config keys, Unknown cat id, intervals
   coordinator.py       SiiPetCoordinator, SiiPetData, SiiPetRuntime
   entity.py            cat and camera entity bases
   sensor.py  binary_sensor.py  event.py  diagnostics.py

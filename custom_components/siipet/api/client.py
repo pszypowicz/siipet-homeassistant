@@ -136,7 +136,8 @@ class SiiPetClient:
                 try:
                     await self._renew()
                 except SiiPetConnectionError as err:
-                    # The token stays valid past ExpireAt, so keep it and retry later.
+                    # The token's encoded expiry is later than ExpireAt, so keep
+                    # it and retry later.
                     _LOGGER.debug("Token renewal failed, retry later: %s", err)
         return self._session
 

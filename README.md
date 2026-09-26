@@ -14,11 +14,25 @@ It gives statistics and visit events for each cat. Recordings and visit edits co
 
 ## Install
 
+Option 1: Install with HACS.
+
+1. In Home Assistant, go to **HACS > Integrations**, open the three-dot menu, and choose **Custom repositories**.
+2. Add `https://github.com/pszypowicz/siipet-homeassistant` with category **Integration**.
+3. Find **SiiPet** in HACS and install it.
+4. Restart Home Assistant.
+
+Option 2: Copy the files by hand.
+
 1. Copy `custom_components/siipet/` from this repo into your Home Assistant config, so that the path is `/config/custom_components/siipet/`.
 2. Restart Home Assistant.
-3. Go to **Settings > Devices & Services > Add Integration** and search for **SiiPet**.
-4. Enter the email address of your SiiPet account.
-5. Enter the code that SiiPet sends to that address.
+
+Then, for either option:
+
+1. Go to **Settings > Devices & Services > Add Integration** and search for **SiiPet**.
+2. Enter the email address of your SiiPet account.
+3. Enter the code that SiiPet sends to that address.
+
+If you added SiiPet 0.0.1 before, remove that entry and add the integration again.
 
 The session renews automatically. If SiiPet ends the session, Home Assistant asks you to sign in again.
 

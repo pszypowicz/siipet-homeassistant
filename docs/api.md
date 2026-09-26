@@ -153,8 +153,8 @@ For the captured email login, `exp` is about 30 days after sign-in. It is exactl
 15 days later than `Data.ExpireAt` in the same response. These timestamps alone
 do not establish the lifetime that the server enforces.
 
-The [Android package](https://apkpure.net/siipet/com.linkric.siipetapp/download)
-contains `UserRepository.checkUserLoginToken`. The inspected version is 2.1.1.
+The Android package `com.linkric.siipetapp` contains `UserRepository.checkUserLoginToken`.
+The inspected version is 2.1.1.
 That method requests renewal when `now_ms + 86_400_000 > ExpireAt`.
 It skips renewal while another renewal request is in progress. With the observed
 15-day `ExpireAt`, this condition becomes true about 14 days after sign-in.
@@ -631,17 +631,17 @@ They were not tested against the service unless this section says so.
 
 ### Request headers of the Android app
 
-| Header | Format |
-| --- | --- |
-| `User-Agent` | `siipet-app/<version>` |
-| `X-App-Version` | `<version>` |
-| `X-Device-Model` | `android-phone <model>` |
-| `X-Device-OS` | The Android release number, for example `15` |
-| `X-Device-Language` | `en` or `zh-TW` |
-| `X-Device-Identifier` | A stable per-install identifier |
-| `X-Timezone` | An IANA time zone |
-| `X-Timestamp` | Milliseconds since the Unix epoch |
-| `Authorization` | `Bearer <token>` after sign-in |
+| Header                | Format                                       |
+| --------------------- | -------------------------------------------- |
+| `User-Agent`          | `siipet-app/<version>`                       |
+| `X-App-Version`       | `<version>`                                  |
+| `X-Device-Model`      | `android-phone <model>`                      |
+| `X-Device-OS`         | The Android release number, for example `15` |
+| `X-Device-Language`   | `en` or `zh-TW`                              |
+| `X-Device-Identifier` | A stable per-install identifier              |
+| `X-Timezone`          | An IANA time zone                            |
+| `X-Timestamp`         | Milliseconds since the Unix epoch            |
+| `Authorization`       | `Bearer <token>` after sign-in               |
 
 The integration sends the header set of the captured iOS app, because direct tests show that the API accepts it.
 
@@ -679,11 +679,14 @@ The integration sends the header set of the captured iOS app, because direct tes
 `/api/v1/config/system/config` returns `Data.Memory.AbnormalToilet`, a list of objects with `Shape`, `Color`, and `Event` lists.
 Each item has `Type`, `Title`, and `Icon`. Code 0 means normal.
 
-| Group | Codes |
-| --- | --- |
+| Group | Codes                                |
+| ----- | ------------------------------------ |
 | Shape | 101 to 104, and 199 for other shapes |
 | Color | 201 to 206, and 299 for other colors |
-| Event | 301, "Potty Overtime" |
+| Event | 301, "Potty Overtime"                |
+
+The Android app also defines shape code 105 (sausage-shaped), which the
+captured server config does not list.
 
 - Index 0 of `FecesAbnormal` is the shape code. Index 1 is the color code.
 - `EventAbnormal` holds an event code.
@@ -713,3 +716,7 @@ Each item has `Type`, `Title`, and `Icon`. Code 0 means normal.
 - Whether the server enforces the shared-user restriction, or whether the app hides
   the reassignment button on the client side only. This decides whether a second
   account can be used instead of the admin account.
+- Which envelope codes the server returns for an expired or invalid token. The
+  app treats -2 and -4 as an ended session.
+- Whether a new sign-in from another client ends the phone app session.
+- Which `x-device-os` and `x-device-model` values the server accepts.
