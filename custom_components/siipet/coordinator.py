@@ -131,12 +131,20 @@ class SiiPetCoordinator(DataUpdateCoordinator[SiiPetData]):
             day = today - timedelta(days=offset)
             if not self._past_day_due(day, today, now):
                 continue
+            first_read = day not in self._days
             try:
-                self._store(day, await self.client.get_day(day), now)
+                visits = await self.client.get_day(day)
             except SiiPetAuthError:
                 raise
             except SiiPetError as err:
                 _LOGGER.warning("Could not read the visits of %s: %s", day, err)
+                continue
+            self._store(day, visits, now)
+            if first_read and self._seen is not None:
+                # A past day read for the first time (a failed first update,
+                # or an outage) is not new. Seed it as seen so its visits do
+                # not burst into new_visits.
+                self._seen.update(visit.event_id for visit in visits.visits)
 
         oldest = today - timedelta(days=WINDOW_DAYS - 1)
         for day in [day for day in self._days if day < oldest]:

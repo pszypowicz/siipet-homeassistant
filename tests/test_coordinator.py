@@ -45,6 +45,20 @@ def _new_visit(event_id: str, pet_ids: tuple[str, ...], hour: int) -> Visit:
     )
 
 
+def _visit_on(
+    day: date, event_id: str, pet_ids: tuple[str, ...] = ("pet-luna",)
+) -> Visit:
+    """A visit like the fixture's first visit, but dated on another day."""
+    base = fixture_day().visits[0]
+    return replace(
+        base,
+        event_id=event_id,
+        pet_ids=pet_ids,
+        start=base.start.replace(year=day.year, month=day.month, day=day.day),
+        type=VisitType.POOP,
+    )
+
+
 async def _coordinator(
     hass: HomeAssistant, config_entry: MockConfigEntry
 ) -> SiiPetCoordinator:
@@ -254,3 +268,63 @@ async def test_labels_failure_is_not_fatal(
     coordinator = await _coordinator(hass, config_entry)
     assert coordinator.last_update_success is True
     assert coordinator.data.labels.event == {}
+
+
+async def test_late_first_read_of_past_day_is_not_new(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    frozen_time: FrozenDateTimeFactory,
+) -> None:
+    """A past day that fails on the first update is not new once it succeeds."""
+    failing = TODAY - timedelta(days=3)
+    old_visit = _visit_on(failing, "old-1")
+
+    def get_day_failing(requested: date) -> DayVisits:
+        if requested == failing:
+            raise SiiPetConnectionError("down")
+        return fixture_day() if requested == TODAY else EMPTY_DAY
+
+    mock_client.get_day.side_effect = get_day_failing
+    coordinator = await _coordinator(hass, config_entry)
+    assert failing not in coordinator.data.days
+
+    late_day = _with_visits(old_visit)
+    mock_client.get_day.side_effect = lambda requested: (
+        late_day
+        if requested == failing
+        else fixture_day()
+        if requested == TODAY
+        else EMPTY_DAY
+    )
+    frozen_time.tick(timedelta(minutes=5))
+    await coordinator.async_refresh()
+
+    assert coordinator.data.new_visits == ()
+    assert old_visit in coordinator.data.days[failing]
+
+
+async def test_new_visit_on_already_read_past_day_is_new(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    frozen_time: FrozenDateTimeFactory,
+) -> None:
+    """A new visit on a past day that was already read is still reported."""
+    target = TODAY - timedelta(days=2)
+    coordinator = await _coordinator(hass, config_entry)
+    assert coordinator.data.days[target] == ()
+
+    late_visit = _visit_on(target, "old-2")
+    day_with_new = _with_visits(late_visit)
+    mock_client.get_day.side_effect = lambda requested: (
+        day_with_new
+        if requested == target
+        else fixture_day()
+        if requested == TODAY
+        else EMPTY_DAY
+    )
+    frozen_time.tick(timedelta(hours=1))
+    await coordinator.async_refresh()
+
+    assert [visit.event_id for visit in coordinator.data.new_visits] == ["old-2"]
