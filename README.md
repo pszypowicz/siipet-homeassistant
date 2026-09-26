@@ -56,6 +56,7 @@ triggers:
   - trigger: state
     entity_id: event.unknown_cat_visit
     not_from: unavailable
+    not_to: unavailable
 actions:
   - action: notify.mobile_app_phone
     data:
