@@ -2,12 +2,97 @@
   "config": {
     "step": {
       "user": {
-        "title": "SiiPet",
-        "description": "This version does not connect to a SiiPet account and does not create entities."
+        "title": "Sign in to SiiPet",
+        "description": "Enter the email address of your SiiPet account. SiiPet sends a sign-in code to this address.",
+        "data": {
+          "email": "Email"
+        }
+      },
+      "code": {
+        "title": "Enter the code",
+        "description": "Enter the code that SiiPet sent to {email}.",
+        "data": {
+          "code": "Code"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in to SiiPet again",
+        "description": "The SiiPet session for {email} ended. Select Submit to get a new sign-in code."
       }
     },
+    "error": {
+      "cannot_connect": "Cannot connect to SiiPet. Try again later.",
+      "code_request_failed": "SiiPet did not send a code. Check the email address and try again.",
+      "invalid_code": "The code is not correct or it expired.",
+      "invalid_email": "Enter a valid email address.",
+      "login_failed": "SiiPet rejected the sign-in. Go back and request a new code.",
+      "unknown": "An unexpected error occurred. Read the log for details."
+    },
     "abort": {
-      "already_configured": "SiiPet is already configured."
+      "already_configured": "This SiiPet account is already configured.",
+      "reauth_successful": "You are signed in again.",
+      "single_instance_allowed": "SiiPet is already configured.",
+      "wrong_account": "Sign in with the same SiiPet account as before."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "connected": {
+        "name": "Connected"
+      }
+    },
+    "event": {
+      "visit": {
+        "name": "Visit",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "unknown": "Unknown",
+              "lingering": "Lingering",
+              "poop": "Poop",
+              "pee": "Pee"
+            }
+          }
+        }
+      }
+    },
+    "sensor": {
+      "visits_today": {
+        "name": "Visits today"
+      },
+      "pee_today": {
+        "name": "Pee today"
+      },
+      "poop_today": {
+        "name": "Poop today"
+      },
+      "lingering_today": {
+        "name": "Lingering today"
+      },
+      "abnormal_visits_today": {
+        "name": "Abnormal visits today"
+      },
+      "average_duration_today": {
+        "name": "Average visit duration today"
+      },
+      "baseline_visits": {
+        "name": "Baseline visits"
+      },
+      "baseline_duration": {
+        "name": "Baseline visit duration"
+      },
+      "baseline_progress": {
+        "name": "Baseline progress"
+      },
+      "last_visit": {
+        "name": "Last visit"
+      },
+      "unassigned_visits": {
+        "name": "Unassigned visits"
+      },
+      "subscription_expires": {
+        "name": "Subscription expires"
+      }
     }
   }
 }
