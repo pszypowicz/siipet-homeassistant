@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .api import VisitType
-from .coordinator import SiiPetConfigEntry, SiiPetCoordinator
+from .coordinator import SiiPetConfigEntry, SiiPetCoordinator, SiiPetData
 from .entity import SiiPetCatEntity, async_add_cat_entities, visit_attributes
 
 PARALLEL_UPDATES = 0
@@ -33,15 +33,23 @@ class SiiPetVisitEvent(SiiPetCatEntity, EventEntity):
         """Create the event entity."""
         super().__init__(coordinator, cat_id, "visit")
         self._attr_event_types = [visit_type.key for visit_type in VisitType]
+        self._handled_data: SiiPetData | None = None
 
     @callback
     def _handle_coordinator_update(self) -> None:
         data = self.coordinator.data
+        if data is self._handled_data:
+            # A failed refresh notifies listeners with the same snapshot
+            # again. Its visits were already fired, so only availability
+            # changed.
+            super()._handle_coordinator_update()
+            return
         fired = False
         for visit in data.new_visits:
             if self.cat_id in data.cat_ids(visit):
                 self._trigger_event(visit.type.key, visit_attributes(data, visit))
                 self.async_write_ha_state()
                 fired = True
+        self._handled_data = data
         if not fired:
             super()._handle_coordinator_update()

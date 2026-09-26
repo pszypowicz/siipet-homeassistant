@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import timedelta
 from unittest.mock import AsyncMock
 
-from homeassistant.const import EVENT_STATE_CHANGED, STATE_UNKNOWN
+from freezegun.api import FrozenDateTimeFactory
+from homeassistant.const import EVENT_STATE_CHANGED, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_capture_events,
 )
 
-from custom_components.siipet.api import DayVisits, VisitType
+from custom_components.siipet.api import DayVisits, SiiPetConnectionError, VisitType
 
 from .common import EMPTY_DAY, TODAY, fixture_day, setup_integration
 
@@ -96,3 +98,56 @@ async def test_unrecognized_visit_fires_unknown_cat(
     assert state.attributes["event_id"] == "ev-9"
     assert state.attributes["cats"] == []
     assert hass.states.get("sensor.unknown_cat_unassigned_visits").state == "2"
+
+
+async def test_visit_does_not_refire_after_failed_update(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    frozen_time: FrozenDateTimeFactory,
+) -> None:
+    """A visit does not fire again when a failed update repeats the old snapshot."""
+    await setup_integration(hass, config_entry)
+    coordinator = config_entry.runtime_data.coordinator
+    changes = async_capture_events(hass, EVENT_STATE_CHANGED)
+
+    base = fixture_day()
+    new_visit = replace(
+        base.visits[0],
+        event_id="ev-7",
+        pet_ids=("pet-luna",),
+        type=VisitType.POOP,
+        start=base.visits[0].start.replace(hour=10),
+    )
+    day = DayVisits((*base.visits, new_visit), base.summaries, False)
+    mock_client.get_day.side_effect = lambda requested: (
+        day if requested == TODAY else EMPTY_DAY
+    )
+    frozen_time.tick(timedelta(minutes=5))
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    first_state = hass.states.get("event.luna_visit").state
+
+    frozen_time.tick(timedelta(minutes=5))
+    mock_client.get_day.side_effect = SiiPetConnectionError("down")
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert coordinator.last_update_success is False
+    assert hass.states.get("event.luna_visit").state == STATE_UNAVAILABLE
+
+    frozen_time.tick(timedelta(minutes=5))
+    mock_client.get_day.side_effect = lambda requested: (
+        day if requested == TODAY else EMPTY_DAY
+    )
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    luna_fires = {
+        change.data["new_state"].state
+        for change in changes
+        if change.data["entity_id"] == "event.luna_visit"
+        and change.data["new_state"].attributes.get("event_id") == "ev-7"
+        and change.data["new_state"].state != STATE_UNAVAILABLE
+    }
+    assert len(luna_fires) == 1
+    assert hass.states.get("event.luna_visit").state == first_state
