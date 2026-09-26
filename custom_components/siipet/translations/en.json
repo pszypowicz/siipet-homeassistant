@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "SiiPet",
+        "description": "This version does not connect to a SiiPet account and does not create entities."
+      }
+    },
+    "abort": {
+      "already_configured": "SiiPet is already configured."
+    }
+  }
+}
