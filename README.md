@@ -36,6 +36,14 @@ If you added SiiPet 0.0.1 before, remove that entry and add the integration agai
 
 The session renews automatically. If SiiPet ends the session, Home Assistant asks you to sign in again.
 
+## One signed-in device per account
+
+SiiPet allows one signed-in device per account. While the SiiPet app on your phone is signed in, Home Assistant cannot sign in with the same account, and a later sign-in in the app ends the Home Assistant session.
+
+To use both, create a second SiiPet account with another email address, invite it to your household in the SiiPet app, and sign in to Home Assistant with the second account.
+
+SiiPet limits how many sign-in codes it sends per day. If it refuses, try again the next day.
+
 ## Devices and entities
 
 ### Cats

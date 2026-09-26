@@ -54,6 +54,8 @@ Read `docs/api.md` before you change `api/`. These points cause most mistakes:
 - In the annotate call, `Result` is a JSON string, and the outer `Type` is the operation, not the visit type.
 - Operation 2 of annotate with `GonePotty` true makes the app assume poop. A pee visit needs operation 3 after it.
 - The recordings use H.265 video.
+- An account has one signed-in device. While another device holds the session, a new sign-in returns a token that fails with `Code` -2. The config flow checks the session with one read before it creates the entry.
+- Email code requests are limited per day (`Code` 10010).
 
 ## Privacy
 

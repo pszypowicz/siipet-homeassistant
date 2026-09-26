@@ -697,6 +697,15 @@ captured server config does not list.
 - `POST /api/v1/pet/toilet/data/compare` with `{"PetId", "StartDate", "CompareType": 1 (week) or 2 (month), "FollowRegisterTimezone": true}`.
 - Both return daily entries with `Date`, `Normal`, `Abnormal`, `NormalDuration`, `AbnormalDuration`, and `AbnormalSummary`.
 
+## Live checks
+
+These results come from tests against a real account.
+
+- A SiiPet account allows one signed-in device. While the SiiPet phone app holds a session, a new email-code sign-in still returns a token, but every call with that token fails with envelope `Code` -2 and `Msg` "token illegal, other device device has logged in". The phone keeps its session.
+- Sending the same `x-device-identifier` as the phone app does not change this.
+- The email code request is rate limited per day: `Code` 10010, `Msg` "Too many request today. Please try again tomorrow."
+- A wrong email code is `Code` 10004 (already handled).
+
 ## Open questions
 
 - Whether the iPhone uses the Android renewal condition.
@@ -718,5 +727,5 @@ captured server config does not list.
   account can be used instead of the admin account.
 - Which envelope codes the server returns for an expired or invalid token. The
   app treats -2 and -4 as an ended session.
-- Whether a new sign-in from another client ends the phone app session.
 - Which `x-device-os` and `x-device-model` values the server accepts.
+- Which request fields the server uses to decide that two clients are the same device.
