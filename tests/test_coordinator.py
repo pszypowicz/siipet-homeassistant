@@ -175,6 +175,24 @@ async def test_unknown_cat(
     ]
 
 
+async def test_visit_with_one_unknown_pet_id_belongs_to_the_known_cat(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A visit with one known and one unknown pet id belongs only to the known cat."""
+    coordinator = await _coordinator(hass, config_entry)
+    visit = _new_visit("ev-7", ("pet-luna", "pet-ghost"), 10)
+    assert coordinator.data.cat_ids(visit) == ("pet-luna",)
+
+
+async def test_visit_with_two_known_pet_ids_belongs_to_both_cats(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A visit with two known pet ids belongs to both cats."""
+    coordinator = await _coordinator(hass, config_entry)
+    visit = _new_visit("ev-7", ("pet-luna", "pet-milo"), 10)
+    assert coordinator.data.cat_ids(visit) == ("pet-luna", "pet-milo")
+
+
 async def test_unknown_pet_id_syncs_once(
     hass: HomeAssistant,
     mock_client: AsyncMock,

@@ -85,6 +85,14 @@ def test_visit_pet_id_fallback() -> None:
     assert visit.pet_ids == ("pet-luna",)
 
 
+def test_visit_pet_ids_wins_over_pet_id() -> None:
+    """`PetIds` wins over `PetId` when both exist."""
+    visit = Visit.from_api(
+        {"EventId": "ev-x", "PetId": "pet-luna", "PetIds": ["pet-milo"]}
+    )
+    assert visit.pet_ids == ("pet-milo",)
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
