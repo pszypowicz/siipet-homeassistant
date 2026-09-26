@@ -47,6 +47,18 @@ def test_camera_from_api() -> None:
     assert second.subscription_expires is None
 
 
+def test_camera_name_falls_back_to_product_id() -> None:
+    """A camera without a device name uses its product id, never its serial."""
+    camera = Camera.from_api({"SN": "SN0099", "ProductId": "JOY1"})
+    assert camera.name == "JOY1"
+
+
+def test_camera_name_falls_back_to_camera() -> None:
+    """A camera without a device name or a product id is named Camera."""
+    camera = Camera.from_api({"SN": "SN0099"})
+    assert camera.name == "Camera"
+
+
 def test_visit_from_api() -> None:
     """A visit keeps timing, type, media keys, and abnormal codes."""
     visit = _visit("ev-1")

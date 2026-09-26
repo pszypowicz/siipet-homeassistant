@@ -86,7 +86,7 @@ class Camera:
         subscription = data.get("PurchaseSubscribe") or {}
         return cls(
             sn=str(data["SN"]),
-            name=str(data.get("DeviceName") or data["SN"]),
+            name=str(data.get("DeviceName") or data.get("ProductId") or "Camera"),
             product_id=str(data.get("ProductId") or ""),
             role=int(data.get("Role") or 0),
             connected=bool(connected.get("Status")),
