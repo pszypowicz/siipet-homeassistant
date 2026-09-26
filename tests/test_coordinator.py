@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import date, timedelta
+import logging
 from unittest.mock import AsyncMock
 
 from freezegun.api import FrozenDateTimeFactory
@@ -268,6 +269,35 @@ async def test_labels_failure_is_not_fatal(
     coordinator = await _coordinator(hass, config_entry)
     assert coordinator.last_update_success is True
     assert coordinator.data.labels.event == {}
+
+
+async def test_labels_failure_retries_hourly_and_warns_once(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    frozen_time: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failing labels read waits an hour before retrying, and warns once."""
+    mock_client.get_abnormal_labels.side_effect = SiiPetConnectionError("down")
+    coordinator = await _coordinator(hass, config_entry)
+    assert mock_client.get_abnormal_labels.await_count == 1
+
+    frozen_time.tick(timedelta(minutes=5))
+    await coordinator.async_refresh()
+    assert mock_client.get_abnormal_labels.await_count == 1
+
+    frozen_time.tick(timedelta(minutes=55))
+    await coordinator.async_refresh()
+    assert mock_client.get_abnormal_labels.await_count == 2
+
+    warnings = [
+        record
+        for record in caplog.records
+        if record.levelno == logging.WARNING
+        and "abnormal labels" in record.getMessage()
+    ]
+    assert len(warnings) == 1
 
 
 async def test_late_first_read_of_past_day_is_not_new(

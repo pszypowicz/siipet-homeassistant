@@ -103,6 +103,8 @@ class SiiPetCoordinator(DataUpdateCoordinator[SiiPetData]):
         self._read_at: dict[date, datetime] = {}
         self._synced_at: datetime | None = None
         self._labels_at: datetime | None = None
+        self._labels_retry_at: datetime | None = None
+        self._labels_warned = False
         self._unknown_refs: set[str] = set()
         self._seen: set[str] | None = None
         self._warned_more = False
@@ -123,7 +125,7 @@ class SiiPetCoordinator(DataUpdateCoordinator[SiiPetData]):
         if self._synced_at is None or now - self._synced_at >= SYNC_INTERVAL:
             await self._async_sync(now)
             synced = True
-        if self._labels_at is None or now - self._labels_at >= LABELS_INTERVAL:
+        if self._labels_due(now):
             await self._async_read_labels(now)
 
         self._store(today, await self.client.get_day(today), now)
@@ -163,15 +165,27 @@ class SiiPetCoordinator(DataUpdateCoordinator[SiiPetData]):
         self._cameras = await self.client.get_cameras()
         self._synced_at = now
 
+    def _labels_due(self, now: datetime) -> bool:
+        if self._labels_retry_at is not None:
+            return now >= self._labels_retry_at
+        return self._labels_at is None or now - self._labels_at >= LABELS_INTERVAL
+
     async def _async_read_labels(self, now: datetime) -> None:
         try:
             self._labels = await self.client.get_abnormal_labels()
         except SiiPetAuthError:
             raise
         except SiiPetError as err:
-            _LOGGER.warning("Could not read the abnormal labels: %s", err)
+            if self._labels_warned:
+                _LOGGER.debug("Could not read the abnormal labels: %s", err)
+            else:
+                _LOGGER.warning("Could not read the abnormal labels: %s", err)
+                self._labels_warned = True
+            self._labels_retry_at = now + SYNC_INTERVAL
             return
         self._labels_at = now
+        self._labels_retry_at = None
+        self._labels_warned = False
 
     def _past_day_due(self, day: date, today: date, now: datetime) -> bool:
         read_at = self._read_at.get(day)
