@@ -1,0 +1,118 @@
+{
+  "Code": 0,
+  "Msg": "success",
+  "Data": {
+    "More": false,
+    "Track": "",
+    "UserId": "",
+    "UserGroupList": [],
+    "List": [
+      {
+        "Id": 1,
+        "SN": "SN0001",
+        "DeviceName": "Bathroom",
+        "ProductId": "JOY1",
+        "ProductType": "joy",
+        "Role": 1,
+        "BindTime": 946684800000,
+        "UpdateTime": 946684800000,
+        "Connected": {
+          "Status": true,
+          "Timestamp": 0
+        },
+        "Pet": [],
+        "Setting": {
+          "Notification": {
+            "AbnormalAlert": true,
+            "Highlight": false
+          }
+        },
+        "PurchaseSubscribe": {
+          "GoodsId": "goods-0001",
+          "NextGoodsId": "",
+          "SubscribeId": "sub-0001",
+          "ExpireTime": 1798761600000,
+          "FirstSubscribeTime": 946684800000,
+          "RetentionExpireTime": 0,
+          "PurchaseMode": 1,
+          "SubscribeStatus": 1,
+          "SubscribeType": 1
+        },
+        "Subscribe": null,
+        "Topic": {
+          "Publish": [
+            "prod/joy1/SN0001/app/dev/request"
+          ],
+          "Receive": [
+            "prod/joy1/SN0001/dev/app/request"
+          ],
+          "Shadow": {
+            "configInfo": "prod_configInfo",
+            "systemInfo": "prod_systemInfo"
+          }
+        },
+        "AgoraAuth": {
+          "AppId": "agora-app-0001",
+          "RoomId": "Siipet_SN0001",
+          "Token": "agora-token-0001",
+          "Uid": 1,
+          "RemoteUid": 2,
+          "ExpireTime": 0
+        }
+      },
+      {
+        "Id": 2,
+        "SN": "SN0002",
+        "DeviceName": "Hallway",
+        "ProductId": "JOY1",
+        "ProductType": "joy",
+        "Role": 1,
+        "BindTime": 946684800000,
+        "UpdateTime": 946684800000,
+        "Connected": {
+          "Status": false,
+          "Timestamp": 0
+        },
+        "Pet": [],
+        "Setting": {
+          "Notification": {
+            "AbnormalAlert": true,
+            "Highlight": false
+          }
+        },
+        "PurchaseSubscribe": {
+          "GoodsId": "goods-0001",
+          "NextGoodsId": "",
+          "SubscribeId": "sub-0001",
+          "ExpireTime": 0,
+          "FirstSubscribeTime": 946684800000,
+          "RetentionExpireTime": 0,
+          "PurchaseMode": 1,
+          "SubscribeStatus": 1,
+          "SubscribeType": 1
+        },
+        "Subscribe": null,
+        "Topic": {
+          "Publish": [
+            "prod/joy1/SN0002/app/dev/request"
+          ],
+          "Receive": [
+            "prod/joy1/SN0002/dev/app/request"
+          ],
+          "Shadow": {
+            "configInfo": "prod_configInfo",
+            "systemInfo": "prod_systemInfo"
+          }
+        },
+        "AgoraAuth": {
+          "AppId": "agora-app-0001",
+          "RoomId": "Siipet_SN0002",
+          "Token": "agora-token-0001",
+          "Uid": 1,
+          "RemoteUid": 2,
+          "ExpireTime": 0
+        }
+      }
+    ]
+  }
+}
