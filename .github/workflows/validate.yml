@@ -11,6 +11,9 @@ on:
 jobs:
   hacs:
     name: HACS Action
+    # HACS downloads hacs.json and the manifest without authentication,
+    # so its checks fail on a private repo.
+    if: github.event.repository.visibility == 'public'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
