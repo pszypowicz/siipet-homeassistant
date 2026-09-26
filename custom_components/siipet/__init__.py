@@ -2,15 +2,48 @@
 
 from __future__ import annotations
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.const import CONF_EMAIL, Platform
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryError
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+from .api import Session, SiiPetClient
+from .const import CONF_CLIENT_ID, CONF_EXPIRE_AT, CONF_TOKEN
+from .coordinator import SiiPetConfigEntry, SiiPetCoordinator, SiiPetRuntime
+
+PLATFORMS: list[Platform] = []
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: SiiPetConfigEntry) -> bool:
     """Set up SiiPet from a config entry."""
+    if CONF_TOKEN not in entry.data or CONF_EMAIL not in entry.data:
+        raise ConfigEntryError("Remove the SiiPet entry and add it again")
+
+    @callback
+    def _async_save_session(session: Session) -> None:
+        hass.config_entries.async_update_entry(
+            entry,
+            data={
+                **entry.data,
+                CONF_TOKEN: session.token,
+                CONF_EXPIRE_AT: session.expire_at,
+            },
+        )
+
+    client = SiiPetClient(
+        async_get_clientsession(hass),
+        client_id=entry.data[CONF_CLIENT_ID],
+        time_zone=str(hass.config.time_zone),
+        session=Session(entry.data[CONF_TOKEN], entry.data[CONF_EXPIRE_AT]),
+        on_session_update=_async_save_session,
+    )
+    coordinator = SiiPetCoordinator(hass, entry, client)
+    await coordinator.async_config_entry_first_refresh()
+    entry.runtime_data = SiiPetRuntime(client=client, coordinator=coordinator)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: SiiPetConfigEntry) -> bool:
     """Unload a SiiPet config entry."""
-    return True
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

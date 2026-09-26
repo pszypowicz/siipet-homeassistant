@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.siipet.api import Session
+from custom_components.siipet.api import AbnormalLabels, Camera, Cat, Session
 from custom_components.siipet.const import (
     CONF_CLIENT_ID,
     CONF_EXPIRE_AT,
@@ -19,7 +19,7 @@ from custom_components.siipet.const import (
     DOMAIN,
 )
 
-from .common import NOW, load_data
+from .common import EMPTY_DAY, NOW, TODAY, fixture_day, load_data
 
 
 @pytest.fixture(autouse=True)
@@ -42,11 +42,31 @@ def frozen_time(freezer: FrozenDateTimeFactory) -> FrozenDateTimeFactory:
 
 @pytest.fixture
 def mock_client_class() -> Generator[MagicMock]:
-    """Replace SiiPetClient in the config flow."""
-    with patch(
-        "custom_components.siipet.config_flow.SiiPetClient", autospec=True
-    ) as client_class:
+    """Replace SiiPetClient in the integration and the config flow."""
+    with (
+        patch("custom_components.siipet.SiiPetClient", autospec=True) as client_class,
+        patch("custom_components.siipet.config_flow.SiiPetClient", new=client_class),
+    ):
         client = client_class.return_value
+        client.get_cats.return_value = {
+            cat.pet_id: cat
+            for cat in (
+                Cat.from_api(item) for item in load_data("pet_sync.json")["List"]
+            )
+        }
+        client.get_cameras.return_value = {
+            camera.sn: camera
+            for camera in (
+                Camera.from_api(item) for item in load_data("device_sync.json")["List"]
+            )
+        }
+        day = fixture_day()
+        client.get_day.side_effect = lambda requested: (
+            day if requested == TODAY else EMPTY_DAY
+        )
+        client.get_abnormal_labels.return_value = AbnormalLabels.from_api(
+            load_data("system_config.json")
+        )
         login = load_data("login.json")
         client.login.return_value = Session(login["Token"], login["ExpireAt"])
         client.request_email_code.return_value = None
