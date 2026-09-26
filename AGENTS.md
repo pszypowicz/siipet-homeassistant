@@ -25,6 +25,7 @@ custom_components/siipet/
   entity.py            cat and camera entity bases
   sensor.py  binary_sensor.py  event.py  diagnostics.py
   translations/en.json
+  brand/               icon.png and icon@2x.png, loaded by Home Assistant 2026.3 and later
 tests/
   api/                 client tests, with the Home Assistant HTTP mocker
   fixtures/            JSON responses with fake values only

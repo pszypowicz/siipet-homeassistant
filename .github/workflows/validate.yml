@@ -20,8 +20,6 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # Remove when the integration ships a brand icon.
-          ignore: brands
 
   hassfest:
     name: Hassfest
