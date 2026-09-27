@@ -1011,6 +1011,14 @@ These results come from tests against a real account.
   - The same visit then went to poop, lingering, and poop. After pee to poop, `FecesAbnormal` was null, as the op 2 results predict.
   - A reassign to the Unknown cat, and a type that the visit already had, were refused before any call.
   - `siipet.delete_visit` deleted a lingering visit, and the visit left the day list.
+- The websocket commands of the dashboard card ran against the live account.
+  - A signed cover path from `siipet/day` loaded without a login header and returned a JPEG.
+  - For one month, the days with any true `AbnormalSummary` flag matched the dots of the app's calendar for each cat.
+  - Most of those days had no abnormal visit. Their dots came from `AboveBaseline`, `Frequency`, or `IrregularDuration`.
+    The day with an abnormal visit had `Event` set.
+  - `AbnormalSummary` held only the Boolean keys `AboveBaseline`, `Event`, `Frequency`, and `IrregularDuration`.
+  - The calendar returned every day since the first day with data, about 75 days before the check.
+    The day list keeps only 31 days. A month before the first day with data returned no entries.
 - The day list returns visits for today and the 30 days before it. An older day returns an empty list, although the cat summaries report 55 to 63 days of collected data.
 
 ## Open questions
@@ -1026,7 +1034,7 @@ These results come from tests against a real account.
 - Camera connection timestamp semantics and subscription code meanings.
 - JOY1 online state transitions through `esp32.connected.status`, including reporting delays.
 - Live video and device replay through the credentials in `AgoraAuth`.
-- Calendar range limits, and behavior with alternate timezone flags.
+- How long the calendar keeps days (the tested account had about 75 days of data), and its behavior with alternate timezone flags.
 - Complete rules for the calendar abnormality summary flags.
 - Live examples of unknown and pee events. Lingering visits occur in the day list.
 - How the server answers op 2 with an empty `PetIds` list. A type edit of an unrecognized visit sends it. No such visit was available for the live check.
