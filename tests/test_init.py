@@ -114,6 +114,7 @@ async def test_entry_missing_key(
     await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
     assert config_entry.state is ConfigEntryState.SETUP_ERROR
+    assert config_entry.error_reason_translation_key == "entry_outdated"
     assert "Remove the SiiPet entry and add it again" in caplog.text
     assert "KeyError" not in caplog.text
     assert hass.config_entries.flow.async_progress_by_handler(DOMAIN) == []

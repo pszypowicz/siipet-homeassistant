@@ -60,6 +60,11 @@
       "wrong_account": "Sign in with the same SiiPet account as before."
     }
   },
+  "exceptions": {
+    "entry_outdated": {
+      "message": "Remove the SiiPet entry and add it again."
+    }
+  },
   "entity": {
     "event": {
       "visit": {

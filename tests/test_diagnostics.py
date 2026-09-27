@@ -5,9 +5,17 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock
 
+from homeassistant.components.diagnostics import REDACTED
+from homeassistant.const import CONF_EMAIL
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.siipet.const import (
+    CONF_AUTH_METHOD,
+    CONF_CLIENT_ID,
+    CONF_EXPIRE_AT,
+    CONF_TOKEN,
+)
 from custom_components.siipet.diagnostics import async_get_config_entry_diagnostics
 
 from .common import load_data, setup_integration
@@ -32,6 +40,17 @@ async def test_diagnostics(
     assert result["unassigned_visits"] == 1
     assert result["abnormal_labels"] == {"shape": 2, "color": 1, "event": 1}
 
+    entry = result["entry"]
+    assert entry["unique_id"] == REDACTED
+    assert entry["data"] == {
+        CONF_AUTH_METHOD: "email",
+        CONF_EMAIL: REDACTED,
+        CONF_TOKEN: REDACTED,
+        CONF_EXPIRE_AT: config_entry.data[CONF_EXPIRE_AT],
+        CONF_CLIENT_ID: REDACTED,
+    }
+
+    # Also guards the ids that the summary leaves out today.
     text = json.dumps(result, default=str)
     for private in (
         load_data("login.json")["Token"],

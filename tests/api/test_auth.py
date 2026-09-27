@@ -35,13 +35,11 @@ def test_encrypt_challenge_round_trip() -> None:
     assert AESGCM(TEST_KEY).decrypt(raw[:12], raw[12:], None).decode() == VERIFY_CODE
 
 
-def test_encrypt_challenge_fixed_nonce() -> None:
-    """A fixed nonce gives the same output as a direct AES-GCM call."""
-    expected = base64.b64encode(
-        TEST_NONCE + AESGCM(TEST_KEY).encrypt(TEST_NONCE, VERIFY_CODE.encode(), None)
-    ).decode()
+def test_encrypt_challenge_known_answer() -> None:
+    """A fixed key and nonce give the output of an independent AES-GCM library."""
+    # Computed once with pycryptodome for TEST_KEY, TEST_NONCE, and VERIFY_CODE.
+    expected = "AAECAwQFBgcICQoLdzPkKPHQ9Cy1ePbp0o0dC7PntQfETmlLAF6E534NZdTkcFnQofHtpQ5IF+ONTDMf"
     assert encrypt_challenge(VERIFY_CODE, key=TEST_KEY, nonce=TEST_NONCE) == expected
-    assert len(expected) == 80
 
 
 def test_encrypt_challenge_random_nonce() -> None:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import binascii
 from dataclasses import dataclass
 import json
 import os
@@ -38,7 +37,7 @@ def read_token_payload(token: str) -> dict[str, Any]:
     try:
         part = token.split(".")[1]
         data = json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
-    except (IndexError, ValueError, binascii.Error) as err:
+    except (IndexError, ValueError) as err:
         raise SiiPetError("The token has no readable payload") from err
     if not isinstance(data, dict):
         raise SiiPetError("The token payload is not an object")

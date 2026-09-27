@@ -19,7 +19,9 @@ SESSION_KEYS = (CONF_TOKEN, CONF_EXPIRE_AT, CONF_CLIENT_ID)
 async def async_setup_entry(hass: HomeAssistant, entry: SiiPetConfigEntry) -> bool:
     """Set up SiiPet from a config entry."""
     if any(key not in entry.data for key in SESSION_KEYS):
-        raise ConfigEntryError("Remove the SiiPet entry and add it again")
+        raise ConfigEntryError(
+            translation_domain=DOMAIN, translation_key="entry_outdated"
+        )
 
     @callback
     def _async_save_session(session: Session) -> None:

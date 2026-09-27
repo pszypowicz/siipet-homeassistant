@@ -67,6 +67,8 @@ async def test_unknown_cat_has_no_baselines(
 ) -> None:
     """The Unknown cat has no baseline sensors, and real cats have no queue sensor."""
     await setup_integration(hass, config_entry)
+    assert hass.states.get("sensor.luna_baseline_visits") is not None
+    assert hass.states.get("sensor.unknown_cat_unassigned_visits") is not None
     assert hass.states.get("sensor.unknown_cat_baseline_visits") is None
     assert hass.states.get("sensor.unknown_cat_baseline_progress") is None
     assert hass.states.get("sensor.luna_unassigned_visits") is None

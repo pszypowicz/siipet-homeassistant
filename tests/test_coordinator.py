@@ -286,6 +286,33 @@ async def test_hourly_checks_across_dst_change(
     assert mock_client.get_cats.await_count == 2
 
 
+async def test_midnight_outside_utc(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    frozen_time: FrozenDateTimeFactory,
+) -> None:
+    """Today and the midnight grace follow the local day, not the UTC day."""
+    await hass.config.async_set_time_zone("Europe/Warsaw")
+    # 00:40 on 2026-09-27 in Warsaw, while it is still 2026-09-26 in UTC.
+    frozen_time.move_to("2026-09-26T22:40:00+00:00")
+    coordinator = await _coordinator(hass, config_entry)
+    local_today = date(2026, 9, 27)
+    assert coordinator.data.today == local_today
+    assert _days(mock_client)[0] == local_today
+
+    mock_client.get_day.reset_mock()
+    frozen_time.tick(timedelta(minutes=5))
+    await coordinator.async_refresh()
+    assert _days(mock_client) == [local_today, local_today - timedelta(days=1)]
+
+    mock_client.get_day.reset_mock()
+    # 01:05 in Warsaw: past the grace, and yesterday was read 20 minutes ago.
+    frozen_time.move_to("2026-09-26T23:05:00+00:00")
+    await coordinator.async_refresh()
+    assert _days(mock_client) == [local_today]
+
+
 async def test_more_pages_warns_once(
     hass: HomeAssistant,
     mock_client: AsyncMock,
@@ -333,9 +360,13 @@ async def test_past_day_failure_keeps_data(
     frozen_time: FrozenDateTimeFactory,
 ) -> None:
     """A failed past day keeps its old data, and the update succeeds."""
-    coordinator = await _coordinator(hass, config_entry)
     failing = TODAY - timedelta(days=2)
+    old = DayVisits((_visit_on(failing, "ev-old"),), {}, False)
     day = fixture_day()
+    mock_client.get_day.side_effect = lambda requested, **_: (
+        old if requested == failing else day if requested == TODAY else EMPTY_DAY
+    )
+    coordinator = await _coordinator(hass, config_entry)
 
     def get_day(requested: date, **_: object) -> DayVisits:
         if requested == failing:
@@ -346,7 +377,7 @@ async def test_past_day_failure_keeps_data(
     frozen_time.tick(timedelta(hours=1))
     await coordinator.async_refresh()
     assert coordinator.last_update_success is True
-    assert coordinator.data.days[failing] == ()
+    assert [visit.event_id for visit in coordinator.data.days[failing]] == ["ev-old"]
 
 
 async def test_labels_failure_is_not_fatal(
