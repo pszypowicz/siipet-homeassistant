@@ -167,6 +167,64 @@ async def test_get_media_credentials(
     assert headers["authorization"] == f"Bearer {TOKEN}"
 
 
+async def test_annotate(
+    websession: aiohttp.ClientSession, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Annotate sends the operation and the result as a compact JSON string."""
+    aioclient_mock.post(url("pet/toilet/event/annotate"), json=OK_EMPTY)
+    await make_client(websession).annotate(
+        "ev-1", 2, {"PetIds": ["pet-milo"], "GonePotty": True, "Manual": True}
+    )
+    [(body, headers)] = calls(aioclient_mock, "pet/toilet/event/annotate")
+    assert body == {
+        "EventId": "ev-1",
+        "Type": 2,
+        "Result": '{"PetIds":["pet-milo"],"GonePotty":true,"Manual":true}',
+    }
+    assert headers["authorization"] == f"Bearer {TOKEN}"
+
+
+async def test_set_note(
+    websession: aiohttp.ClientSession, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """The memo edit sends the event id and the note."""
+    aioclient_mock.post(url("pet/toilet/event/edit"), json=OK_EMPTY)
+    await make_client(websession).set_note("ev-1", "")
+    [(body, _headers)] = calls(aioclient_mock, "pet/toilet/event/edit")
+    assert body == {"EventId": "ev-1", "Note": ""}
+
+
+async def test_delete_visit(
+    websession: aiohttp.ClientSession, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """The delete sends the event id to the device delete endpoint."""
+    aioclient_mock.post(url("device/toilet/event/delete"), json=OK_EMPTY)
+    await make_client(websession).delete_visit("ev-1")
+    [(body, _headers)] = calls(aioclient_mock, "device/toilet/event/delete")
+    assert body == {"EventId": "ev-1"}
+
+
+@pytest.mark.parametrize(
+    ("path", "call"),
+    [
+        ("pet/toilet/event/annotate", lambda c: c.annotate("ev-1", 3, {"Type": 3})),
+        ("pet/toilet/event/edit", lambda c: c.set_note("ev-1", "x")),
+        ("device/toilet/event/delete", lambda c: c.delete_visit("ev-1")),
+    ],
+)
+async def test_edit_rejected(
+    websession: aiohttp.ClientSession,
+    aioclient_mock: AiohttpClientMocker,
+    path: str,
+    call: Any,
+) -> None:
+    """A rejected edit raises SiiPetApiError with the envelope code."""
+    aioclient_mock.post(url(path), json={"Code": 40000, "Msg": "expired", "Data": None})
+    with pytest.raises(SiiPetApiError) as info:
+        await call(make_client(websession))
+    assert info.value.code == 40000
+
+
 async def test_api_error(
     websession: aiohttp.ClientSession, aioclient_mock: AiohttpClientMocker
 ) -> None:

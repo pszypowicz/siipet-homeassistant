@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import date, time as time_of_day
+import json
 import logging
 import time
 from typing import Any
@@ -161,6 +162,29 @@ class SiiPetClient:
         data = await self._post(path, {})
         with _parsing(path):
             return AbnormalLabels.from_api(data or {})
+
+    async def annotate(
+        self, event_id: str, operation: int, result: Mapping[str, Any]
+    ) -> None:
+        """Send one annotate operation. `result` goes out as a compact JSON string."""
+        await self._post(
+            "/api/v1/pet/toilet/event/annotate",
+            {
+                "EventId": event_id,
+                "Type": operation,
+                "Result": json.dumps(result, separators=(",", ":")),
+            },
+        )
+
+    async def set_note(self, event_id: str, note: str) -> None:
+        """Set the memo of a visit. An empty note clears it."""
+        await self._post(
+            "/api/v1/pet/toilet/event/edit", {"EventId": event_id, "Note": note}
+        )
+
+    async def delete_visit(self, event_id: str) -> None:
+        """Delete a visit for good."""
+        await self._post("/api/v1/device/toilet/event/delete", {"EventId": event_id})
 
     async def get_media_credentials(self) -> MediaCredentials:
         """Return temporary credentials for the media bucket."""
