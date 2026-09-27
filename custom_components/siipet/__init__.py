@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from homeassistant.const import CONF_EMAIL, Platform
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -12,11 +12,12 @@ from .const import CONF_CLIENT_ID, CONF_EXPIRE_AT, CONF_TOKEN
 from .coordinator import SiiPetConfigEntry, SiiPetCoordinator, SiiPetRuntime
 
 PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.EVENT, Platform.SENSOR]
+SESSION_KEYS = (CONF_TOKEN, CONF_EXPIRE_AT, CONF_CLIENT_ID)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: SiiPetConfigEntry) -> bool:
     """Set up SiiPet from a config entry."""
-    if CONF_TOKEN not in entry.data or CONF_EMAIL not in entry.data:
+    if any(key not in entry.data for key in SESSION_KEYS):
         raise ConfigEntryError("Remove the SiiPet entry and add it again")
 
     @callback

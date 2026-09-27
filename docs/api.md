@@ -723,6 +723,7 @@ These results come from tests against a real account.
 - The -2 response has `Msg` "token illegal, other device device has logged in". The message is misleading. The token is valid, and no other device caused the error.
 - The `Accept`, `Accept-Language`, and `Accept-Encoding` headers do not change the result.
 - The email-code sign-in returned `Code` 0 with the model `Home Assistant`. The error showed on the first authenticated call.
+- An access token copied from the phone app works from another client that sends the phone's `x-device-identifier` and an accepted model.
 - During these tests, the phone app stayed signed in after each email-code sign-in from another client.
 - The email code request is rate limited per day: `Code` 10010, `Msg` "Too many request today. Please try again tomorrow."
 - A wrong email code is `Code` 10004 (already handled).

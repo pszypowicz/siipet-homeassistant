@@ -3,6 +3,14 @@
     "step": {
       "user": {
         "title": "Sign in to SiiPet",
+        "description": "Choose how to sign in to your SiiPet account.",
+        "menu_options": {
+          "email": "Sign in with an email code",
+          "token": "Paste an access token"
+        }
+      },
+      "email": {
+        "title": "Sign in with an email code",
         "description": "Enter the email address of your SiiPet account. SiiPet sends a sign-in code to this address.",
         "data": {
           "email": "Email"
@@ -15,9 +23,21 @@
           "code": "Code"
         }
       },
-      "reauth_confirm": {
+      "token": {
+        "title": "Paste an access token",
+        "description": "Copy both values from a request of the SiiPet app. The access token is the part after `Bearer` in the `authorization` header. The device identifier is the `x-device-identifier` header.",
+        "data": {
+          "token": "Access token",
+          "device_identifier": "Device identifier"
+        }
+      },
+      "reauth": {
         "title": "Sign in to SiiPet again",
-        "description": "The SiiPet session for {email} ended. Select Submit to get a new sign-in code."
+        "description": "The SiiPet session ended. Choose how to sign in again.",
+        "menu_options": {
+          "email": "Sign in with an email code",
+          "token": "Paste an access token"
+        }
       }
     },
     "error": {
@@ -25,9 +45,11 @@
       "code_request_failed": "SiiPet did not send a code. Check the email address and try again.",
       "invalid_code": "The code is not correct or it expired.",
       "invalid_email": "Enter a valid email address.",
+      "invalid_token": "This is not a SiiPet access token. Copy the complete value after Bearer.",
       "login_failed": "SiiPet rejected the sign-in. Go back and request a new code.",
       "session_rejected": "SiiPet accepted the code, but rejected the new session. Request a new code and try again.",
-      "too_many_requests": "SiiPet allows only a few code requests per day. Try again tomorrow.",
+      "token_rejected": "SiiPet rejected the token. Copy a current token and its device identifier from the SiiPet app.",
+      "too_many_requests": "SiiPet allows only a few code requests per day. Try again tomorrow, or paste an access token.",
       "unknown": "An unexpected error occurred. Read the log for details."
     },
     "abort": {

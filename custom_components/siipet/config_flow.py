@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 import logging
 from typing import Any
 import uuid
@@ -24,9 +24,20 @@ from .api import (
     SiiPetClient,
     SiiPetConnectionError,
     SiiPetError,
+    session_from_token,
 )
 from .api.client import TOO_MANY_REQUESTS, WRONG_CODE
-from .const import CONF_CLIENT_ID, CONF_CODE, CONF_EXPIRE_AT, CONF_TOKEN, DOMAIN
+from .const import (
+    AUTH_EMAIL,
+    AUTH_TOKEN,
+    CONF_AUTH_METHOD,
+    CONF_CLIENT_ID,
+    CONF_CODE,
+    CONF_DEVICE_IDENTIFIER,
+    CONF_EXPIRE_AT,
+    CONF_TOKEN,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,10 +55,28 @@ CODE_SCHEMA = vol.Schema(
         )
     }
 )
+TOKEN_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_TOKEN): TextSelector(
+            TextSelectorConfig(type=TextSelectorType.PASSWORD)
+        ),
+        vol.Required(CONF_DEVICE_IDENTIFIER): TextSelector(),
+    }
+)
+SIGN_IN_METHODS = ["email", "token"]
+
+
+def _clean_token(value: str) -> str:
+    """Remove spaces and a `Bearer` prefix from a pasted token."""
+    token = value.strip()
+    scheme, _, rest = token.partition(" ")
+    if scheme.lower() == "bearer":
+        token = rest.strip()
+    return token
 
 
 class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Sign in to a SiiPet account with an emailed code."""
+    """Sign in to a SiiPet account with an emailed code or a pasted token."""
 
     VERSION = 1
 
@@ -55,8 +84,15 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
         """Start a flow with a new client identifier."""
         self._email = ""
         self._client_id = str(uuid.uuid4())
+        self._device_identifier = ""
 
     async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Choose how to sign in."""
+        return self.async_show_menu(step_id="user", menu_options=SIGN_IN_METHODS)
+
+    async def async_step_email(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Ask for the email address and request a code."""
@@ -71,7 +107,11 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._email = email
                 return await self.async_step_code()
         return self.async_show_form(
-            step_id="user", data_schema=EMAIL_SCHEMA, errors=errors
+            step_id="email",
+            data_schema=self.add_suggested_values_to_schema(
+                EMAIL_SCHEMA, {CONF_EMAIL: self._email}
+            ),
+            errors=errors,
         )
 
     async def async_step_code(
@@ -80,7 +120,7 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
         """Ask for the emailed code and sign in."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            client = self._client()
+            client = self._client(self._client_id)
             try:
                 session = await client.login(self._email, user_input[CONF_CODE].strip())
                 user_id = session.user_id
@@ -100,9 +140,11 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected sign-in response")
                 errors["base"] = "unknown"
             else:
-                errors = await self._async_check_session(client)
+                errors = await self._async_check_session(client, "session_rejected")
                 if not errors:
-                    return await self._async_finish(session, user_id)
+                    return await self._async_finish(
+                        session, user_id, AUTH_EMAIL, self._client_id
+                    )
         return self.async_show_form(
             step_id="code",
             data_schema=CODE_SCHEMA,
@@ -110,33 +152,58 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
             description_placeholders={"email": self._email},
         )
 
+    async def async_step_token(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Ask for an access token and the device identifier that it belongs to."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            self._device_identifier = user_input[CONF_DEVICE_IDENTIFIER].strip()
+            try:
+                session = session_from_token(_clean_token(user_input[CONF_TOKEN]))
+                user_id = session.user_id
+            except SiiPetError:
+                errors[CONF_TOKEN] = "invalid_token"
+            else:
+                renewed: list[Session] = []
+                client = self._client(
+                    self._device_identifier,
+                    session=session,
+                    on_session_update=renewed.append,
+                )
+                errors = await self._async_check_session(client, "token_rejected")
+                if not errors:
+                    return await self._async_finish(
+                        renewed[-1] if renewed else session,
+                        user_id,
+                        AUTH_TOKEN,
+                        self._device_identifier,
+                    )
+        return self.async_show_form(
+            step_id="token",
+            data_schema=self.add_suggested_values_to_schema(
+                TOKEN_SCHEMA, {CONF_DEVICE_IDENTIFIER: self._device_identifier}
+            ),
+            errors=errors,
+        )
+
     async def async_step_reauth(
         self, entry_data: Mapping[str, Any]
     ) -> ConfigFlowResult:
-        """Start reauth with the stored email and client identifier."""
-        self._email = entry_data[CONF_EMAIL]
-        self._client_id = entry_data[CONF_CLIENT_ID]
-        return await self.async_step_reauth_confirm()
-
-    async def async_step_reauth_confirm(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Confirm reauth and request a new code."""
-        errors: dict[str, str] = {}
-        if user_input is not None:
-            errors = await self._async_request_code(self._email)
-            if not errors:
-                return await self.async_step_code()
-        return self.async_show_form(
-            step_id="reauth_confirm",
-            errors=errors,
-            description_placeholders={"email": self._email},
-        )
+        """Offer both sign-in methods again."""
+        self._email = entry_data.get(CONF_EMAIL, "")
+        if entry_data.get(CONF_AUTH_METHOD, AUTH_EMAIL) == AUTH_TOKEN:
+            # A token entry stores the phone's identifier. An email sign-in
+            # uses a new identifier, so that it does not act as the phone.
+            self._device_identifier = entry_data[CONF_CLIENT_ID]
+        else:
+            self._client_id = entry_data[CONF_CLIENT_ID]
+        return self.async_show_menu(step_id="reauth", menu_options=SIGN_IN_METHODS)
 
     async def _async_request_code(self, email: str) -> dict[str, str]:
         """Request an email code. Return form errors."""
         try:
-            await self._client().request_email_code(email)
+            await self._client(self._client_id).request_email_code(email)
         except SiiPetConnectionError:
             return {"base": "cannot_connect"}
         except SiiPetApiError as err:
@@ -149,15 +216,17 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
             return {"base": "unknown"}
         return {}
 
-    async def _async_check_session(self, client: SiiPetClient) -> dict[str, str]:
+    async def _async_check_session(
+        self, client: SiiPetClient, auth_error: str
+    ) -> dict[str, str]:
         """Read the cats once to confirm that SiiPet accepts the new session.
 
-        Return form errors.
+        Return form errors. A rejected session gives `auth_error`.
         """
         try:
             await client.get_cats()
         except SiiPetAuthError:
-            return {"base": "session_rejected"}
+            return {"base": auth_error}
         except SiiPetConnectionError:
             return {"base": "cannot_connect"}
         except SiiPetError:
@@ -165,15 +234,19 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
             return {"base": "unknown"}
         return {}
 
-    async def _async_finish(self, session: Session, user_id: str) -> ConfigFlowResult:
+    async def _async_finish(
+        self, session: Session, user_id: str, method: str, client_id: str
+    ) -> ConfigFlowResult:
         """Create the entry, or update it during reauth."""
         await self.async_set_unique_id(user_id)
-        data = {
-            CONF_EMAIL: self._email,
+        data: dict[str, Any] = {
+            CONF_AUTH_METHOD: method,
             CONF_TOKEN: session.token,
             CONF_EXPIRE_AT: session.expire_at,
-            CONF_CLIENT_ID: self._client_id,
+            CONF_CLIENT_ID: client_id,
         }
+        if method == AUTH_EMAIL:
+            data[CONF_EMAIL] = self._email
         if self.source == SOURCE_REAUTH:
             self._abort_if_unique_id_mismatch(reason="wrong_account")
             return self.async_update_reload_and_abort(
@@ -182,9 +255,17 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured()
         return self.async_create_entry(title="SiiPet", data=data)
 
-    def _client(self) -> SiiPetClient:
+    def _client(
+        self,
+        client_id: str,
+        *,
+        session: Session | None = None,
+        on_session_update: Callable[[Session], None] | None = None,
+    ) -> SiiPetClient:
         return SiiPetClient(
             async_get_clientsession(self.hass),
-            client_id=self._client_id,
+            client_id=client_id,
             time_zone=str(self.hass.config.time_zone),
+            session=session,
+            on_session_update=on_session_update,
         )

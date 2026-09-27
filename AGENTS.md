@@ -19,7 +19,7 @@ custom_components/siipet/
     models.py          Cat, Camera, Visit, VisitType, DayVisits, DaySummary, AbnormalLabels
     errors.py          SiiPetError and its subclasses
   __init__.py          entry setup and unload
-  config_flow.py       email step, code step, reauth
+  config_flow.py       sign-in menu, email and code steps, token step, reauth menu
   const.py             constants: config keys, Unknown cat id, intervals
   coordinator.py       SiiPetCoordinator, SiiPetData, SiiPetRuntime
   entity.py            cat and camera entity bases

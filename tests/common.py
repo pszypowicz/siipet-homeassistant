@@ -29,14 +29,17 @@ def load_data(name: str) -> Any:
     return load_fixture(name)["Data"]
 
 
-def make_token(user_id: str) -> str:
-    """Return an unsigned JWT with a UserId claim."""
+def make_token(user_id: str, exp: Any = None) -> str:
+    """Return an unsigned JWT with a UserId claim, and an exp claim when given."""
 
     def part(value: dict[str, Any]) -> str:
         raw = json.dumps(value, separators=(",", ":")).encode()
         return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
-    return f"{part({'alg': 'HS256', 'typ': 'JWT'})}.{part({'UserId': user_id})}.sig"
+    payload: dict[str, Any] = {"UserId": user_id}
+    if exp is not None:
+        payload["exp"] = exp
+    return f"{part({'alg': 'HS256', 'typ': 'JWT'})}.{part(payload)}.sig"
 
 
 def fixture_day() -> DayVisits:

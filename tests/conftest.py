@@ -13,6 +13,9 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.siipet.api import AbnormalLabels, Camera, Cat, Session
 from custom_components.siipet.const import (
+    AUTH_EMAIL,
+    AUTH_TOKEN,
+    CONF_AUTH_METHOD,
     CONF_CLIENT_ID,
     CONF_EXPIRE_AT,
     CONF_TOKEN,
@@ -88,10 +91,29 @@ def config_entry(hass: HomeAssistant) -> MockConfigEntry:
         title="SiiPet",
         unique_id="user-0001",
         data={
+            CONF_AUTH_METHOD: AUTH_EMAIL,
             CONF_EMAIL: "cat@example.com",
             CONF_TOKEN: login["Token"],
             CONF_EXPIRE_AT: login["ExpireAt"],
             CONF_CLIENT_ID: "client-uuid-0001",
+        },
+    )
+    entry.add_to_hass(hass)
+    return entry
+
+
+@pytest.fixture
+def token_entry(hass: HomeAssistant) -> MockConfigEntry:
+    """A SiiPet entry from a pasted token, with the phone's device identifier."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="SiiPet",
+        unique_id="user-0001",
+        data={
+            CONF_AUTH_METHOD: AUTH_TOKEN,
+            CONF_TOKEN: load_data("login.json")["Token"],
+            CONF_EXPIRE_AT: 1_792_972_800_000,
+            CONF_CLIENT_ID: "phone-device-0001",
         },
     )
     entry.add_to_hass(hass)

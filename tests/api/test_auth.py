@@ -12,10 +12,11 @@ from custom_components.siipet.api.auth import (
     encrypt_challenge,
     needs_renewal,
     read_token_payload,
+    session_from_token,
 )
 from custom_components.siipet.api.challenge_key import CHALLENGE_KEY
 
-from ..common import load_data
+from ..common import load_data, make_token
 
 TEST_KEY = bytes(range(32))
 TEST_NONCE = bytes(range(12))
@@ -67,6 +68,21 @@ def test_session_user_id() -> None:
     """The session reads UserId from its token."""
     data = load_data("login.json")
     assert Session(data["Token"], data["ExpireAt"]).user_id == "user-0001"
+
+
+def test_session_from_token() -> None:
+    """A token without its login response expires at its exp claim."""
+    token = load_data("login.json")["Token"]
+    assert session_from_token(token) == Session(token, 1_792_972_800_000)
+
+
+@pytest.mark.parametrize(
+    "token", ["not-a-jwt", make_token("user-0001"), make_token("user-0001", "soon")]
+)
+def test_session_from_token_invalid(token: str) -> None:
+    """A token without a numeric exp claim raises SiiPetError."""
+    with pytest.raises(SiiPetError):
+        session_from_token(token)
 
 
 @pytest.mark.parametrize(

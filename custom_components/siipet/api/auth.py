@@ -62,3 +62,14 @@ class Session:
         if not user_id:
             raise SiiPetError("The token has no UserId")
         return str(user_id)
+
+
+def session_from_token(token: str) -> Session:
+    """Build a session for a token without its login response.
+
+    `ExpireAt` is the `exp` claim of the token, in milliseconds.
+    """
+    exp = read_token_payload(token).get("exp")
+    if not isinstance(exp, int | float) or isinstance(exp, bool):
+        raise SiiPetError("The token has no exp claim")
+    return Session(token, int(exp * 1000))

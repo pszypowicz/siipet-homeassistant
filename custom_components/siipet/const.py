@@ -7,10 +7,15 @@ from typing import Final
 
 DOMAIN: Final = "siipet"
 
+CONF_AUTH_METHOD: Final = "auth_method"
 CONF_CLIENT_ID: Final = "client_id"
 CONF_CODE: Final = "code"
+CONF_DEVICE_IDENTIFIER: Final = "device_identifier"
 CONF_EXPIRE_AT: Final = "expire_at"
 CONF_TOKEN: Final = "token"
+
+AUTH_EMAIL: Final = "email"
+AUTH_TOKEN: Final = "token"
 
 MANUFACTURER: Final = "SiiPet"
 CAT_MODEL: Final = "Cat"

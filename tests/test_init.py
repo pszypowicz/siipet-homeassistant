@@ -6,10 +6,16 @@ from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
 from homeassistant.core import HomeAssistant
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.siipet.api import Session, SiiPetAuthError, SiiPetConnectionError
-from custom_components.siipet.const import CONF_EXPIRE_AT, CONF_TOKEN, DOMAIN
+from custom_components.siipet.const import (
+    CONF_CLIENT_ID,
+    CONF_EXPIRE_AT,
+    CONF_TOKEN,
+    DOMAIN,
+)
 
 from .common import setup_integration
 
@@ -73,4 +79,38 @@ async def test_entry_without_session(
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.state is ConfigEntryState.SETUP_ERROR
+    assert hass.config_entries.flow.async_progress_by_handler(DOMAIN) == []
+
+
+async def test_token_entry_setup(
+    hass: HomeAssistant, mock_client_class: MagicMock, token_entry: MockConfigEntry
+) -> None:
+    """An entry from a pasted token loads with the phone's device identifier."""
+    await setup_integration(hass, token_entry)
+    assert token_entry.state is ConfigEntryState.LOADED
+    kwargs = mock_client_class.call_args.kwargs
+    assert kwargs["client_id"] == "phone-device-0001"
+    assert kwargs["session"] == Session(
+        token_entry.data[CONF_TOKEN], token_entry.data[CONF_EXPIRE_AT]
+    )
+    assert kwargs["on_session_update"] is not None
+
+
+@pytest.mark.parametrize("key", [CONF_TOKEN, CONF_EXPIRE_AT, CONF_CLIENT_ID])
+async def test_entry_missing_key(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    caplog: pytest.LogCaptureFixture,
+    key: str,
+) -> None:
+    """An entry without a session key fails setup cleanly and starts no reauth."""
+    hass.config_entries.async_update_entry(
+        config_entry, data={k: v for k, v in config_entry.data.items() if k != key}
+    )
+    await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert config_entry.state is ConfigEntryState.SETUP_ERROR
+    assert "Remove the SiiPet entry and add it again" in caplog.text
+    assert "KeyError" not in caplog.text
     assert hass.config_entries.flow.async_progress_by_handler(DOMAIN) == []
