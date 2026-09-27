@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import date, time as time_of_day
 import logging
 import time
@@ -12,7 +13,7 @@ from typing import Any
 import aiohttp
 
 from .auth import Session, encrypt_challenge, needs_renewal
-from .errors import SiiPetApiError, SiiPetAuthError, SiiPetConnectionError
+from .errors import SiiPetApiError, SiiPetAuthError, SiiPetConnectionError, SiiPetError
 from .models import AbnormalLabels, Camera, Cat, DayVisits, Visit
 
 _LOGGER = logging.getLogger(__name__)
@@ -35,6 +36,21 @@ AUTH_ERROR_CODES: frozenset[int] = frozenset({-2, -4})
 WRONG_CODE = 10004
 # Envelope code for too many email code requests in one day.
 TOO_MANY_REQUESTS = 10010
+
+
+@contextmanager
+def _parsing(path: str) -> Iterator[None]:
+    """Raise SiiPetError when a response does not have the documented shape.
+
+    The message names only the path and the error type, so no response
+    value reaches the log.
+    """
+    try:
+        yield
+    except (AttributeError, KeyError, TypeError, ValueError) as err:
+        raise SiiPetError(
+            f"Unexpected response from {path} ({type(err).__name__})"
+        ) from err
 
 
 class SiiPetClient:
@@ -68,37 +84,38 @@ class SiiPetClient:
 
     async def request_email_code(self, email: str) -> None:
         """Solve the client challenge and ask the service to email a code."""
-        challenge = await self._send("/api/v1/user/client/verify", {})
-        await self._send(
-            "/api/v1/user/email/send/trustworthy",
-            {
+        path = "/api/v1/user/client/verify"
+        challenge = await self._send(path, {})
+        with _parsing(path):
+            body = {
                 "Scene": 0,
                 "ClientId": challenge["ClientId"],
                 "VerifyCiphertext": encrypt_challenge(str(challenge["VerifyCode"])),
                 "Email": email,
-            },
-        )
+            }
+        await self._send("/api/v1/user/email/send/trustworthy", body)
 
     async def login(self, email: str, code: str) -> Session:
         """Sign in with the emailed code and keep the new session."""
-        data = await self._send(
-            "/api/v1/user/email/register/login", {"Code": code, "Email": email}
-        )
-        self._session = Session(
-            token=str(data["Token"]), expire_at=int(data["ExpireAt"])
-        )
+        path = "/api/v1/user/email/register/login"
+        data = await self._send(path, {"Code": code, "Email": email})
+        self._session = _session_from(path, data)
         return self._session
 
     async def get_cats(self) -> dict[str, Cat]:
         """Return the cats of the account by `PetId`."""
-        data = await self._post("/api/v1/user/pet/sync", {})
-        cats = (Cat.from_api(item) for item in data.get("List") or ())
+        path = "/api/v1/user/pet/sync"
+        data = await self._post(path, {})
+        with _parsing(path):
+            cats = [Cat.from_api(item) for item in data.get("List") or ()]
         return {cat.pet_id: cat for cat in cats}
 
     async def get_cameras(self) -> dict[str, Camera]:
         """Return the cameras of the account by `SN`."""
-        data = await self._post("/api/v1/user/device/sync", {})
-        cameras = (Camera.from_api(item) for item in data.get("List") or ())
+        path = "/api/v1/user/device/sync"
+        data = await self._post(path, {})
+        with _parsing(path):
+            cameras = [Camera.from_api(item) for item in data.get("List") or ()]
         return {camera.sn: camera for camera in cameras}
 
     async def get_day(
@@ -110,27 +127,31 @@ class SiiPetClient:
         count from midnight to `until`, or to midnight when it is not given.
         """
         at = (until or time_of_day()).strftime("%H:%M:%S")
+        path = "/api/v1/pet/toilet/event"
         data = await self._post(
-            "/api/v1/pet/toilet/event",
+            path,
             {
                 "IncludeLocal": True,
                 "FollowRegisterTimezone": True,
                 "Date": f"{day.isoformat()} {at}",
             },
         )
-        return DayVisits.from_api(data or {})
+        with _parsing(path):
+            return DayVisits.from_api(data or {})
 
     async def get_visit(self, event_id: str) -> Visit:
         """Return one visit with its media keys."""
-        data = await self._post(
-            "/api/v1/device/toilet/event/detail", {"EventId": event_id}
-        )
-        return Visit.from_api(data)
+        path = "/api/v1/device/toilet/event/detail"
+        data = await self._post(path, {"EventId": event_id})
+        with _parsing(path):
+            return Visit.from_api(data or {})
 
     async def get_abnormal_labels(self) -> AbnormalLabels:
         """Return the abnormal code titles from the system config."""
-        data = await self._post("/api/v1/config/system/config", {})
-        return AbnormalLabels.from_api(data or {})
+        path = "/api/v1/config/system/config"
+        data = await self._post(path, {})
+        with _parsing(path):
+            return AbnormalLabels.from_api(data or {})
 
     async def _post(self, path: str, body: dict[str, Any]) -> Any:
         """Send an authenticated request. Renew the session first when due."""
@@ -156,12 +177,9 @@ class SiiPetClient:
     async def _renew(self) -> None:
         """Exchange the current token for a new one."""
         assert self._session is not None
-        data = await self._send(
-            "/api/v1/user/token/refresh", {}, token=self._session.token
-        )
-        self._session = Session(
-            token=str(data["Token"]), expire_at=int(data["ExpireAt"])
-        )
+        path = "/api/v1/user/token/refresh"
+        data = await self._send(path, {}, token=self._session.token)
+        self._session = _session_from(path, data)
         if self._on_session_update is not None:
             self._on_session_update(self._session)
 
@@ -199,7 +217,8 @@ class SiiPetClient:
             raise SiiPetConnectionError(f"Response from {path} is not JSON") from err
         if not isinstance(payload, dict):
             raise SiiPetConnectionError(f"Response from {path} is not an object")
-        code = int(payload.get("Code", -1))
+        with _parsing(path):
+            code = int(payload.get("Code", -1))
         msg = str(payload.get("Msg") or "")
         if code in AUTH_ERROR_CODES:
             raise SiiPetAuthError(f"{code}: {msg}")
@@ -209,3 +228,9 @@ class SiiPetClient:
 
     def _now_ms(self) -> int:
         return int(self._clock() * 1000)
+
+
+def _session_from(path: str, data: Any) -> Session:
+    """Build a session from the `Data` of a login or renewal response."""
+    with _parsing(path):
+        return Session(token=str(data["Token"]), expire_at=int(data["ExpireAt"]))

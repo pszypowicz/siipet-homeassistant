@@ -20,6 +20,7 @@ from custom_components.siipet.api import (
     SiiPetAuthError,
     SiiPetClient,
     SiiPetConnectionError,
+    SiiPetError,
 )
 from custom_components.siipet.api.client import BASE_URL
 
@@ -219,6 +220,61 @@ async def test_invalid_json(
     aioclient_mock.post(url("user/pet/sync"), text="<html>")
     with pytest.raises(SiiPetConnectionError):
         await make_client(websession).get_cats()
+
+
+def _envelope(data: Any) -> dict[str, Any]:
+    return {"Code": 0, "Msg": "success", "Data": data}
+
+
+@pytest.mark.parametrize(
+    ("path", "response", "call"),
+    [
+        ("user/pet/sync", {"Code": "zero", "Msg": ""}, lambda c: c.get_cats()),
+        ("user/pet/sync", _envelope(None), lambda c: c.get_cats()),
+        (
+            "user/pet/sync",
+            _envelope({"List": [{"Name": "Luna"}]}),
+            lambda c: c.get_cats(),
+        ),
+        (
+            "user/device/sync",
+            _envelope({"List": [{"DeviceName": "Hall"}]}),
+            lambda c: c.get_cameras(),
+        ),
+        (
+            "pet/toilet/event",
+            _envelope({"List": [{"SN": "SN0001"}]}),
+            lambda c: c.get_day(date(2026, 9, 26)),
+        ),
+        ("device/toilet/event/detail", _envelope(None), lambda c: c.get_visit("ev-1")),
+        (
+            "config/system/config",
+            _envelope({"Memory": {"AbnormalToilet": [{"Shape": [{"Type": "x"}]}]}}),
+            lambda c: c.get_abnormal_labels(),
+        ),
+        (
+            "user/email/register/login",
+            _envelope({"ExpireAt": 1}),
+            lambda c: c.login("cat@example.com", "012345"),
+        ),
+        (
+            "user/client/verify",
+            _envelope(None),
+            lambda c: c.request_email_code("cat@example.com"),
+        ),
+    ],
+)
+async def test_malformed_response(
+    websession: aiohttp.ClientSession,
+    aioclient_mock: AiohttpClientMocker,
+    path: str,
+    response: dict[str, Any],
+    call: Any,
+) -> None:
+    """A response without the documented shape raises SiiPetError."""
+    aioclient_mock.post(url(path), json=response)
+    with pytest.raises(SiiPetError, match=f"Unexpected response from /api/v1/{path}"):
+        await call(make_client(websession))
 
 
 async def test_no_session(websession: aiohttp.ClientSession) -> None:
