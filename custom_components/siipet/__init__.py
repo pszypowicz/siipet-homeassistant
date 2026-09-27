@@ -11,7 +11,7 @@ from .api import Session, SiiPetClient
 from .const import CONF_CLIENT_ID, CONF_EXPIRE_AT, CONF_TOKEN
 from .coordinator import SiiPetConfigEntry, SiiPetCoordinator, SiiPetRuntime
 
-PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.EVENT, Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.EVENT, Platform.SENSOR]
 SESSION_KEYS = (CONF_TOKEN, CONF_EXPIRE_AT, CONF_CLIENT_ID)
 
 

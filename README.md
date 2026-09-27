@@ -78,10 +78,9 @@ The Unknown cat has no baseline entities.
 
 ### Cameras
 
-| Entity               | Description                                     |
-| -------------------- | ----------------------------------------------- |
-| Connected            | Whether SiiPet reports the camera as connected. |
-| Subscription expires | The end of the camera subscription.             |
+| Entity               | Description                         |
+| -------------------- | ----------------------------------- |
+| Subscription expires | The end of the camera subscription. |
 
 ## Example: notify on an unrecognized visit
 

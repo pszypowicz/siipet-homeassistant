@@ -26,6 +26,7 @@ async def test_setup_and_unload(
     """The entry loads with the stored session and unloads."""
     await setup_integration(hass, config_entry)
     assert config_entry.state is ConfigEntryState.LOADED
+    assert hass.states.async_entity_ids("binary_sensor") == []
     kwargs = mock_client_class.call_args.kwargs
     assert kwargs["client_id"] == "client-uuid-0001"
     assert kwargs["time_zone"] == "UTC"

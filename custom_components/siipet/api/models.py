@@ -76,20 +76,17 @@ class Camera:
     name: str
     product_id: str
     role: int
-    connected: bool
     subscription_expires: datetime | None
 
     @classmethod
     def from_api(cls, data: Mapping[str, Any]) -> Camera:
         """Parse one entry of `Data.List`."""
-        connected = data.get("Connected") or {}
         subscription = data.get("PurchaseSubscribe") or {}
         return cls(
             sn=str(data["SN"]),
             name=str(data.get("DeviceName") or data.get("ProductId") or "Camera"),
             product_id=str(data.get("ProductId") or ""),
             role=int(data.get("Role") or 0),
-            connected=bool(connected.get("Status")),
             subscription_expires=_from_ms(subscription.get("ExpireTime")),
         )
 

@@ -50,7 +50,6 @@ async def async_get_config_entry_diagnostics(
             {
                 "product_id": camera.product_id,
                 "role": camera.role,
-                "connected": camera.connected,
                 "subscribed": camera.subscription_expires is not None,
             }
             for camera in data.cameras.values()

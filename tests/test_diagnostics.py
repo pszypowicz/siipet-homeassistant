@@ -26,7 +26,6 @@ async def test_diagnostics(
     assert result["cameras"][0] == {
         "product_id": "JOY1",
         "role": 1,
-        "connected": True,
         "subscribed": True,
     }
     assert result["visits_per_day"]["2026-09-26"] == 6

@@ -23,7 +23,7 @@ custom_components/siipet/
   const.py             constants: config keys, Unknown cat id, intervals
   coordinator.py       SiiPetCoordinator, SiiPetData, SiiPetRuntime
   entity.py            cat and camera entity bases
-  sensor.py  binary_sensor.py  event.py  diagnostics.py
+  sensor.py  event.py  diagnostics.py
   translations/en.json
   brand/               icon.png and icon@2x.png, loaded by Home Assistant 2026.3 and later
 tests/

@@ -267,7 +267,7 @@ Each entry in `List` contains these fields.
 | `Role`                | Integer         | Account role for this camera. See the codes below.            |
 | `BindTime`            | Integer         | Binding time in milliseconds since the Unix epoch.            |
 | `UpdateTime`          | Integer         | Update time in milliseconds since the Unix epoch.             |
-| `Connected.Status`    | Boolean         | Connection status reported by the service.                    |
+| `Connected.Status`    | Boolean         | Unknown. It stayed false in every sample. See Live checks.    |
 | `Connected.Timestamp` | Integer         | Connection timestamp field. The tested values are zero.       |
 | `Pet`                 | Array           | Cat records associated with this camera.                      |
 | `Setting`             | Object          | Camera configuration returned by this endpoint.               |
@@ -730,7 +730,7 @@ These results come from tests against a real account.
 - After an email-code sign-in from another client, the phone app's session kept working for at least one hour. Then the phone's calls failed with -2, although the phone sent an accepted model. The cause is not known.
 - After another client renewed the phone's token, the previous token kept working on the phone for about 70 minutes, until the failure above. The new token also worked.
 - The baseline fields change with the time in `Date`. For one day, `BaselineTimes` was 0.03 to 0.13 with 00:00:00, 1.46 to 1.69 with 06:00:00 and 12:00:00, and 2.04 to 3.13 with 23:59:59. `BaselineAvgTime` changed too. The visit list was the same.
-- `Connected.Status` was false for every camera in every sample, also while the cameras recorded visits.
+- `Connected.Status` was false for every camera in every sample, also while the cameras recorded visits and during a live stream. Between a read during a live stream and a read after it, only the `AgoraAuth` tokens and expiry times changed, and they changed for every camera. `user/device/sync` has no field that shows a camera online or streaming.
 - The email code request is rate limited per day: `Code` 10010, `Msg` "Too many request today. Please try again tomorrow."
 - A wrong email code is `Code` 10004 (already handled).
 
@@ -742,7 +742,7 @@ These results come from tests against a real account.
 - History paging with `More` and `Track`.
 - Camera paging and continuation request fields.
 - Camera connection timestamp semantics and subscription code meanings.
-- What makes `Connected.Status` true. A live stream is one candidate.
+- Which channel reports that a camera is online. The `Topic` messaging topics are one candidate.
 - Live video and device replay through the credentials in `AgoraAuth`.
 - Calendar range limits, history retention, and behavior with alternate timezone flags.
 - Complete rules for the calendar abnormality summary flags.

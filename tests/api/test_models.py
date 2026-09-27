@@ -33,7 +33,7 @@ def test_cat_from_api() -> None:
 
 
 def test_camera_from_api() -> None:
-    """A camera keeps name, model, role, connection, and subscription expiry."""
+    """A camera keeps name, model, role, and subscription expiry."""
     first, second = (
         Camera.from_api(item) for item in load_data("device_sync.json")["List"]
     )
@@ -41,9 +41,7 @@ def test_camera_from_api() -> None:
     assert first.name == "Bathroom"
     assert first.product_id == "JOY1"
     assert first.role == 1
-    assert first.connected is True
     assert first.subscription_expires == datetime(2027, 1, 1, tzinfo=UTC)
-    assert second.connected is False
     assert second.subscription_expires is None
 
 

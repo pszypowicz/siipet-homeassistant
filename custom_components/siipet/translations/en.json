@@ -61,11 +61,6 @@
     }
   },
   "entity": {
-    "binary_sensor": {
-      "connected": {
-        "name": "Connected"
-      }
-    },
     "event": {
       "visit": {
         "name": "Visit",
