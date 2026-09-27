@@ -167,6 +167,46 @@ async def test_get_media_credentials(
     assert headers["authorization"] == f"Bearer {TOKEN}"
 
 
+async def test_get_calendar(
+    websession: aiohttp.ClientSession, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """The calendar request covers whole days and ends at midnight after the last day."""
+    aioclient_mock.post(
+        url("pet/toilet/data/calendar"), json=load_fixture("pet_calendar.json")
+    )
+    days = await make_client(websession).get_calendar(
+        "pet-luna", date(2026, 9, 1), date(2026, 9, 30)
+    )
+    assert [day.date for day in days] == [
+        date(2026, 9, 24),
+        date(2026, 9, 25),
+        date(2026, 9, 26),
+    ]
+    [(body, headers)] = calls(aioclient_mock, "pet/toilet/data/calendar")
+    assert body == {
+        "PetId": "pet-luna",
+        "StartDate": "2026-09-01 00:00:00",
+        "EndDate": "2026-10-01 00:00:00",
+        "IncludeLocal": True,
+        "FollowRegisterTimezone": True,
+    }
+    assert headers["authorization"] == f"Bearer {TOKEN}"
+
+
+async def test_get_calendar_without_days(
+    websession: aiohttp.ClientSession, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """A month without visits comes back as null and becomes an empty result."""
+    aioclient_mock.post(
+        url("pet/toilet/data/calendar"),
+        json=_envelope({"PetId": "pet-luna", "DataCalendar": None}),
+    )
+    days = await make_client(websession).get_calendar(
+        "pet-luna", date(2026, 8, 1), date(2026, 8, 31)
+    )
+    assert days == ()
+
+
 async def test_annotate(
     websession: aiohttp.ClientSession, aioclient_mock: AiohttpClientMocker
 ) -> None:
@@ -347,6 +387,11 @@ def _envelope(data: Any) -> dict[str, Any]:
             "config/aws/auth",
             _envelope({"S3": {"S3Bucket": "media-bucket"}}),
             lambda c: c.get_media_credentials(),
+        ),
+        (
+            "pet/toilet/data/calendar",
+            _envelope({"DataCalendar": [{"Normal": 1}]}),
+            lambda c: c.get_calendar("pet-luna", date(2026, 9, 1), date(2026, 9, 30)),
         ),
     ],
 )

@@ -10,6 +10,7 @@ from .errors import (
 )
 from .models import (
     AbnormalLabels,
+    CalendarDay,
     Camera,
     Cat,
     DaySummary,
@@ -21,6 +22,7 @@ from .models import (
 
 __all__ = [
     "AbnormalLabels",
+    "CalendarDay",
     "Camera",
     "Cat",
     "DaySummary",

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 
 from custom_components.siipet.api import (
     AbnormalLabels,
+    CalendarDay,
     Camera,
     Cat,
     DayVisits,
@@ -190,3 +191,21 @@ def test_media_credentials_invalid(data: dict[str, object]) -> None:
     """Credentials without every field raise an error for the client to wrap."""
     with pytest.raises((KeyError, ValueError)):
         MediaCredentials.from_api(data)
+
+
+def test_calendar_day_from_api() -> None:
+    """A calendar day keeps its counts and durations, and any summary flag marks it."""
+    days = [
+        CalendarDay.from_api(item)
+        for item in load_data("pet_calendar.json")["DataCalendar"]
+    ]
+    assert days[0] == CalendarDay(
+        date=date(2026, 9, 24),
+        normal=3,
+        abnormal=1,
+        normal_ms=210000,
+        abnormal_ms=95000,
+        flagged=True,
+    )
+    assert days[1].flagged
+    assert not days[2].flagged

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from enum import IntEnum
 from typing import Any
 
@@ -188,6 +188,31 @@ class DayVisits:
             visits=tuple(Visit.from_api(item) for item in data.get("List") or ()),
             summaries={summary.pet_id: summary for summary in summaries},
             more=bool(data.get("More")),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarDay:
+    """One day of `pet/toilet/data/calendar` for one cat."""
+
+    date: date
+    normal: int
+    abnormal: int
+    normal_ms: int
+    abnormal_ms: int
+    flagged: bool
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> CalendarDay:
+        """Parse one entry of `Data.DataCalendar`."""
+        summary = data.get("AbnormalSummary") or {}
+        return cls(
+            date=date.fromisoformat(data["Date"]),
+            normal=int(data.get("Normal") or 0),
+            abnormal=int(data.get("Abnormal") or 0),
+            normal_ms=int(data.get("NormalDuration") or 0),
+            abnormal_ms=int(data.get("AbnormalDuration") or 0),
+            flagged=any(bool(value) for value in summary.values()),
         )
 
 

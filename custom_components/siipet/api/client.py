@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
-from datetime import date, time as time_of_day
+from datetime import date, time as time_of_day, timedelta
 import json
 import logging
 import time
@@ -15,7 +15,15 @@ import aiohttp
 
 from .auth import Session, encrypt_challenge, needs_renewal
 from .errors import SiiPetApiError, SiiPetAuthError, SiiPetConnectionError, SiiPetError
-from .models import AbnormalLabels, Camera, Cat, DayVisits, MediaCredentials, Visit
+from .models import (
+    AbnormalLabels,
+    CalendarDay,
+    Camera,
+    Cat,
+    DayVisits,
+    MediaCredentials,
+    Visit,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -148,6 +156,31 @@ class SiiPetClient:
         )
         with _parsing(path):
             return DayVisits.from_api(data or {})
+
+    async def get_calendar(
+        self, pet_id: str, first: date, last: date
+    ) -> tuple[CalendarDay, ...]:
+        """Return the calendar days of one cat from `first` to `last`, both included.
+
+        Days without visits are missing from the result.
+        """
+        path = "/api/v1/pet/toilet/data/calendar"
+        data = await self._post(
+            path,
+            {
+                "PetId": pet_id,
+                "StartDate": f"{first.isoformat()} 00:00:00",
+                # The server excludes the end date, so it gets the midnight after `last`.
+                "EndDate": f"{(last + timedelta(days=1)).isoformat()} 00:00:00",
+                "IncludeLocal": True,
+                "FollowRegisterTimezone": True,
+            },
+        )
+        with _parsing(path):
+            return tuple(
+                CalendarDay.from_api(item)
+                for item in (data or {}).get("DataCalendar") or ()
+            )
 
     async def get_visit(self, event_id: str) -> Visit:
         """Return one visit with its media keys."""

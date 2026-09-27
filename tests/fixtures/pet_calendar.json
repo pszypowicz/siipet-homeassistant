@@ -1,0 +1,42 @@
+{
+  "Code": 0,
+  "Msg": "success",
+  "Data": {
+    "PetId": "pet-luna",
+    "DataCalendar": [
+      {
+        "Date": "2026-09-24",
+        "Normal": 3,
+        "Abnormal": 1,
+        "NormalDuration": 210000,
+        "AbnormalDuration": 95000,
+        "AbnormalSummary": {
+          "AboveBaseline": false,
+          "Event": true,
+          "Frequency": false,
+          "IrregularDuration": false
+        }
+      },
+      {
+        "Date": "2026-09-25",
+        "Normal": 2,
+        "Abnormal": 0,
+        "NormalDuration": 130000,
+        "AbnormalDuration": 0,
+        "AbnormalSummary": {
+          "AboveBaseline": false,
+          "Event": false,
+          "Frequency": true,
+          "IrregularDuration": false
+        }
+      },
+      {
+        "Date": "2026-09-26",
+        "Normal": 2,
+        "Abnormal": 0,
+        "NormalDuration": 150000,
+        "AbnormalDuration": 0
+      }
+    ]
+  }
+}
