@@ -36,8 +36,9 @@ AUTH_ERROR_CODES: frozenset[int] = frozenset({-2, -4})
 WRONG_CODE = 10004
 # Envelope code for too many email code requests in one day.
 TOO_MANY_REQUESTS = 10010
-# Wait after a failed renewal. The token's encoded expiry is 15 days after
-# ExpireAt, so an hourly retry leaves a wide margin.
+# Wait after a failed renewal. Renewal starts one day before ExpireAt, so
+# this gives about 24 tries before ExpireAt. The token's encoded expiry is
+# 15 days later, but the lifetime that the server enforces is not known.
 RENEW_RETRY_MS = 3_600_000
 
 
@@ -45,8 +46,7 @@ RENEW_RETRY_MS = 3_600_000
 def _parsing(path: str) -> Iterator[None]:
     """Raise SiiPetError when a response does not have the documented shape.
 
-    The message names only the path and the error type, so no response
-    value reaches the log.
+    The message names only the path and the error type.
     """
     try:
         yield
@@ -92,13 +92,17 @@ class SiiPetClient:
         path = "/api/v1/user/client/verify"
         challenge = await self._send(path, {})
         with _parsing(path):
-            body = {
+            client_id = challenge["ClientId"]
+            verify_code = str(challenge["VerifyCode"])
+        await self._send(
+            "/api/v1/user/email/send/trustworthy",
+            {
                 "Scene": 0,
-                "ClientId": challenge["ClientId"],
-                "VerifyCiphertext": encrypt_challenge(str(challenge["VerifyCode"])),
+                "ClientId": client_id,
+                "VerifyCiphertext": encrypt_challenge(verify_code),
                 "Email": email,
-            }
-        await self._send("/api/v1/user/email/send/trustworthy", body)
+            },
+        )
 
     async def login(self, email: str, code: str) -> Session:
         """Sign in with the emailed code and keep the new session."""
@@ -259,4 +263,8 @@ class SiiPetClient:
 def _session_from(path: str, data: Any) -> Session:
     """Build a session from the `Data` of a login or renewal response."""
     with _parsing(path):
-        return Session(token=str(data["Token"]), expire_at=int(data["ExpireAt"]))
+        token = data["Token"]
+        expire_at = int(data["ExpireAt"])
+    if not isinstance(token, str) or not token:
+        raise SiiPetError(f"Unexpected response from {path} (no token)")
+    return Session(token=token, expire_at=expire_at)

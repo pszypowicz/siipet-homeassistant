@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from datetime import date, time
 from typing import Any
+from unittest.mock import patch
 
 import aiohttp
 import pytest
@@ -258,6 +259,16 @@ def _envelope(data: Any) -> dict[str, Any]:
             lambda c: c.login("cat@example.com", "012345"),
         ),
         (
+            "user/email/register/login",
+            _envelope({"Token": None, "ExpireAt": 1}),
+            lambda c: c.login("cat@example.com", "012345"),
+        ),
+        (
+            "user/email/register/login",
+            _envelope({"Token": "", "ExpireAt": 1}),
+            lambda c: c.login("cat@example.com", "012345"),
+        ),
+        (
             "user/client/verify",
             _envelope(None),
             lambda c: c.request_email_code("cat@example.com"),
@@ -275,6 +286,26 @@ async def test_malformed_response(
     aioclient_mock.post(url(path), json=response)
     with pytest.raises(SiiPetError, match=f"Unexpected response from /api/v1/{path}"):
         await call(make_client(websession))
+
+
+async def test_own_error_is_not_a_malformed_response(
+    websession: aiohttp.ClientSession, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """An error in the challenge encryption is not reported as a bad response."""
+    aioclient_mock.post(
+        url("user/client/verify"),
+        json=_envelope({"ClientId": "client-1", "VerifyCode": "code"}),
+    )
+    with (
+        patch(
+            "custom_components.siipet.api.client.encrypt_challenge",
+            side_effect=ValueError("bad key"),
+        ),
+        pytest.raises(ValueError, match="bad key"),
+    ):
+        await make_client(websession, session=None).request_email_code(
+            "cat@example.com"
+        )
 
 
 async def test_no_session(websession: aiohttp.ClientSession) -> None:
