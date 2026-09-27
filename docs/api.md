@@ -633,7 +633,7 @@ The integration shows the recordings in the Home Assistant media browser:
   When S3 returns 403 to the image view, the integration gets new credentials and tries once more.
 
 The download and decoding tests establish access to cloud media.
-Playback inside Home Assistant and access to recordings stored only on the device remain untested.
+Access to recordings stored only on the device remains untested.
 
 ## Findings from the Android app
 
@@ -741,6 +741,11 @@ These results come from tests against a real account.
 - `Connected.Status` was false for every camera in every sample, also while the cameras recorded visits and during a live stream. Between a read during a live stream and a read after it, only the `AgoraAuth` tokens and expiry times changed, and they changed for every camera. `user/device/sync` has no field that shows a camera online or streaming.
 - The email code request is rate limited per day: `Code` 10010, `Msg` "Too many request today. Please try again tomorrow."
 - A wrong email code is `Code` 10004 (already handled).
+- A SigV4 query-string presigned GET for `<bucket>.s3.amazonaws.com` in `us-east-1`, built without an AWS library, returns the cover image. S3 labels the cover object `image/jpg`. The bytes are JPEG.
+- The media browser lists the recordings by day. The thumbnails load through the image view, and the browse results contain no S3 URL.
+- The cat avatars are JPEG files, and they load through the image view.
+- The recordings play in Safari on macOS and on iOS, and in the Home Assistant app on macOS and on iOS.
+- The day list returns visits for today and the 30 days before it. An older day returns an empty list, although the cat summaries report 55 to 63 days of collected data.
 
 ## Open questions
 
@@ -752,13 +757,12 @@ These results come from tests against a real account.
 - Camera connection timestamp semantics and subscription code meanings.
 - Which channel reports that a camera is online. The `Topic` messaging topics are one candidate.
 - Live video and device replay through the credentials in `AgoraAuth`.
-- Calendar range limits, history retention, and behavior with alternate timezone flags.
+- Calendar range limits, and behavior with alternate timezone flags.
 - Complete rules for the calendar abnormality summary flags.
 - Live examples of unknown, lingering, and pee events.
 - Live edits of waste classification and abnormality metadata.
 - Complete meanings of stool and event abnormality codes.
 - Access to recordings stored only on the device.
-- Playback through Home Assistant on the intended macOS and iPhone clients.
 - Whether the server enforces the shared-user restriction, or whether the app hides
   the reassignment button on the client side only. This decides whether a second
   account can be used instead of the admin account.
