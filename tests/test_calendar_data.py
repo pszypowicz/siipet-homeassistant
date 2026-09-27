@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date, timedelta
+from typing import Any
 from unittest.mock import AsyncMock, call
 
 from freezegun.api import FrozenDateTimeFactory
@@ -80,6 +82,41 @@ async def test_forget_drops_the_month_for_every_cat() -> None:
         call("pet-luna", date(2026, 9, 1), date(2026, 9, 30)),
         call("pet-milo", date(2026, 9, 1), date(2026, 9, 30)),
     ]
+
+
+@pytest.mark.parametrize(
+    ("forgotten", "reads"),
+    [(date(2026, 9, 10), 2), (date(2026, 8, 10), 1)],
+    ids=["same month", "other month"],
+)
+async def test_forget_during_a_read(forgotten: date, reads: int) -> None:
+    """A read does not cache its month when the month is forgotten while it waits."""
+    calendar, client = _calendar()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def blocked_read(*_: Any) -> tuple[CalendarDay, ...]:
+        started.set()
+        await release.wait()
+        return DAYS
+
+    client.get_calendar.side_effect = blocked_read
+    read = asyncio.create_task(calendar.async_month("pet-luna", date(2026, 9, 1)))
+    await started.wait()
+    calendar.forget(forgotten)
+    release.set()
+    assert await read == DAYS
+    await calendar.async_month("pet-luna", date(2026, 9, 1))
+    assert client.get_calendar.await_count == reads
+
+
+async def test_old_months_are_dropped(freezer: FrozenDateTimeFactory) -> None:
+    """A read drops every cached month that is older than 5 minutes."""
+    calendar, _client = _calendar()
+    await calendar.async_month("pet-milo", date(2026, 8, 1))
+    freezer.tick(timedelta(minutes=5))
+    await calendar.async_month("pet-luna", date(2026, 9, 1))
+    assert list(calendar._months) == [("pet-luna", date(2026, 9, 1))]
 
 
 async def test_month_error_is_not_cached() -> None:

@@ -209,3 +209,11 @@ def test_calendar_day_from_api() -> None:
     )
     assert days[1].flagged
     assert not days[2].flagged
+
+
+def test_calendar_day_flag_needs_true() -> None:
+    """A summary value that is not a boolean true does not flag the day."""
+    day = CalendarDay.from_api(
+        {"Date": "2026-09-24", "AbnormalSummary": {"Event": False, "Level": 2}}
+    )
+    assert not day.flagged

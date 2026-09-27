@@ -212,7 +212,7 @@ class CalendarDay:
             abnormal=int(data.get("Abnormal") or 0),
             normal_ms=int(data.get("NormalDuration") or 0),
             abnormal_ms=int(data.get("AbnormalDuration") or 0),
-            flagged=any(bool(value) for value in summary.values()),
+            flagged=any(value is True for value in summary.values()),
         )
 
 

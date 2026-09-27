@@ -27,21 +27,32 @@ class SiiPetCalendar:
         self._months: dict[
             tuple[str, date], tuple[datetime, tuple[CalendarDay, ...]]
         ] = {}
+        # Counts the forget calls per month, keyed by the first day of the month.
+        self._generations: dict[date, int] = {}
 
     async def async_month(self, pet_id: str, day: date) -> tuple[CalendarDay, ...]:
         """Return the calendar days of one cat in the month of `day`."""
         first, last = month_range(day)
         now = dt_util.utcnow()
-        cached = self._months.get((pet_id, first))
-        if cached is not None and now - cached[0] < CALENDAR_CACHE:
-            return cached[1]
+        self._months = {
+            key: cached
+            for key, cached in self._months.items()
+            if now - cached[0] < CALENDAR_CACHE
+        }
+        if (pet_id, first) in self._months:
+            return self._months[(pet_id, first)][1]
+        generation = self._generations.get(first, 0)
         days = await self.client.get_calendar(pet_id, first, last)
-        self._months[(pet_id, first)] = (now, days)
+        # An edit during the read can make the result stale, so only a read
+        # that saw no forget of its month keeps it.
+        if self._generations.get(first, 0) == generation:
+            self._months[(pet_id, first)] = (now, days)
         return days
 
     def forget(self, day: date) -> None:
-        """Drop the month of `day` for every cat."""
+        """Drop the month of `day` for every cat, also from the reads in progress."""
         first = day.replace(day=1)
+        self._generations[first] = self._generations.get(first, 0) + 1
         self._months = {
             key: value for key, value in self._months.items() if key[1] != first
         }
