@@ -294,3 +294,4 @@ async def test_fetch_image_errors(
         await media.async_fetch_image(MediaKind.COVER, "ev-1")
     assert "amazonaws" not in str(info.value)
     assert "X-Amz" not in str(info.value)
+    assert info.value.__cause__ is None

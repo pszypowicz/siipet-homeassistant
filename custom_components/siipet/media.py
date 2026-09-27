@@ -124,7 +124,9 @@ class SiiPetMedia:
                         raise MediaUnavailable(f"S3 returned HTTP {response.status}")
                     return await response.read()
             except (TimeoutError, aiohttp.ClientError) as err:
-                raise MediaUnavailable(f"Could not fetch the {kind} image") from err
+                raise MediaUnavailable(
+                    f"Could not fetch the {kind} image ({type(err).__name__})"
+                ) from None
         raise MediaUnavailable("S3 returned HTTP 403")
 
     async def _async_presign(self, key: str, lifetime: timedelta) -> str:

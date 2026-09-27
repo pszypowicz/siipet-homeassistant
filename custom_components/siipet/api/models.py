@@ -233,8 +233,8 @@ class AbnormalLabels:
 class MediaCredentials:
     """Temporary S3 credentials from `Data.S3` of `config/aws/auth`."""
 
-    bucket: str
-    access_key_id: str
+    bucket: str = field(repr=False)
+    access_key_id: str = field(repr=False)
     secret_access_key: str = field(repr=False)
     session_token: str = field(repr=False)
     expires: datetime

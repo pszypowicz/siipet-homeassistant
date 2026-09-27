@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from http import HTTPStatus
+import logging
 
 from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
@@ -10,6 +11,8 @@ from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
 from .media import MediaKind, MediaNotFound, MediaUnavailable
+
+_LOGGER = logging.getLogger(__name__)
 
 IMAGE_URL = "/api/siipet/image/{kind}/{item_id}"
 
@@ -20,7 +23,7 @@ def image_path(kind: MediaKind, item_id: str) -> str:
 
 
 class SiiPetImageView(HomeAssistantView):
-    """Serve SiiPet images to logged-in users, so no S3 URL leaves Home Assistant."""
+    """Serve SiiPet images to logged-in users, so that image URLs stay inside Home Assistant."""
 
     url = IMAGE_URL
     name = "api:siipet:image"
@@ -42,9 +45,11 @@ class SiiPetImageView(HomeAssistantView):
         media = entries[0].runtime_data.media
         try:
             body = await media.async_fetch_image(media_kind, item_id)
-        except MediaNotFound:
+        except MediaNotFound as err:
+            _LOGGER.debug("SiiPet image request failed: %s", err)
             return web.Response(status=HTTPStatus.NOT_FOUND)
-        except MediaUnavailable:
+        except MediaUnavailable as err:
+            _LOGGER.debug("SiiPet image request failed: %s", err)
             return web.Response(status=HTTPStatus.BAD_GATEWAY)
         return web.Response(
             body=body,

@@ -170,10 +170,12 @@ def test_media_credentials_from_api() -> None:
 
 
 def test_media_credentials_repr_hides_secrets() -> None:
-    """The repr of media credentials has no secret key or session token."""
+    """The repr of media credentials has no bucket, key, or session token."""
     text = repr(MediaCredentials.from_api(load_data("aws_auth.json")))
     assert "wJalrXUtnFEMI" not in text
     assert "FwoGZXIvYXdz" not in text
+    assert "media-bucket" not in text
+    assert "AKIDEXAMPLE" not in text
 
 
 @pytest.mark.parametrize(

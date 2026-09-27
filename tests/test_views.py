@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from http import HTTPStatus
+import logging
 from unittest.mock import AsyncMock
 
 from homeassistant.core import HomeAssistant
@@ -78,13 +79,25 @@ async def test_image_s3_failure(
     config_entry: MockConfigEntry,
     hass_client: ClientSessionGenerator,
     aioclient_mock: AiohttpClientMocker,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A failed S3 read returns 502."""
+    """A failed S3 read returns 502 and logs the failure without private values."""
     aioclient_mock.get(COVER_URL, status=HTTPStatus.INTERNAL_SERVER_ERROR)
     await setup_integration(hass, config_entry)
     client = await hass_client()
-    response = await client.get("/api/siipet/image/cover/ev-1")
+    with caplog.at_level(logging.DEBUG, logger="custom_components.siipet.views"):
+        response = await client.get("/api/siipet/image/cover/ev-1")
     assert response.status == HTTPStatus.BAD_GATEWAY
+    [record] = [
+        record
+        for record in caplog.records
+        if record.name == "custom_components.siipet.views"
+    ]
+    assert "SiiPet image request failed" in record.getMessage()
+    for text in (record.getMessage() for record in caplog.records):
+        assert "amazonaws" not in text
+        assert "X-Amz" not in text
+        assert "media-bucket" not in text
 
 
 async def test_image_entry_not_loaded(

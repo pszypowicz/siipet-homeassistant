@@ -69,5 +69,5 @@ async def test_diagnostics(
 
 
 def test_media_credential_keys_are_redacted() -> None:
-    """Every field of the media credentials is on the redaction list."""
+    """The media credential keys are on the redaction list."""
     assert {"AccessKeyId", "SecretAccessKey", "SessionToken", "S3Bucket"} <= TO_REDACT

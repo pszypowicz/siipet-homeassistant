@@ -43,7 +43,7 @@ docs/api.md            SiiPet cloud API reference
 - Entities read only `coordinator.data`. They never call the client.
 - `SiiPetData.cat_ids(visit)` decides which cats own a visit.
   A visit with no known cat belongs to the virtual Unknown cat (`UNKNOWN_CAT_ID`).
-- Only `api/s3.py` and `media.py` handle S3 credentials.
+- S3 credentials stay inside `api/`. Other modules get signed URLs from `S3Signer`.
 - Only `media_source.py` returns a signed S3 URL, and only for a recording.
   Images go through the image view in `views.py`, so their signed URLs stay inside Home Assistant.
 
