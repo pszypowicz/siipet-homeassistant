@@ -13,6 +13,7 @@ from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.siipet.api import DayVisits
+from custom_components.siipet.const import DOMAIN
 
 FIXTURES = Path(__file__).parent / "fixtures"
 NOW = "2026-09-26T12:00:00+00:00"
@@ -53,7 +54,7 @@ def siipet_device_id(
 ) -> str:
     """Return the device id of a SiiPet cat or camera."""
     device = dr.async_get(hass).async_get_device_by_identifier(
-        ("siipet", identifier), entry.entry_id
+        (DOMAIN, identifier), entry.entry_id
     )
     assert device is not None
     return device.id

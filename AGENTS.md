@@ -28,7 +28,7 @@ custom_components/siipet/
   sensor.py  event.py  diagnostics.py
   services.py          actions: list_visits, update_visit, delete_visit
   services.yaml        action fields and selectors
-  visit_data.py        visit and cat dicts for the actions and the card commands
+  visit_data.py        visit and cat helpers, the date check, and the day read for the actions and the card commands
   calendar_data.py     SiiPetCalendar: calendar months per cat, kept for 5 minutes
   websocket_api.py     websocket commands for the dashboard card: cats, calendar, day, queue
   media.py             SiiPetMedia: media keys, recording URLs, image fetch
