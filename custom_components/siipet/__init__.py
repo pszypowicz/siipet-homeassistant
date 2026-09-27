@@ -6,17 +6,27 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryError
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.typing import ConfigType
 
 from .api import Session, SiiPetClient
 from .api.s3 import S3Signer
 from .const import CONF_CLIENT_ID, CONF_EXPIRE_AT, CONF_TOKEN, DOMAIN, UNKNOWN_CAT_ID
 from .coordinator import SiiPetConfigEntry, SiiPetCoordinator, SiiPetRuntime
 from .media import SiiPetMedia
+from .views import SiiPetImageView
 
 PLATFORMS: list[Platform] = [Platform.EVENT, Platform.SENSOR]
 SESSION_KEYS = (CONF_TOKEN, CONF_EXPIRE_AT, CONF_CLIENT_ID)
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the image view once for the integration."""
+    hass.http.register_view(SiiPetImageView(hass))
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: SiiPetConfigEntry) -> bool:
