@@ -48,7 +48,7 @@ async def _add_visits(
         ),
     )
     day = DayVisits(base.visits + extra, base.summaries, False)
-    mock_client.get_day.side_effect = lambda requested: (
+    mock_client.get_day.side_effect = lambda requested, **_: (
         day if requested == TODAY else EMPTY_DAY
     )
     await config_entry.runtime_data.coordinator.async_refresh()
@@ -120,7 +120,7 @@ async def test_visit_does_not_refire_after_failed_update(
         start=base.visits[0].start.replace(hour=10),
     )
     day = DayVisits((*base.visits, new_visit), base.summaries, False)
-    mock_client.get_day.side_effect = lambda requested: (
+    mock_client.get_day.side_effect = lambda requested, **_: (
         day if requested == TODAY else EMPTY_DAY
     )
     frozen_time.tick(timedelta(minutes=5))
@@ -136,7 +136,7 @@ async def test_visit_does_not_refire_after_failed_update(
     assert hass.states.get("event.luna_visit").state == STATE_UNAVAILABLE
 
     frozen_time.tick(timedelta(minutes=5))
-    mock_client.get_day.side_effect = lambda requested: (
+    mock_client.get_day.side_effect = lambda requested, **_: (
         day if requested == TODAY else EMPTY_DAY
     )
     await coordinator.async_refresh()

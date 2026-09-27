@@ -348,16 +348,18 @@ The tested request body is `{}`. A request schema for continuation remains unkno
 }
 ```
 
-`Data.TodaySummary` holds one entry per cat.
+`Data.TodaySummary` holds one entry per cat. The baseline fields depend on the
+time in `Date`, and the visit list does not. The app sends the current time for
+today, and the integration does the same.
 
-| Field              | Meaning                                    |
-| ------------------ | ------------------------------------------ |
-| `PottyTimes`       | Visit count for the day.                   |
-| `PottyAvgTime`     | Average visit duration in milliseconds.    |
-| `BaselineTimes`    | The cat's normal visit count.              |
-| `BaselineAvgTime`  | The cat's normal duration in milliseconds. |
-| `NeededTotalDays`  | Days of data the baseline needs.           |
-| `CurrentTotalDays` | Days of data collected so far.             |
+| Field              | Meaning                                                             |
+| ------------------ | ------------------------------------------------------------------- |
+| `PottyTimes`       | Visit count for the day.                                            |
+| `PottyAvgTime`     | Average visit duration in milliseconds.                             |
+| `BaselineTimes`    | The cat's expected visit count from midnight to the time in `Date`. |
+| `BaselineAvgTime`  | The cat's expected duration in milliseconds, for the same period.   |
+| `NeededTotalDays`  | Days of data the baseline needs.                                    |
+| `CurrentTotalDays` | Days of data collected so far.                                      |
 
 `Data.List` holds one entry per visit.
 
@@ -724,8 +726,11 @@ These results come from tests against a real account.
 - The -2 response has `Msg` "token illegal, other device device has logged in". The message is misleading. The token is valid, and no other device caused the error.
 - The `Accept`, `Accept-Language`, and `Accept-Encoding` headers do not change the result.
 - The email-code sign-in returned `Code` 0 with the model `Home Assistant`. The error showed on the first authenticated call.
-- An access token copied from the phone app works from another client that sends the phone's `x-device-identifier` and an accepted model.
-- During these tests, the phone app stayed signed in after each email-code sign-in from another client.
+- A token from an email-code sign-in works from another client that sends the same `x-device-identifier` and an accepted model.
+- After an email-code sign-in from another client, the phone app's session kept working for at least one hour. Then the phone's calls failed with -2, although the phone sent an accepted model. The cause is not known.
+- After another client renewed the phone's token, the previous token kept working on the phone for about 70 minutes, until the failure above. The new token also worked.
+- The baseline fields change with the time in `Date`. For one day, `BaselineTimes` was 0.03 to 0.13 with 00:00:00, 1.46 to 1.69 with 06:00:00 and 12:00:00, and 2.04 to 3.13 with 23:59:59. `BaselineAvgTime` changed too. The visit list was the same.
+- `Connected.Status` was false for every camera in every sample, also while the cameras recorded visits.
 - The email code request is rate limited per day: `Code` 10010, `Msg` "Too many request today. Please try again tomorrow."
 - A wrong email code is `Code` 10004 (already handled).
 
@@ -737,6 +742,7 @@ These results come from tests against a real account.
 - History paging with `More` and `Track`.
 - Camera paging and continuation request fields.
 - Camera connection timestamp semantics and subscription code meanings.
+- What makes `Connected.Status` true. A live stream is one candidate.
 - Live video and device replay through the credentials in `AgoraAuth`.
 - Calendar range limits, history retention, and behavior with alternate timezone flags.
 - Complete rules for the calendar abnormality summary flags.

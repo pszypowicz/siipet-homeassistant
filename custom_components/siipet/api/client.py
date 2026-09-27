@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from datetime import date
+from datetime import date, time as time_of_day
 import logging
 import time
 from typing import Any
@@ -101,14 +101,21 @@ class SiiPetClient:
         cameras = (Camera.from_api(item) for item in data.get("List") or ())
         return {camera.sn: camera for camera in cameras}
 
-    async def get_day(self, day: date) -> DayVisits:
-        """Return the visits and summaries of one day in the registered time zone."""
+    async def get_day(
+        self, day: date, *, until: time_of_day | None = None
+    ) -> DayVisits:
+        """Return the visits and summaries of one day in the registered time zone.
+
+        The visit list covers the whole day. The baselines in the summaries
+        count from midnight to `until`, or to midnight when it is not given.
+        """
+        at = (until or time_of_day()).strftime("%H:%M:%S")
         data = await self._post(
             "/api/v1/pet/toilet/event",
             {
                 "IncludeLocal": True,
                 "FollowRegisterTimezone": True,
-                "Date": f"{day.isoformat()} 00:00:00",
+                "Date": f"{day.isoformat()} {at}",
             },
         )
         return DayVisits.from_api(data or {})

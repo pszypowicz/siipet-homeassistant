@@ -128,7 +128,7 @@ class SiiPetCoordinator(DataUpdateCoordinator[SiiPetData]):
         if self._labels_due(now):
             await self._async_read_labels(now)
 
-        self._store(today, await self.client.get_day(today), now)
+        self._store(today, await self.client.get_day(today, until=now.time()), now)
         for offset in range(1, WINDOW_DAYS):
             day = today - timedelta(days=offset)
             if not self._past_day_due(day, today, now):

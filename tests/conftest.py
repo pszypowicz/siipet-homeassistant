@@ -64,7 +64,7 @@ def mock_client_class() -> Generator[MagicMock]:
             )
         }
         day = fixture_day()
-        client.get_day.side_effect = lambda requested: (
+        client.get_day.side_effect = lambda requested, **_: (
             day if requested == TODAY else EMPTY_DAY
         )
         client.get_abnormal_labels.return_value = AbnormalLabels.from_api(

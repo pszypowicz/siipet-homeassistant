@@ -101,7 +101,7 @@ async def test_reassign_lowers_count(
         for visit in base.visits
     )
     day = DayVisits(moved, base.summaries, False)
-    mock_client.get_day.side_effect = lambda requested: (
+    mock_client.get_day.side_effect = lambda requested, **_: (
         day if requested == TODAY else EMPTY_DAY
     )
     await config_entry.runtime_data.coordinator.async_refresh()

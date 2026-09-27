@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from datetime import date
+from datetime import date, time
 from typing import Any
 
 import aiohttp
@@ -113,6 +113,20 @@ async def test_get_day(
         "FollowRegisterTimezone": True,
         "Date": "2026-09-26 00:00:00",
     }
+
+
+async def test_get_day_until(
+    websession: aiohttp.ClientSession, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """The day request can carry a time of day for the summaries."""
+    aioclient_mock.post(
+        url("pet/toilet/event"), json=load_fixture("toilet_event_day.json")
+    )
+    await make_client(websession).get_day(
+        date(2026, 9, 26), until=time(18, 41, 34, 999_999)
+    )
+    [(body, _headers)] = calls(aioclient_mock, "pet/toilet/event")
+    assert body["Date"] == "2026-09-26 18:41:34"
 
 
 async def test_get_visit(

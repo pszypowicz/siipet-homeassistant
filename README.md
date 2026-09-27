@@ -68,7 +68,7 @@ Each cat is a device. A virtual device named **Unknown cat** collects visits tha
 | Pee today, Poop today, Lingering today   | Visits of each type today.                                                                                 |
 | Abnormal visits today                    | Pee and poop visits that SiiPet marks as abnormal.                                                         |
 | Average visit duration today             | The mean duration of today's pee and poop visits.                                                          |
-| Baseline visits, Baseline visit duration | The normal values that SiiPet learned for the cat.                                                         |
+| Baseline visits, Baseline visit duration | The values that SiiPet expects for the cat from midnight until now, from what it learned.                  |
 | Baseline progress                        | How much of the learning period is complete.                                                               |
 | Last visit                               | The start of the newest visit. Its attributes show the type, duration, camera, and abnormal reasons.       |
 | Visit                                    | An event entity. It fires once for each new visit, with the type `pee`, `poop`, `lingering`, or `unknown`. |

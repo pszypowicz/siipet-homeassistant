@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 import logging
 from unittest.mock import AsyncMock
 
@@ -28,6 +28,17 @@ from .common import EMPTY_DAY, TODAY, fixture_day, setup_integration
 
 def _days(mock_client: AsyncMock) -> list[date]:
     return [call.args[0] for call in mock_client.get_day.await_args_list]
+
+
+async def test_today_summary_until_now(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """Today is read up to the local time, so its baselines count up to now."""
+    await setup_integration(hass, config_entry)
+    calls = mock_client.get_day.await_args_list
+    today = [call for call in calls if call.args[0] == TODAY]
+    assert [call.kwargs for call in today] == [{"until": time(12, 0)}]
+    assert all(call.kwargs == {} for call in calls if call.args[0] != TODAY)
 
 
 def _with_visits(*extra: Visit, more: bool = False) -> DayVisits:
@@ -148,7 +159,7 @@ async def test_new_visits(
     later = _new_visit("ev-8", ("pet-milo",), 11)
     earlier = _new_visit("ev-7", ("pet-luna",), 10)
     day = _with_visits(later, earlier)
-    mock_client.get_day.side_effect = lambda requested: (
+    mock_client.get_day.side_effect = lambda requested, **_: (
         day if requested == TODAY else EMPTY_DAY
     )
 
@@ -202,7 +213,7 @@ async def test_unknown_pet_id_syncs_once(
     """A new unknown PetId triggers one extra sync, not one per update."""
     coordinator = await _coordinator(hass, config_entry)
     day = _with_visits(_new_visit("ev-7", ("pet-new",), 10))
-    mock_client.get_day.side_effect = lambda requested: (
+    mock_client.get_day.side_effect = lambda requested, **_: (
         day if requested == TODAY else EMPTY_DAY
     )
 
@@ -224,7 +235,7 @@ async def test_more_pages_warns_once(
 ) -> None:
     """A day list with more pages logs one warning."""
     day = _with_visits(more=True)
-    mock_client.get_day.side_effect = lambda requested: (
+    mock_client.get_day.side_effect = lambda requested, **_: (
         day if requested == TODAY else EMPTY_DAY
     )
     coordinator = await _coordinator(hass, config_entry)
@@ -267,7 +278,7 @@ async def test_past_day_failure_keeps_data(
     failing = TODAY - timedelta(days=2)
     day = fixture_day()
 
-    def get_day(requested: date) -> DayVisits:
+    def get_day(requested: date, **_: object) -> DayVisits:
         if requested == failing:
             raise SiiPetConnectionError("down")
         return day if requested == TODAY else EMPTY_DAY
@@ -328,7 +339,7 @@ async def test_late_first_read_of_past_day_is_not_new(
     failing = TODAY - timedelta(days=3)
     old_visit = _visit_on(failing, "old-1")
 
-    def get_day_failing(requested: date) -> DayVisits:
+    def get_day_failing(requested: date, **_: object) -> DayVisits:
         if requested == failing:
             raise SiiPetConnectionError("down")
         return fixture_day() if requested == TODAY else EMPTY_DAY
@@ -338,7 +349,7 @@ async def test_late_first_read_of_past_day_is_not_new(
     assert failing not in coordinator.data.days
 
     late_day = _with_visits(old_visit)
-    mock_client.get_day.side_effect = lambda requested: (
+    mock_client.get_day.side_effect = lambda requested, **_: (
         late_day
         if requested == failing
         else fixture_day()
@@ -365,7 +376,7 @@ async def test_new_visit_on_already_read_past_day_is_new(
 
     late_visit = _visit_on(target, "old-2")
     day_with_new = _with_visits(late_visit)
-    mock_client.get_day.side_effect = lambda requested: (
+    mock_client.get_day.side_effect = lambda requested, **_: (
         day_with_new
         if requested == target
         else fixture_day()
