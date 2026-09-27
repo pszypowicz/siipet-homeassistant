@@ -3,7 +3,7 @@
   "name": "SiiPet",
   "codeowners": ["@pszypowicz"],
   "config_flow": true,
-  "dependencies": ["http", "media_source"],
+  "dependencies": ["http", "media_source", "websocket_api"],
   "documentation": "https://github.com/pszypowicz/siipet-homeassistant",
   "integration_type": "hub",
   "iot_class": "cloud_polling",

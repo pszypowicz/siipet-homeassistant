@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.siipet.api import DayVisits
@@ -45,6 +46,17 @@ def make_token(user_id: str, exp: Any = None) -> str:
 def fixture_day() -> DayVisits:
     """The visits of the fixture day."""
     return DayVisits.from_api(load_data("toilet_event_day.json"))
+
+
+def siipet_device_id(
+    hass: HomeAssistant, entry: MockConfigEntry, identifier: str
+) -> str:
+    """Return the device id of a SiiPet cat or camera."""
+    device = dr.async_get(hass).async_get_device_by_identifier(
+        ("siipet", identifier), entry.entry_id
+    )
+    assert device is not None
+    return device.id
 
 
 async def setup_integration(hass: HomeAssistant, entry: MockConfigEntry) -> None:

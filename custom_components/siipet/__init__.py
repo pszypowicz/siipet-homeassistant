@@ -18,6 +18,7 @@ from .coordinator import SiiPetConfigEntry, SiiPetCoordinator, SiiPetRuntime
 from .media import SiiPetMedia
 from .services import async_setup_services
 from .views import SiiPetImageView
+from .websocket_api import async_setup_websocket_api
 
 PLATFORMS: list[Platform] = [Platform.EVENT, Platform.SENSOR]
 SESSION_KEYS = (CONF_TOKEN, CONF_EXPIRE_AT, CONF_CLIENT_ID)
@@ -26,9 +27,10 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Register the image view once for the integration."""
+    """Register the image view, the actions, and the card commands."""
     hass.http.register_view(SiiPetImageView(hass))
     async_setup_services(hass)
+    async_setup_websocket_api(hass)
     return True
 
 

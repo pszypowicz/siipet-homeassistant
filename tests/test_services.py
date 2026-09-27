@@ -16,7 +16,6 @@ from homeassistant.exceptions import (
     ServiceValidationError,
     Unauthorized,
 )
-from homeassistant.helpers import device_registry as dr
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 import voluptuous as vol
@@ -30,15 +29,7 @@ from custom_components.siipet.api import (
 )
 from custom_components.siipet.const import DOMAIN
 
-from .common import TODAY, load_data, setup_integration
-
-
-def _device_id(hass: HomeAssistant, entry: MockConfigEntry, identifier: str) -> str:
-    device = dr.async_get(hass).async_get_device_by_identifier(
-        (DOMAIN, identifier), entry.entry_id
-    )
-    assert device is not None
-    return device.id
+from .common import TODAY, load_data, setup_integration, siipet_device_id
 
 
 async def _list(hass: HomeAssistant, **data: Any) -> dict[str, Any]:
@@ -52,17 +43,17 @@ async def test_list_visits_today(
 ) -> None:
     """Today's visits come newest first, with the cats of the account."""
     await setup_integration(hass, config_entry)
-    luna = _device_id(hass, config_entry, "pet-luna")
+    luna = siipet_device_id(hass, config_entry, "pet-luna")
     response = await _list(hass)
     assert response["cats"] == [
         {"device_id": luna, "name": "Luna", "unknown": False},
         {
-            "device_id": _device_id(hass, config_entry, "pet-milo"),
+            "device_id": siipet_device_id(hass, config_entry, "pet-milo"),
             "name": "Milo",
             "unknown": False,
         },
         {
-            "device_id": _device_id(hass, config_entry, "unknown"),
+            "device_id": siipet_device_id(hass, config_entry, "unknown"),
             "name": "Unknown cat",
             "unknown": True,
         },
@@ -105,7 +96,7 @@ async def test_list_visits_for_one_cat(
 ) -> None:
     """A cat device, or the Unknown cat device, filters the visits."""
     await setup_integration(hass, config_entry)
-    response = await _list(hass, cat=_device_id(hass, config_entry, identifier))
+    response = await _list(hass, cat=siipet_device_id(hass, config_entry, identifier))
     assert [visit["event_id"] for visit in response["visits"]] == event_ids
 
 
@@ -174,7 +165,7 @@ async def test_list_visits_invalid_cat(
 ) -> None:
     """A device that is not a SiiPet cat is refused."""
     await setup_integration(hass, config_entry)
-    for device_id in (_device_id(hass, config_entry, "SN0001"), "not-a-device"):
+    for device_id in (siipet_device_id(hass, config_entry, "SN0001"), "not-a-device"):
         with pytest.raises(ServiceValidationError) as info:
             await _list(hass, cat=device_id)
         assert info.value.translation_key == "invalid_cat"
@@ -227,7 +218,7 @@ async def test_update_reassign(
     mock_client.get_visit.side_effect = [_detail(), _detail(pet_ids=("pet-milo",))]
     reads = mock_client.get_day.await_count
     await _update(
-        hass, event_id="ev-1", cats=[_device_id(hass, config_entry, "pet-milo")]
+        hass, event_id="ev-1", cats=[siipet_device_id(hass, config_entry, "pet-milo")]
     )
     assert _edit_calls(mock_client) == [
         (
@@ -272,7 +263,7 @@ async def test_update_combined(
     await _update(
         hass,
         event_id="ev-1",
-        cats=[_device_id(hass, config_entry, "pet-milo")],
+        cats=[siipet_device_id(hass, config_entry, "pet-milo")],
         type="pee",
         note="x",
     )
@@ -304,7 +295,7 @@ async def test_update_not_possible(
     """A request with nothing to change, or cats for an unknown visit, sends nothing."""
     await setup_integration(hass, config_entry)
     if data.get("cats") == "milo":
-        data = {"cats": [_device_id(hass, config_entry, "pet-milo")]}
+        data = {"cats": [siipet_device_id(hass, config_entry, "pet-milo")]}
     mock_client.get_visit.side_effect = [visit]
     with pytest.raises(ServiceValidationError) as info:
         await _update(hass, event_id="ev-1", **data)
@@ -335,7 +326,9 @@ async def test_update_invalid_cat(
     for identifier in ("unknown", "SN0001"):
         with pytest.raises(ServiceValidationError) as info:
             await _update(
-                hass, event_id="ev-1", cats=[_device_id(hass, config_entry, identifier)]
+                hass,
+                event_id="ev-1",
+                cats=[siipet_device_id(hass, config_entry, identifier)],
             )
         assert info.value.translation_key == "invalid_cat"
     mock_client.get_visit.assert_not_awaited()
@@ -381,7 +374,7 @@ async def test_update_partial(
         await _update(
             hass,
             event_id="ev-1",
-            cats=[_device_id(hass, config_entry, "pet-milo")],
+            cats=[siipet_device_id(hass, config_entry, "pet-milo")],
             type="pee",
         )
     assert info.value.translation_key == "edit_partial"
@@ -399,7 +392,9 @@ async def test_update_partial_reassign_of_pee_visit(
     reads = mock_client.get_day.await_count
     with pytest.raises(HomeAssistantError) as info:
         await _update(
-            hass, event_id="ev-1", cats=[_device_id(hass, config_entry, "pet-milo")]
+            hass,
+            event_id="ev-1",
+            cats=[siipet_device_id(hass, config_entry, "pet-milo")],
         )
     assert info.value.translation_key == "edit_partial"
     assert info.value.translation_placeholders["type"] == "pee"
@@ -418,7 +413,7 @@ async def test_update_first_call_connection_error(
         await _update(
             hass,
             event_id="ev-1",
-            cats=[_device_id(hass, config_entry, "pet-milo")],
+            cats=[siipet_device_id(hass, config_entry, "pet-milo")],
             type="pee",
         )
     assert info.value.translation_key == "edit_partial"
@@ -458,7 +453,9 @@ async def test_update_reassign_not_applied(
     mock_client.get_visit.side_effect = [_detail(), _detail()]
     with pytest.raises(HomeAssistantError) as info:
         await _update(
-            hass, event_id="ev-1", cats=[_device_id(hass, config_entry, "pet-milo")]
+            hass,
+            event_id="ev-1",
+            cats=[siipet_device_id(hass, config_entry, "pet-milo")],
         )
     assert info.value.translation_key == "edit_not_applied"
 
@@ -469,7 +466,7 @@ async def test_update_duplicate_cats(
     """A cat given twice is sent once."""
     await setup_integration(hass, config_entry)
     mock_client.get_visit.side_effect = [_detail(), _detail(pet_ids=("pet-milo",))]
-    milo = _device_id(hass, config_entry, "pet-milo")
+    milo = siipet_device_id(hass, config_entry, "pet-milo")
     await _update(hass, event_id="ev-1", cats=[milo, milo])
     assert _edit_calls(mock_client) == [
         (
