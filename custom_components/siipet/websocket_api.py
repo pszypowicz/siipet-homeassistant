@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable, Iterable
 from datetime import date, timedelta
 import functools
@@ -14,7 +15,7 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 import voluptuous as vol
 
-from .api import SiiPetAuthError, SiiPetError, Visit
+from .api import SiiPetAuthError, SiiPetError, Visit, VisitType
 from .const import DOMAIN, UNKNOWN_CAT_ID
 from .coordinator import SiiPetData
 from .media import MediaKind
@@ -31,6 +32,8 @@ from .visit_data import (
 
 # Long enough for a dashboard that stays open. The card must read again before the paths expire.
 SIGNED_PATH_LIFETIME = timedelta(hours=1)
+# The calendar offers the current month and this many months before it.
+CALENDAR_MONTHS = 12
 
 type _Handler = Callable[
     [HomeAssistant, websocket_api.ActiveConnection, dict[str, Any]], Awaitable[None]
@@ -116,8 +119,8 @@ def _summary(visits: Iterable[Visit]) -> dict[str, int]:
     visits = list(visits)
     return {
         "visits": sum(visit.type.is_litter_use for visit in visits),
-        "pee": sum(visit.type.key == "pee" for visit in visits),
-        "poop": sum(visit.type.key == "poop" for visit in visits),
+        "pee": sum(visit.type is VisitType.PEE for visit in visits),
+        "poop": sum(visit.type is VisitType.POOP for visit in visits),
         "abnormal": sum(visit.abnormal for visit in visits),
     }
 
@@ -130,9 +133,10 @@ async def ws_cats(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Return the cats with signed avatar paths, and the visits that wait for a cat."""
+    """Return the cats with signed avatar paths, the waiting visits, and the update status."""
     entry = loaded_entry(hass)
-    data = entry.runtime_data.coordinator.data
+    coordinator = entry.runtime_data.coordinator
+    data = coordinator.data
     devices = device_ids(hass, entry)
     connection.send_result(
         msg["id"],
@@ -151,6 +155,9 @@ async def ws_cats(
                 "device_id": devices.get(UNKNOWN_CAT_ID),
                 "waiting": len(data.visits(UNKNOWN_CAT_ID)),
             },
+            "today": data.today.isoformat(),
+            "available": coordinator.last_update_success,
+            "updated_at": data.updated_at.isoformat(),
         },
     )
 
@@ -161,6 +168,22 @@ def _month(value: Any) -> date:
         return date.fromisoformat(f"{cv.string(value)}-01")
     except ValueError as err:
         raise vol.Invalid("Expected a month as YYYY-MM") from err
+
+
+def _check_calendar_month(data: SiiPetData, month: date) -> None:
+    """Raise date_out_of_range unless `month` is the current month or one of the CALENDAR_MONTHS before it."""
+    # Step back in whole months, which timedelta cannot do.
+    index = data.today.year * 12 + data.today.month - 1 - CALENDAR_MONTHS
+    first = date(index // 12, index % 12 + 1, 1)
+    if not first <= month <= data.today:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="date_out_of_range",
+            translation_placeholders={
+                "first": first.isoformat(),
+                "last": data.today.isoformat(),
+            },
+        )
 
 
 @websocket_api.websocket_command(
@@ -177,27 +200,35 @@ async def ws_calendar(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Return the pee and poop counts and the markers of each day of a month."""
+    """Return the pee and poop counts and the markers of each day of a month.
+
+    Without a cat, the counts add up per cat, so a visit of two cats counts
+    twice and visits without a cat are missing.
+    """
     entry = loaded_entry(hass)
     runtime = entry.runtime_data
     data = runtime.coordinator.data
+    _check_calendar_month(data, msg["month"])
     pet_ids = list(data.cats)
     if "cat" in msg:
         owner = cat_id(hass, entry, msg["cat"], allow_unknown=True)
         # The Unknown cat has no pet id, so the API has no calendar for it.
         pet_ids = [] if owner == UNKNOWN_CAT_ID else [owner]
+    try:
+        # In parallel, so one slow answer does not add up over the cats.
+        months = await asyncio.gather(
+            *(runtime.calendar.async_month(pet_id, msg["month"]) for pet_id in pet_ids)
+        )
+    except SiiPetError as err:
+        if isinstance(err, SiiPetAuthError):
+            entry.async_start_reauth(hass)
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="request_failed",
+            translation_placeholders={"error": str(err)},
+        ) from err
     days: dict[str, dict[str, Any]] = {}
-    for pet_id in pet_ids:
-        try:
-            month = await runtime.calendar.async_month(pet_id, msg["month"])
-        except SiiPetError as err:
-            if isinstance(err, SiiPetAuthError):
-                entry.async_start_reauth(hass)
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="request_failed",
-                translation_placeholders={"error": str(err)},
-            ) from err
+    for month in months:
         for day in month:
             total = days.setdefault(
                 day.date.isoformat(), {"visits": 0, "abnormal": 0, "marked": False}

@@ -29,6 +29,7 @@ from custom_components.siipet.const import DOMAIN, UNKNOWN_CAT_ID
 
 from .common import (
     EMPTY_DAY,
+    NOW,
     TODAY,
     fixture_day,
     load_data,
@@ -89,7 +90,43 @@ async def test_cats(
         "device_id": siipet_device_id(hass, config_entry, UNKNOWN_CAT_ID),
         "waiting": 1,
     }
+    assert result["today"] == "2026-09-26"
+    assert result["available"] is True
+    assert result["updated_at"] == NOW
     assert _private_values(response) == []
+
+
+async def test_cats_after_a_failed_update(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """After a failed update, the cats say so and keep the day of the last update."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_day.side_effect = SiiPetConnectionError("down")
+    await config_entry.runtime_data.coordinator.async_refresh()
+    response = await _ws(hass, hass_ws_client, type="siipet/cats")
+    result = response["result"]
+    assert result["available"] is False
+    assert result["today"] == "2026-09-26"
+    assert result["updated_at"] == NOW
+
+
+async def test_cats_for_a_user_who_is_not_admin(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+    hass_read_only_access_token: str,
+) -> None:
+    """A user who is not an admin can read the cats."""
+    await setup_integration(hass, config_entry)
+    client = await hass_ws_client(hass, hass_read_only_access_token)
+    await client.send_json_auto_id({"type": "siipet/cats"})
+    response = await client.receive_json()
+    assert response["success"]
+    assert [cat["name"] for cat in response["result"]["cats"]] == ["Luna", "Milo"]
 
 
 async def test_day(
@@ -179,22 +216,25 @@ async def test_day_older_day(
 
 
 @pytest.mark.parametrize(
-    ("message", "code", "key"),
+    ("message", "code", "key", "text"),
     [
         (
             {"date": (TODAY - timedelta(days=31)).isoformat()},
             "service_validation_error",
             "date_out_of_range",
+            "Choose a date from 2026-08-27 to 2026-09-26",
         ),
         (
             {"date": TODAY.isoformat(), "cat": "no-such-device"},
             "service_validation_error",
             "invalid_cat",
+            "Choose a SiiPet cat device",
         ),
         (
             {"date": (TODAY - timedelta(days=20)).isoformat()},
             "home_assistant_error",
             "request_failed",
+            "SiiPet could not complete the request: Could not read the visits of the day",
         ),
     ],
 )
@@ -207,6 +247,7 @@ async def test_day_errors(
     message: dict[str, Any],
     code: str,
     key: str,
+    text: str,
 ) -> None:
     """Errors carry the translated key of the actions and leave no error in the log."""
     await setup_integration(hass, config_entry)
@@ -216,6 +257,7 @@ async def test_day_errors(
     assert response["error"]["code"] == code
     assert response["error"]["translation_key"] == key
     assert response["error"]["translation_domain"] == DOMAIN
+    assert response["error"]["message"] == text
     assert "Error handling message" not in caplog.text
 
 
@@ -254,18 +296,27 @@ async def test_queue(
     assert _private_values(response) == []
 
 
-@pytest.mark.parametrize("command", ["siipet/cats", "siipet/queue"])
+@pytest.mark.parametrize(
+    "message",
+    [
+        {"type": "siipet/cats"},
+        {"type": "siipet/calendar", "month": "2026-09"},
+        {"type": "siipet/day", "date": TODAY.isoformat()},
+        {"type": "siipet/queue"},
+    ],
+    ids=lambda message: message["type"],
+)
 async def test_not_loaded(
     hass: HomeAssistant,
     mock_client: AsyncMock,
     config_entry: MockConfigEntry,
     hass_ws_client: WebSocketGenerator,
-    command: str,
+    message: dict[str, Any],
 ) -> None:
     """Without a loaded entry, the commands answer with not_loaded."""
     await setup_integration(hass, config_entry)
     await hass.config_entries.async_unload(config_entry.entry_id)
-    response = await _ws(hass, hass_ws_client, type=command)
+    response = await _ws(hass, hass_ws_client, **message)
     assert response["error"]["translation_key"] == "not_loaded"
 
 
@@ -387,6 +438,74 @@ async def test_calendar_unknown_cat(
     )
     assert response["result"]["days"] == {}
     mock_client.get_calendar.assert_not_awaited()
+
+
+async def test_calendar_invalid_cat(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """A device that is not a SiiPet cat gives invalid_cat, without an API call."""
+    await setup_integration(hass, config_entry)
+    for device_id in ("no-such-device", siipet_device_id(hass, config_entry, "SN0001")):
+        response = await _ws(
+            hass, hass_ws_client, type="siipet/calendar", month="2026-09", cat=device_id
+        )
+        assert response["error"]["code"] == "service_validation_error"
+        assert response["error"]["translation_key"] == "invalid_cat"
+    mock_client.get_calendar.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("month", "first", "last"),
+    [
+        ("2025-09", date(2025, 9, 1), date(2025, 9, 30)),
+        ("2026-09", date(2026, 9, 1), date(2026, 9, 30)),
+    ],
+)
+async def test_calendar_months_in_range(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+    month: str,
+    first: date,
+    last: date,
+) -> None:
+    """The current month and the 12 months before it can be read."""
+    await setup_integration(hass, config_entry)
+    response = await _ws(
+        hass,
+        hass_ws_client,
+        type="siipet/calendar",
+        month=month,
+        cat=siipet_device_id(hass, config_entry, "pet-luna"),
+    )
+    assert response["success"]
+    mock_client.get_calendar.assert_awaited_once_with("pet-luna", first, last)
+
+
+@pytest.mark.parametrize("month", ["2025-08", "2026-10", "9999-12"])
+async def test_calendar_month_out_of_range(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+    caplog: pytest.LogCaptureFixture,
+    month: str,
+) -> None:
+    """A month after the current one or more than 12 months back is refused before any call."""
+    await setup_integration(hass, config_entry)
+    response = await _ws(hass, hass_ws_client, type="siipet/calendar", month=month)
+    assert response["error"]["code"] == "service_validation_error"
+    assert response["error"]["translation_key"] == "date_out_of_range"
+    assert response["error"]["translation_placeholders"] == {
+        "first": "2025-09-01",
+        "last": "2026-09-26",
+    }
+    mock_client.get_calendar.assert_not_awaited()
+    assert "Error handling message" not in caplog.text
 
 
 @pytest.mark.parametrize("month", ["2026-9", "2026-13", "09-2026"])
