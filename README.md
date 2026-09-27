@@ -128,7 +128,7 @@ The response has two lists.
 | Field      | Description                                                                               |
 | ---------- | ----------------------------------------------------------------------------------------- |
 | `event_id` | Required. The `event_id` from the list response, or from the attributes of a Visit event. |
-| `cats`     | The cats that used the box. The Unknown cat is not valid here.                            |
+| `cats`     | The cats that used the box, at least one. The Unknown cat is not valid here.              |
 | `type`     | `pee`, `poop`, or `lingering`.                                                            |
 | `note`     | The memo, up to 200 characters. An empty memo clears it.                                  |
 
@@ -137,6 +137,7 @@ If the visit has the type `unknown`, give a `type` together with the cats.
 A pee visit that you change to poop has no stool shape or color.
 
 The integration reads the visit again after the change. If SiiPet did not apply the change, the action fails.
+If an update fails partway, the error names the type to use. Check the visit, then call the action again with that type.
 An edit does not fire a Visit event.
 
 ### Delete visit
@@ -162,14 +163,19 @@ actions:
 ## Example: assign unrecognized visits to your cat
 
 If you have one cat, this automation gives it each visit that the camera did not recognize.
+It skips visits of the type `unknown`, because those need a type too.
 Replace `sensor.luna_visits_today` with a sensor of your cat.
 
 ```yaml
+mode: queued
 triggers:
   - trigger: state
     entity_id: event.unknown_cat_visit
     not_from: unavailable
     not_to: unavailable
+conditions:
+  - condition: template
+    value_template: "{{ trigger.to_state.attributes.event_type != 'unknown' }}"
 actions:
   - action: siipet.update_visit
     data:
