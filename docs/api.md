@@ -457,14 +457,29 @@ Android defines these operations in `RequestAnnotateEventType`.
 
 For operation `3`, `AbnormalType` is a list and the inner `Type` is the event classification.
 These schemas come from Android models and their repository methods.
-Operations `1` and `3` remain untested against the service.
+Operation `1` remains untested against the service.
 
 The response body is `{"Code":0,"Msg":"success","Data":{}}`.
 
 A captured operation `2` reassigns a poop visit from one cat to another.
 The next event list returns the new assignment.
-Changing pee, poop, or lingering classifications remains untested.
-The tested reassignment does not establish how `GonePotty` affects an existing pee classification.
+
+Live tests on one visit give these results. The visit detail and the day list agree after each call.
+
+| Call                                                     | Before    | After                                      |
+| -------------------------------------------------------- | --------- | ------------------------------------------ |
+| Operation `3` with `{"Type": 3}`                         | poop      | pee. `FecesAbnormal` is cleared to null.   |
+| Operation `2` with `GonePotty` true, the same cats       | pee       | poop. `FecesAbnormal` stays null.          |
+| Operation `3` with `{"AbnormalType": [0, 0], "Type": 2}` | pee       | poop with `FecesAbnormal` `[0, 0]`.        |
+| Operation `2` with `GonePotty` false, the same cats      | poop      | lingering. `FecesAbnormal` stays `[0, 0]`. |
+| Operation `2` with `GonePotty` true, the same cats       | lingering | poop. `FecesAbnormal` stays `[0, 0]`.      |
+| Operation `2` with another cat and `Manual` true         | cat A     | cat B                                      |
+| Operation `2` with two cats and `Manual` true            | cat A     | both cats in `PetIds`                      |
+
+A stool image stays through all these calls. Only operation `3` to pee changes the stool codes.
+Operation `3` with `{"Type": 3}` also turns a poop visit without a stool image into pee.
+The Android app offers pee only from the stool image editor, so it asks for a photo first.
+The responses do not contain `Manual`, so its stored value is not visible.
 
 ### Read the calendar
 
@@ -671,12 +686,16 @@ The integration sends the header set of the captured iOS app with an Android-sty
 ### Memo edit
 
 - `POST /api/v1/pet/toilet/event/edit` with `{"EventId", "Note"}`.
+- A live test sets a memo, and an empty `Note` clears it.
 - The app limits the note to 200 characters. It allows the edit only when the visit `GroupId` equals the user `GroupId`.
 - The request can also carry `FecesImage`. No screen in this app version sends it.
 
 ### Visit delete
 
 - `POST /api/v1/device/toilet/event/delete` with `{"EventId"}` deletes a visit.
+  A live test returns `Code` 0, and the visit leaves the day list.
+  The detail call for it then returns `Code` 40000 with `Msg` "The media you viewed has expired".
+  Its recording and cover were still in S3 right after the delete.
 - `POST /api/v1/pet/toilet/event/feces/image/delete` with `{"EventId"}` deletes only the stool image.
 - `POST /api/v1/device/replay/delete` is for behavior replays. The app does not call it.
 
@@ -745,6 +764,8 @@ These results come from tests against a real account.
 - The media browser lists the recordings by day. The thumbnails load through the image view, and the browse results contain no S3 URL.
 - The cat avatars are JPEG files, and they load through the image view.
 - The recordings play in Safari on macOS and on iOS, and in the Home Assistant app on macOS and on iOS.
+- The detail call for an event id that does not exist returns `Code` 10000 with an empty `Msg`.
+- Edits and a delete were tested on visits that the account owner picked. See "Edit a visit" and "Visit delete".
 - The day list returns visits for today and the 30 days before it. An older day returns an empty list, although the cat summaries report 55 to 63 days of collected data.
 
 ## Open questions
@@ -760,7 +781,8 @@ These results come from tests against a real account.
 - Calendar range limits, and behavior with alternate timezone flags.
 - Complete rules for the calendar abnormality summary flags.
 - Live examples of unknown, lingering, and pee events.
-- Live edits of waste classification and abnormality metadata.
+- Stool code edits other than `[0, 0]`, and the effect of `Manual`.
+- Whether S3 removes the media of a deleted visit later.
 - Complete meanings of stool and event abnormality codes.
 - Access to recordings stored only on the device.
 - Whether the server enforces the shared-user restriction, or whether the app hides
