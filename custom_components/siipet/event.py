@@ -35,6 +35,11 @@ class SiiPetVisitEvent(SiiPetCatEntity, EventEntity):
         self._attr_event_types = [visit_type.key for visit_type in VisitType]
         self._handled_data: SiiPetData | None = None
 
+    async def async_added_to_hass(self) -> None:
+        """Fire the new visits of the update that added this entity."""
+        await super().async_added_to_hass()
+        self._fire_new_visits(self.coordinator.data)
+
     @callback
     def _handle_coordinator_update(self) -> None:
         data = self.coordinator.data
@@ -44,6 +49,12 @@ class SiiPetVisitEvent(SiiPetCatEntity, EventEntity):
             # changed.
             super()._handle_coordinator_update()
             return
+        if not self._fire_new_visits(data):
+            super()._handle_coordinator_update()
+
+    @callback
+    def _fire_new_visits(self, data: SiiPetData) -> bool:
+        """Fire each new visit of this cat once. Return True if any fired."""
         fired = False
         for visit in data.new_visits:
             if self.cat_id in data.cat_ids(visit):
@@ -51,5 +62,4 @@ class SiiPetVisitEvent(SiiPetCatEntity, EventEntity):
                 self.async_write_ha_state()
                 fired = True
         self._handled_data = data
-        if not fired:
-            super()._handle_coordinator_update()
+        return fired

@@ -14,7 +14,12 @@ from pytest_homeassistant_custom_component.common import (
     async_capture_events,
 )
 
-from custom_components.siipet.api import DayVisits, SiiPetConnectionError, VisitType
+from custom_components.siipet.api import (
+    Cat,
+    DayVisits,
+    SiiPetConnectionError,
+    VisitType,
+)
 
 from .common import EMPTY_DAY, TODAY, fixture_day, setup_integration
 
@@ -151,3 +156,46 @@ async def test_visit_does_not_refire_after_failed_update(
     }
     assert len(luna_fires) == 1
     assert hass.states.get("event.luna_visit").state == first_state
+
+
+async def test_new_cat_fires_its_first_visit(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """The first visit of a cat that appears in the same update fires once."""
+    await setup_integration(hass, config_entry)
+    cats = dict(mock_client.get_cats.return_value)
+    cats["pet-nala"] = Cat(pet_id="pet-nala", name="Nala", avatar_key=None)
+    mock_client.get_cats.return_value = cats
+    base = fixture_day()
+    first = replace(
+        base.visits[0],
+        event_id="ev-7",
+        pet_ids=("pet-nala",),
+        type=VisitType.POOP,
+        start=base.visits[0].start.replace(hour=10),
+    )
+    day = DayVisits((*base.visits, first), base.summaries, False)
+    mock_client.get_day.side_effect = lambda requested, **_: (
+        day if requested == TODAY else EMPTY_DAY
+    )
+    changes = async_capture_events(hass, EVENT_STATE_CHANGED)
+    coordinator = config_entry.runtime_data.coordinator
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    fired = [
+        change.data["new_state"].attributes
+        for change in changes
+        if change.data["entity_id"] == "event.nala_visit"
+        and change.data["new_state"].attributes.get("event_type")
+    ]
+    assert [(a["event_type"], a["event_id"]) for a in fired] == [("poop", "ev-7")]
+    unknown = [
+        change
+        for change in changes
+        if change.data["entity_id"] == "event.unknown_cat_visit"
+        and change.data["new_state"].attributes.get("event_id") == "ev-7"
+    ]
+    assert unknown == []
