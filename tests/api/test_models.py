@@ -11,6 +11,7 @@ from custom_components.siipet.api import (
     Camera,
     Cat,
     DayVisits,
+    MediaCredentials,
     Visit,
     VisitType,
 )
@@ -156,3 +157,34 @@ def test_abnormal_reasons() -> None:
     assert labels.reasons(_visit("ev-1")) == []
     odd = Visit.from_api({"EventId": "ev-x", "Type": 2, "FecesAbnormal": [199, 202]})
     assert labels.reasons(odd) == ["199", "Bright red stool"]
+
+
+def test_media_credentials_from_api() -> None:
+    """Media credentials keep the bucket, the keys, and the expiry."""
+    credentials = MediaCredentials.from_api(load_data("aws_auth.json"))
+    assert credentials.bucket == "media-bucket"
+    assert credentials.access_key_id == "AKIDEXAMPLE"
+    assert credentials.secret_access_key == "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+    assert credentials.session_token == "FwoGZXIvYXdzEXAMPLE/token+part=="
+    assert credentials.expires == datetime(2026, 9, 26, 22, 0, tzinfo=UTC)
+
+
+def test_media_credentials_repr_hides_secrets() -> None:
+    """The repr of media credentials has no secret key or session token."""
+    text = repr(MediaCredentials.from_api(load_data("aws_auth.json")))
+    assert "wJalrXUtnFEMI" not in text
+    assert "FwoGZXIvYXdz" not in text
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {},
+        {"S3": {"S3Bucket": "media-bucket"}},
+        {"S3": {**load_data("aws_auth.json")["S3"], "ExpireTime": None}},
+    ],
+)
+def test_media_credentials_invalid(data: dict[str, object]) -> None:
+    """Credentials without every field raise an error for the client to wrap."""
+    with pytest.raises((KeyError, ValueError)):
+        MediaCredentials.from_api(data)

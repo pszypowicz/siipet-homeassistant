@@ -14,7 +14,7 @@ import aiohttp
 
 from .auth import Session, encrypt_challenge, needs_renewal
 from .errors import SiiPetApiError, SiiPetAuthError, SiiPetConnectionError, SiiPetError
-from .models import AbnormalLabels, Camera, Cat, DayVisits, Visit
+from .models import AbnormalLabels, Camera, Cat, DayVisits, MediaCredentials, Visit
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -161,6 +161,13 @@ class SiiPetClient:
         data = await self._post(path, {})
         with _parsing(path):
             return AbnormalLabels.from_api(data or {})
+
+    async def get_media_credentials(self) -> MediaCredentials:
+        """Return temporary credentials for the media bucket."""
+        path = "/api/v1/config/aws/auth"
+        data = await self._post(path, {})
+        with _parsing(path):
+            return MediaCredentials.from_api(data)
 
     async def _post(self, path: str, body: dict[str, Any]) -> Any:
         """Send an authenticated request. Renew the session first when due."""

@@ -11,7 +11,13 @@ from homeassistant.core import HomeAssistant
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.siipet.api import AbnormalLabels, Camera, Cat, Session
+from custom_components.siipet.api import (
+    AbnormalLabels,
+    Camera,
+    Cat,
+    MediaCredentials,
+    Session,
+)
 from custom_components.siipet.const import (
     AUTH_EMAIL,
     AUTH_TOKEN,
@@ -73,6 +79,9 @@ def mock_client_class() -> Generator[MagicMock]:
         login = load_data("login.json")
         client.login.return_value = Session(login["Token"], login["ExpireAt"])
         client.request_email_code.return_value = None
+        client.get_media_credentials.return_value = MediaCredentials.from_api(
+            load_data("aws_auth.json")
+        )
         yield client_class
 
 

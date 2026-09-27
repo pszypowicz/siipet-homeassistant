@@ -14,6 +14,7 @@ from .models import (
     Cat,
     DaySummary,
     DayVisits,
+    MediaCredentials,
     Visit,
     VisitType,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "Cat",
     "DaySummary",
     "DayVisits",
+    "MediaCredentials",
     "Session",
     "SiiPetApiError",
     "SiiPetAuthError",

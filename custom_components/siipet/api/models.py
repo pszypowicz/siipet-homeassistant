@@ -227,3 +227,29 @@ class AbnormalLabels:
                 self.event.get(visit.event_abnormal, str(visit.event_abnormal))
             )
         return reasons
+
+
+@dataclass(frozen=True, slots=True)
+class MediaCredentials:
+    """Temporary S3 credentials from `Data.S3` of `config/aws/auth`."""
+
+    bucket: str
+    access_key_id: str
+    secret_access_key: str = field(repr=False)
+    session_token: str = field(repr=False)
+    expires: datetime
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> MediaCredentials:
+        """Parse `Data` of `config/aws/auth`."""
+        s3 = data["S3"]
+        expires = _from_ms(s3["ExpireTime"])
+        if expires is None:
+            raise ValueError("The media credentials have no expiry")
+        return cls(
+            bucket=str(s3["S3Bucket"]),
+            access_key_id=str(s3["AccessKeyId"]),
+            secret_access_key=str(s3["SecretAccessKey"]),
+            session_token=str(s3["SessionToken"]),
+            expires=expires,
+        )

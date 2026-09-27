@@ -155,6 +155,18 @@ async def test_get_abnormal_labels(
     assert labels.event == {301: "Potty Overtime"}
 
 
+async def test_get_media_credentials(
+    websession: aiohttp.ClientSession, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """The media credentials call sends an empty body with the bearer token."""
+    aioclient_mock.post(url("config/aws/auth"), json=load_fixture("aws_auth.json"))
+    credentials = await make_client(websession).get_media_credentials()
+    assert credentials.bucket == "media-bucket"
+    [(body, headers)] = calls(aioclient_mock, "config/aws/auth")
+    assert body == {}
+    assert headers["authorization"] == f"Bearer {TOKEN}"
+
+
 async def test_api_error(
     websession: aiohttp.ClientSession, aioclient_mock: AiohttpClientMocker
 ) -> None:
@@ -272,6 +284,11 @@ def _envelope(data: Any) -> dict[str, Any]:
             "user/client/verify",
             _envelope(None),
             lambda c: c.request_email_code("cat@example.com"),
+        ),
+        (
+            "config/aws/auth",
+            _envelope({"S3": {"S3Bucket": "media-bucket"}}),
+            lambda c: c.get_media_credentials(),
         ),
     ],
 )
