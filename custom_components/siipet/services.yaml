@@ -16,3 +16,29 @@ list_visits:
           filter:
             integration: siipet
             model: Cat
+
+update_visit:
+  fields:
+    event_id:
+      required: true
+      selector:
+        text:
+    cats:
+      selector:
+        device:
+          multiple: true
+          filter:
+            integration: siipet
+            model: Cat
+    type:
+      selector:
+        select:
+          options:
+            - pee
+            - poop
+            - lingering
+          translation_key: visit_type
+    note:
+      selector:
+        text:
+          multiline: true

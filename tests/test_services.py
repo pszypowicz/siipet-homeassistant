@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import timedelta
 import json
 from typing import Any
 from unittest.mock import AsyncMock
 
+from homeassistant.config_entries import SOURCE_REAUTH
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
@@ -14,10 +16,16 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 import voluptuous as vol
 
-from custom_components.siipet.api import SiiPetConnectionError
+from custom_components.siipet.api import (
+    SiiPetApiError,
+    SiiPetAuthError,
+    SiiPetConnectionError,
+    Visit,
+    VisitType,
+)
 from custom_components.siipet.const import DOMAIN
 
-from .common import TODAY, setup_integration
+from .common import TODAY, load_data, setup_integration
 
 
 def _device_id(hass: HomeAssistant, entry: MockConfigEntry, identifier: str) -> str:
@@ -187,3 +195,231 @@ async def test_list_visits_not_loaded(
     with pytest.raises(ServiceValidationError) as info:
         await _list(hass)
     assert info.value.translation_key == "not_loaded"
+
+
+def _detail(**changes: Any) -> Visit:
+    """The fixture visit ev-1: Luna, poop, today at 06:48."""
+    return replace(Visit.from_api(load_data("event_detail.json")), **changes)
+
+
+async def _update(hass: HomeAssistant, **data: Any) -> None:
+    await hass.services.async_call(DOMAIN, "update_visit", data, blocking=True)
+
+
+def _edit_calls(mock_client: AsyncMock) -> list[tuple[str, tuple[Any, ...]]]:
+    return [
+        (name, args)
+        for name, args, _kwargs in mock_client.mock_calls
+        if name in ("annotate", "set_note", "delete_visit")
+    ]
+
+
+async def test_update_reassign(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A new cat sends operation 2, checks the result, and refreshes the day."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_visit.side_effect = [_detail(), _detail(pet_ids=("pet-milo",))]
+    reads = mock_client.get_day.await_count
+    await _update(
+        hass, event_id="ev-1", cats=[_device_id(hass, config_entry, "pet-milo")]
+    )
+    assert _edit_calls(mock_client) == [
+        (
+            "annotate",
+            ("ev-1", 2, {"PetIds": ["pet-milo"], "GonePotty": True, "Manual": True}),
+        )
+    ]
+    assert mock_client.get_visit.await_count == 2
+    assert mock_client.get_day.await_count == reads + 1
+    assert mock_client.get_day.await_args_list[-1].args[0] == TODAY
+
+
+async def test_update_type(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """Poop to pee sends operation 3 with Type 3."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_visit.side_effect = [_detail(), _detail(type=VisitType.PEE)]
+    await _update(hass, event_id="ev-1", type="pee")
+    assert _edit_calls(mock_client) == [("annotate", ("ev-1", 3, {"Type": 3}))]
+
+
+async def test_update_note(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A memo is trimmed and sent alone."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_visit.side_effect = [_detail(), _detail(note="test")]
+    await _update(hass, event_id="ev-1", note="  test  ")
+    assert _edit_calls(mock_client) == [("set_note", ("ev-1", "test"))]
+
+
+async def test_update_combined(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """Cats, type, and memo go out in the planned order."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_visit.side_effect = [
+        _detail(),
+        _detail(pet_ids=("pet-milo",), type=VisitType.PEE, note="x"),
+    ]
+    await _update(
+        hass,
+        event_id="ev-1",
+        cats=[_device_id(hass, config_entry, "pet-milo")],
+        type="pee",
+        note="x",
+    )
+    assert _edit_calls(mock_client) == [
+        (
+            "annotate",
+            ("ev-1", 2, {"PetIds": ["pet-milo"], "GonePotty": True, "Manual": True}),
+        ),
+        ("annotate", ("ev-1", 3, {"Type": 3})),
+        ("set_note", ("ev-1", "x")),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("visit", "data", "key"),
+    [
+        (_detail(), {"type": "poop"}, "nothing_to_change"),
+        (_detail(type=VisitType.UNKNOWN), {"cats": "milo"}, "type_required"),
+    ],
+)
+async def test_update_not_possible(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    visit: Visit,
+    data: dict[str, Any],
+    key: str,
+) -> None:
+    """A request with nothing to change, or cats for an unknown visit, sends nothing."""
+    await setup_integration(hass, config_entry)
+    if data.get("cats") == "milo":
+        data = {"cats": [_device_id(hass, config_entry, "pet-milo")]}
+    mock_client.get_visit.side_effect = [visit]
+    with pytest.raises(ServiceValidationError) as info:
+        await _update(hass, event_id="ev-1", **data)
+    assert info.value.translation_key == key
+    assert _edit_calls(mock_client) == []
+
+
+@pytest.mark.parametrize("code", [10000, 40000])
+async def test_update_unknown_visit(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    code: int,
+) -> None:
+    """An unknown or deleted visit is refused."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_visit.side_effect = SiiPetApiError(code, "")
+    with pytest.raises(ServiceValidationError) as info:
+        await _update(hass, event_id="ev-x", note="x")
+    assert info.value.translation_key == "unknown_visit"
+
+
+async def test_update_invalid_cat(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """The Unknown cat and other devices are not valid cats for an edit."""
+    await setup_integration(hass, config_entry)
+    for identifier in ("unknown", "SN0001"):
+        with pytest.raises(ServiceValidationError) as info:
+            await _update(
+                hass, event_id="ev-1", cats=[_device_id(hass, config_entry, identifier)]
+            )
+        assert info.value.translation_key == "invalid_cat"
+    mock_client.get_visit.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "data", [{"note": "x" * 201}, {"cats": []}, {"type": "unknown"}]
+)
+async def test_update_schema(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    data: dict[str, Any],
+) -> None:
+    """The schema refuses a long memo, an empty cats list, and an unsupported type."""
+    await setup_integration(hass, config_entry)
+    with pytest.raises(vol.Invalid):
+        await _update(hass, event_id="ev-1", **data)
+
+
+async def test_update_not_applied(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A read-back that differs raises an error, and the day still refreshes."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_visit.side_effect = [_detail(), _detail()]
+    reads = mock_client.get_day.await_count
+    with pytest.raises(HomeAssistantError) as info:
+        await _update(hass, event_id="ev-1", type="pee")
+    assert info.value.translation_key == "edit_not_applied"
+    assert mock_client.get_day.await_count == reads + 1
+
+
+async def test_update_partial(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A failure after the first call says the visit can be half changed."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_visit.side_effect = [_detail()]
+    mock_client.annotate.side_effect = [None, SiiPetConnectionError("down")]
+    reads = mock_client.get_day.await_count
+    with pytest.raises(HomeAssistantError) as info:
+        await _update(
+            hass,
+            event_id="ev-1",
+            cats=[_device_id(hass, config_entry, "pet-milo")],
+            type="pee",
+        )
+    assert info.value.translation_key == "edit_partial"
+    assert mock_client.get_day.await_count == reads + 1
+
+
+async def test_update_first_call_fails(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A failure of the first call changes nothing and refreshes nothing."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_visit.side_effect = [_detail()]
+    mock_client.annotate.side_effect = SiiPetApiError(1001, "busy")
+    reads = mock_client.get_day.await_count
+    with pytest.raises(HomeAssistantError) as info:
+        await _update(hass, event_id="ev-1", type="pee")
+    assert info.value.translation_key == "request_failed"
+    assert mock_client.get_day.await_count == reads
+
+
+async def test_update_auth_error_starts_reauth(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """An auth error raises an error and starts reauth."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_visit.side_effect = SiiPetAuthError("-2: token illegal")
+    with pytest.raises(HomeAssistantError):
+        await _update(hass, event_id="ev-1", note="x")
+    await hass.async_block_till_done()
+    flows = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+    assert [flow["context"]["source"] for flow in flows] == [SOURCE_REAUTH]
+
+
+async def test_update_older_visit_drops_its_cached_day(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """An edit of an older visit makes the next list read that day again."""
+    await setup_integration(hass, config_entry)
+    day = TODAY - timedelta(days=20)
+    old = _detail(start=_detail().start - timedelta(days=20))
+    await _list(hass, date=day.isoformat())
+    mock_client.get_visit.side_effect = [old, replace(old, note="x")]
+    await _update(hass, event_id="ev-1", note="x")
+    await _list(hass, date=day.isoformat())
+    reads = [c for c in mock_client.get_day.await_args_list if c.args[0] == day]
+    assert len(reads) == 2

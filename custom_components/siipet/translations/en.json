@@ -75,6 +75,21 @@
     },
     "request_failed": {
       "message": "SiiPet could not complete the request: {error}"
+    },
+    "unknown_visit": {
+      "message": "SiiPet has no visit {event_id}."
+    },
+    "nothing_to_change": {
+      "message": "The visit already matches the request."
+    },
+    "type_required": {
+      "message": "The visit has an unknown type. Choose a type together with the cats."
+    },
+    "edit_partial": {
+      "message": "SiiPet changed only part of visit {event_id}: {error}. Check the visit and try again."
+    },
+    "edit_not_applied": {
+      "message": "SiiPet did not apply the change to visit {event_id}. Check the visit in the SiiPet app."
     }
   },
   "entity": {
@@ -149,6 +164,37 @@
           "name": "Cat",
           "description": "List only the visits of this cat. The Unknown cat lists unrecognized visits."
         }
+      }
+    },
+    "update_visit": {
+      "name": "Update visit",
+      "description": "Changes the cats, the type, or the memo of a litter box visit.",
+      "fields": {
+        "event_id": {
+          "name": "Event ID",
+          "description": "The event_id of the visit, from the List visits response or a Visit event."
+        },
+        "cats": {
+          "name": "Cats",
+          "description": "The cats that used the box. The Unknown cat is not valid here."
+        },
+        "type": {
+          "name": "Type",
+          "description": "The new type of the visit."
+        },
+        "note": {
+          "name": "Memo",
+          "description": "The new memo, up to 200 characters. An empty memo clears it."
+        }
+      }
+    }
+  },
+  "selector": {
+    "visit_type": {
+      "options": {
+        "pee": "Pee",
+        "poop": "Poop",
+        "lingering": "Lingering"
       }
     }
   }
