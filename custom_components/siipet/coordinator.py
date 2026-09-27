@@ -37,6 +37,10 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Scheduler jitter can end the twelfth update a moment before an hour has
+# passed. Half an update of tolerance keeps an hourly read on that update.
+DUE_TOLERANCE = UPDATE_INTERVAL / 2
+
 
 @dataclass(slots=True)
 class SiiPetRuntime:
@@ -100,10 +104,13 @@ class SiiPetCoordinator(DataUpdateCoordinator[SiiPetData]):
         self._cameras: dict[str, Camera] = {}
         self._labels = AbnormalLabels()
         self._days: dict[date, DayVisits] = {}
+        # These times are in UTC. Local times that share a time zone subtract
+        # without the offset change, so an interval would be off by an hour
+        # across a DST change.
         self._read_at: dict[date, datetime] = {}
         self._synced_at: datetime | None = None
         self._labels_at: datetime | None = None
-        self._labels_retry_at: datetime | None = None
+        self._labels_failed_at: datetime | None = None
         self._labels_warned = False
         self._unknown_refs: set[str] = set()
         self._seen: set[str] | None = None
@@ -122,7 +129,7 @@ class SiiPetCoordinator(DataUpdateCoordinator[SiiPetData]):
 
     async def _async_refresh_window(self, now: datetime, today: date) -> None:
         synced = False
-        if self._synced_at is None or now - self._synced_at >= SYNC_INTERVAL:
+        if _due(self._synced_at, SYNC_INTERVAL, now):
             await self._async_sync(now)
             synced = True
         if self._labels_due(now):
@@ -155,20 +162,21 @@ class SiiPetCoordinator(DataUpdateCoordinator[SiiPetData]):
 
         unknown = self._new_unknown_refs()
         if unknown:
-            # Sync once per new id. An id that stays unknown is not retried.
-            self._unknown_refs |= unknown
+            # Sync once per new id. An id that stays unknown after a
+            # successful sync is not retried.
             if not synced:
                 await self._async_sync(now)
+            self._unknown_refs |= unknown
 
     async def _async_sync(self, now: datetime) -> None:
         self._cats = await self.client.get_cats()
         self._cameras = await self.client.get_cameras()
-        self._synced_at = now
+        self._synced_at = dt_util.as_utc(now)
 
     def _labels_due(self, now: datetime) -> bool:
-        if self._labels_retry_at is not None:
-            return now >= self._labels_retry_at
-        return self._labels_at is None or now - self._labels_at >= LABELS_INTERVAL
+        if self._labels_failed_at is not None:
+            return _due(self._labels_failed_at, SYNC_INTERVAL, now)
+        return _due(self._labels_at, LABELS_INTERVAL, now)
 
     async def _async_read_labels(self, now: datetime) -> None:
         try:
@@ -181,10 +189,10 @@ class SiiPetCoordinator(DataUpdateCoordinator[SiiPetData]):
             else:
                 _LOGGER.warning("Could not read the abnormal labels: %s", err)
                 self._labels_warned = True
-            self._labels_retry_at = now + SYNC_INTERVAL
+            self._labels_failed_at = dt_util.as_utc(now)
             return
-        self._labels_at = now
-        self._labels_retry_at = None
+        self._labels_at = dt_util.as_utc(now)
+        self._labels_failed_at = None
         self._labels_warned = False
 
     def _past_day_due(self, day: date, today: date, now: datetime) -> bool:
@@ -195,11 +203,11 @@ class SiiPetCoordinator(DataUpdateCoordinator[SiiPetData]):
             since_midnight = now - dt_util.start_of_local_day(now)
             if since_midnight < MIDNIGHT_GRACE:
                 return True
-        return now - read_at >= PAST_DAY_INTERVAL
+        return _due(read_at, PAST_DAY_INTERVAL, now)
 
     def _store(self, day: date, visits: DayVisits, now: datetime) -> None:
         self._days[day] = visits
-        self._read_at[day] = now
+        self._read_at[day] = dt_util.as_utc(now)
         if visits.more and not self._warned_more:
             self._warned_more = True
             _LOGGER.warning(
@@ -244,3 +252,10 @@ class SiiPetCoordinator(DataUpdateCoordinator[SiiPetData]):
             more=any(visits.more for visits in self._days.values()),
             updated_at=now,
         )
+
+
+def _due(last: datetime | None, interval: timedelta, now: datetime) -> bool:
+    """Return True when `interval` passed since `last`, a time in UTC."""
+    if last is None:
+        return True
+    return dt_util.as_utc(now) - last >= interval - DUE_TOLERANCE

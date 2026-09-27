@@ -227,6 +227,65 @@ async def test_unknown_pet_id_syncs_once(
     assert coordinator.data.cat_ids(visit) == (UNKNOWN_CAT_ID,)
 
 
+async def test_unknown_pet_id_sync_retries_after_failure(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    frozen_time: FrozenDateTimeFactory,
+) -> None:
+    """A failed extra sync for a new unknown PetId runs again at the next update."""
+    coordinator = await _coordinator(hass, config_entry)
+    day = _with_visits(_new_visit("ev-7", ("pet-new",), 10))
+    mock_client.get_day.side_effect = lambda requested, **_: (
+        day if requested == TODAY else EMPTY_DAY
+    )
+    cats = mock_client.get_cats.return_value
+    mock_client.get_cats.side_effect = SiiPetConnectionError("down")
+    frozen_time.tick(timedelta(minutes=5))
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is False
+
+    mock_client.get_cats.side_effect = None
+    mock_client.get_cats.return_value = cats
+    frozen_time.tick(timedelta(minutes=5))
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    assert mock_client.get_cats.await_count == 3
+
+
+@pytest.mark.parametrize(("minutes", "syncs"), [(57, 1), (58, 2)])
+async def test_hourly_checks_allow_half_an_update_early(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    frozen_time: FrozenDateTimeFactory,
+    minutes: int,
+    syncs: int,
+) -> None:
+    """An hourly read runs up to half an update interval early."""
+    coordinator = await _coordinator(hass, config_entry)
+    frozen_time.tick(timedelta(minutes=minutes))
+    await coordinator.async_refresh()
+    assert mock_client.get_cats.await_count == syncs
+
+
+async def test_hourly_checks_across_dst_change(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    frozen_time: FrozenDateTimeFactory,
+) -> None:
+    """An hour is measured in real time when the clocks go back."""
+    await hass.config.async_set_time_zone("Europe/Warsaw")
+    # 02:30 CEST, half an hour before the clocks go back to 02:00 CET.
+    frozen_time.move_to("2026-10-25T00:30:00+00:00")
+    coordinator = await _coordinator(hass, config_entry)
+    # 02:35 CET, 65 minutes later in real time.
+    frozen_time.move_to("2026-10-25T01:35:00+00:00")
+    await coordinator.async_refresh()
+    assert mock_client.get_cats.await_count == 2
+
+
 async def test_more_pages_warns_once(
     hass: HomeAssistant,
     mock_client: AsyncMock,
