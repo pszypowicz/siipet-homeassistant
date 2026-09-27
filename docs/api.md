@@ -57,25 +57,25 @@ registered timezone.
 
 ## Endpoints
 
-| Endpoint                              | Purpose                                          |
-| ------------------------------------- | ------------------------------------------------ |
-| `/api/v1/user/account/logout`         | Sign out of the account.                         |
-| `/api/v1/user/client/verify`          | Request a client challenge.                      |
-| `/api/v1/user/email/send/trustworthy` | Request an email code.                           |
-| `/api/v1/user/email/register/login`   | Sign in with an email code.                      |
-| `/api/v1/user/token/refresh`          | Renew the session with its existing token.       |
-| `/api/v1/user/app/init`               | Session bootstrap.                               |
-| `/api/v1/user/account/detail`         | Account profile.                                 |
-| `/api/v1/user/account/edit`           | Update the account profile.                      |
-| `/api/v1/user/pet/sync`               | List the cats.                                   |
-| `/api/v1/user/device/sync`            | List the cameras.                                |
-| `/api/v1/pet/toilet/event`            | List visits for one day, with a per-cat summary. |
-| `/api/v1/device/toilet/event/detail`  | Read one recording and its metadata.             |
-| `/api/v1/pet/toilet/event/annotate`   | Edit cat assignment or event classification.     |
-| `/api/v1/pet/toilet/data/calendar`    | Per-day history for charts.                      |
-| `/api/v1/config/system/config`        | Client configuration. Called often.              |
-| `/api/v1/config/aws/auth`             | Credentials for the media bucket.                |
-| `/api/v1/user/firebase/token/bind`    | Push notification registration.                  |
+| Endpoint                              | Purpose                                           |
+| ------------------------------------- | ------------------------------------------------- |
+| `/api/v1/user/account/logout`         | Sign out of the account.                          |
+| `/api/v1/user/client/verify`          | Request a client challenge.                       |
+| `/api/v1/user/email/send/trustworthy` | Request an email code.                            |
+| `/api/v1/user/email/register/login`   | Sign in with an email code.                       |
+| `/api/v1/user/token/refresh`          | Renew the session with its existing token.        |
+| `/api/v1/user/app/init`               | Session bootstrap.                                |
+| `/api/v1/user/account/detail`         | Account profile.                                  |
+| `/api/v1/user/account/edit`           | Update the account profile.                       |
+| `/api/v1/user/pet/sync`               | List the cats.                                    |
+| `/api/v1/user/device/sync`            | List the cameras.                                 |
+| `/api/v1/pet/toilet/event`            | List visits for one day, with a per-cat summary.  |
+| `/api/v1/device/toilet/event/detail`  | Read one recording and its metadata.              |
+| `/api/v1/pet/toilet/event/annotate`   | Edit cat assignment or event classification.      |
+| `/api/v1/pet/toilet/data/calendar`    | Per-day history for charts.                       |
+| `/api/v1/config/system/config`        | Client configuration. Called often.               |
+| `/api/v1/config/aws/auth`             | Temporary credentials for media and device state. |
+| `/api/v1/user/firebase/token/bind`    | Push notification registration.                   |
 
 ### Email sign-in
 
@@ -320,7 +320,7 @@ The observed `Avatar` values are null.
 `Topic.Publish` and `Topic.Receive` contain arrays of topic strings.
 `Topic.Shadow` contains strings named `configInfo` and `systemInfo`.
 A shadow stores device state in the cloud.
-The camera list supplies the topic names without their state documents.
+The camera list supplies topic names and shadow names without their state documents.
 
 `AgoraAuth` contains `AppId`, `RoomId`, `Token`, `Uid`, `RemoteUid`, and `ExpireTime`.
 Its `Live` and `Replay` objects contain the same fields plus `IotAuth`.
@@ -335,6 +335,244 @@ Keep tokens, account details, and private topic names out of logs and entity att
 
 Camera paging remains untested because the inspected responses contain `More: false` and an empty `Track`.
 The tested request body is `{}`. A request schema for continuation remains unknown.
+
+### Battery and charging status
+
+Battery readings come from an AWS IoT shadow, a stored device state document.
+Use the shadow name in `Topic.Shadow.configInfo` from the camera list.
+Android `BindDevice.getBattery` reads `configInfo.state.reported.battery`.
+The camera list itself contains no battery reading.
+
+The shadow response contains these fields.
+
+| Field                                          | Type    | Meaning                                                        |
+| ---------------------------------------------- | ------- | -------------------------------------------------------------- |
+| `state.reported.battery.SOC`                   | Number  | Battery state of charge as a percentage.                       |
+| `state.reported.battery.charging`              | Boolean | Charging state used by the app.                                |
+| `metadata.reported.battery.SOC.timestamp`      | Integer | Time of the last reported battery percentage, in Unix seconds. |
+| `metadata.reported.battery.charging.timestamp` | Integer | Time of the last reported charging state, in Unix seconds.     |
+
+`SOC` means state of charge, the remaining battery percentage.
+Live reads return both integer and fractional values.
+Android `BatteryEntity.getBatteryLevel` rounds the number to the nearest integer for display.
+It does not multiply the value by 100.
+`Joy1BoardLoader.display` uses `charging` to show the charging indicator.
+
+This example contains sample values and omits other shadow fields.
+The shadow response has no SiiPet `Code`, `Msg`, or `Data` envelope.
+
+```json
+{
+  "state": {
+    "reported": {
+      "battery": {
+        "SOC": 72.4,
+        "charging": false
+      }
+    }
+  },
+  "metadata": {
+    "reported": {
+      "battery": {
+        "SOC": { "timestamp": 946684800 },
+        "charging": { "timestamp": 946684800 }
+      }
+    }
+  },
+  "timestamp": 946685400,
+  "version": 12
+}
+```
+
+#### Read the battery shadow
+
+MQTT is a protocol for exchanging messages through named topics.
+The tested read uses MQTT over secure WebSockets on port 443.
+Android `AWSShadowManager.getShadowData` requests the shadow through the same MQTT topics.
+
+1. Send `{}` to `POST /api/v1/user/device/sync` with the main API bearer token.
+2. Read the camera `SN` and its `Topic.Shadow.configInfo` value from `Data.List`.
+3. Send `{}` to `POST /api/v1/config/aws/auth` with the same bearer token.
+4. Connect to `wss://<IotCore.Endpoint>/mqtt` with the credentials and client identifier described below.
+5. Subscribe to `$aws/things/<SN>/shadow/name/<shadow name>/get/accepted` and the corresponding `/get/rejected` topic.
+6. Publish an empty payload to `$aws/things/<SN>/shadow/name/<shadow name>/get`.
+7. Read `state.reported.battery` from the `/get/accepted` response.
+
+Use the returned shadow name for `<shadow name>`.
+The `configInfo` field holds a shadow name rather than a complete MQTT topic.
+The tested subscriptions and requests use QoS 1, which requests delivery at least once.
+Publishing to `/get` reads stored state without changing the camera configuration.
+See the [AWS shadow read procedure](https://docs.aws.amazon.com/iot/latest/developerguide/device-shadow-data-flow.html).
+
+Take the server hostname from `Data.IotCore.Endpoint`.
+Android `AWSManager.getS3Client` creates shared credentials from `Data.S3.AccessKeyId`, `SecretAccessKey`, and `SessionToken`.
+Its MQTT connection uses those credentials too, and the direct MQTT test follows that path.
+The tested response supplies identical credential values under `Data.IotCore`.
+The connection uses AWS Signature Version 4 with signing service `iotdevicegateway` and the region from the endpoint hostname.
+The tested region is `us-east-1`.
+
+The app gets its MQTT client identifier from `Data.MqttClientId` in the login response.
+Its observed format is `<IdentityId>:<suffix>`.
+Use `Data.IdentityId` from the AWS authorization response for `<IdentityId>`.
+A separate client using `<IdentityId>:<random UUID suffix>` connects and reads the battery shadows successfully.
+The tested suffix is a random UUID encoded as 32 hexadecimal characters.
+A generic identifier without that account prefix fails with `AWS_ERROR_MQTT_UNEXPECTED_HANGUP`.
+This comparison establishes a working identifier format, but does not establish the complete server policy.
+
+Use a unique suffix for each simultaneous connection.
+If two connections use the same identifier, AWS disconnects the existing connection.
+See the [AWS MQTT connection builder](https://github.com/aws/aws-iot-device-sdk-python-v2/blob/main/awsiot/mqtt_connection_builder.py).
+Keep credentials, identity values, serial numbers, and complete topics out of logs.
+
+The direct HTTPS `GetThingShadow` test returns HTTP 403 with `ForbiddenException` using the returned IoT credentials and AWS SDK signing.
+Use the tested MQTT path for reads.
+Direct battery reads return `/get/accepted` responses.
+Android also subscribes to `/update/documents` and reads `current.state.reported.battery` from those messages.
+The observed subscription window contains no battery change messages.
+
+#### Power state and freshness
+
+Live samples from unplugged cameras report `charging: false`.
+The inspected battery object contains `SOC` and `charging` without a separate external power field.
+The inspected Android battery model also contains only those two values.
+The app treats `charging: true` as charging, but a live sample with that value remains untested.
+
+Do not interpret `charging: false` as proof that the power cable is disconnected.
+Behavior with a full battery on external power remains untested.
+Expose the value as charging status until a plugged-in test establishes its power connection behavior.
+If a battery field is missing or null, treat that value as unknown.
+
+Shadow values describe the last reported state.
+The observed battery timestamps predate retrieval by several minutes.
+Use the individual field timestamps to determine the age of each reading.
+The top-level `timestamp` describes the AWS response, so it does not establish when the camera measured the battery.
+These timestamps use seconds, unlike the milliseconds in the SiiPet HTTP API.
+See the [AWS shadow document fields](https://docs.aws.amazon.com/iot/latest/developerguide/device-shadow-document.html).
+
+`POST /api/v1/user/account/detail` also returns `Data.Setting.Notification.LowBattery`.
+That Boolean controls low battery notifications.
+It is an account preference rather than a battery reading.
+
+### Other device state
+
+The MQTT read procedure above also returns connection, firmware, network, and camera configuration fields.
+Read the shadow named by `Topic.Shadow.systemInfo` for system information.
+Read the shadow named by `Topic.Shadow.configInfo` for camera configuration.
+Direct reads succeed for both shadows on JOY1 devices.
+The field meanings below also use Android app version 2.1.1.
+
+Read actual device values from `state.reported`.
+`state.desired` holds requested values, and `state.delta` contains differences between requested and reported state.
+Live battery replies contain different percentages in `desired` and `reported`.
+Do not use `desired.battery` or `delta.battery` as a battery measurement.
+See the [AWS shadow state definitions](https://docs.aws.amazon.com/iot/latest/developerguide/device-shadow-document.html).
+
+#### Connection, firmware, and Wi-Fi
+
+These paths are relative to `state.reported` in the `systemInfo` shadow.
+RSSI is a received signal strength measurement.
+Firmware is the software that runs on the device.
+
+| Field                       | Type    | Meaning                                                                        |
+| --------------------------- | ------- | ------------------------------------------------------------------------------ |
+| `esp32.connected.status`    | Boolean | Connection flag that the Android app uses for JOY1 online status.              |
+| `esp32.connected.timestamp` | Integer | Device-provided connection time. Its unit and update rules remain unconfirmed. |
+| `main.connected.status`     | Boolean | Separate connection flag that can differ from the JOY1 online flag.            |
+| `main.connected.timestamp`  | Integer | Device-provided connection time with unconfirmed units.                        |
+| `main.sysVersion`           | String  | Reported main firmware version.                                                |
+| `esp32.sysVersion`          | String  | Reported firmware version for the `esp32` component.                           |
+| `esp32.bootVersion`         | String  | Reported boot software version for the `esp32` component.                      |
+| `main.rssi`                 | Integer | Wi-Fi signal reading. Live samples contain negative values.                    |
+| `main.ssid`                 | String  | Wi-Fi network name shown by the app.                                           |
+| `main.ip`, `main.mac`       | String  | Network addresses reported by the device.                                      |
+
+Android `StateReported` maps its `joyGimbal` property to the JSON key `esp32`.
+`BindDevice.isJoyOnline` reads `systemInfo.state.reported.esp32.connected.status` through that property.
+Live replies contain `esp32.connected.status: true` while `main.connected.status` and the camera list `Connected.Status` are false.
+This identifies the online field used by the JOY1 app.
+Offline transitions and reporting delays remain untested.
+
+Android `BindDevice.getDevSysVersion` reads `state.reported.main.sysVersion`.
+Its `getDevCurSysVersion` method reads `state.desired.main.sysVersion`, which is the requested version.
+Use the reported version when showing installed firmware.
+
+`DeviceWifiSetupVM.updateBindDevice` reads `main.ssid` and `main.rssi` for the Wi-Fi screen.
+The app accepts negative RSSI values in that read path.
+That code does not establish a unit or a conversion to a signal percentage.
+The observed `main.bind` Boolean and `main.runOn` string have unconfirmed meanings.
+
+Network names and addresses reveal private network details.
+Keep `ssid`, `ip`, and `mac` values out of logs and public examples.
+Redact them from diagnostics if an integration stores these fields.
+
+#### Camera configuration
+
+These paths are relative to `state.reported` in the `configInfo` shadow.
+The direct reads establish their presence and types.
+The tests do not change device configuration or establish every transition.
+
+| Field                                      | Type             | Meaning                                                                      |
+| ------------------------------------------ | ---------------- | ---------------------------------------------------------------------------- |
+| `privacyMode.active`                       | Boolean          | Privacy mode flag used by the JOY1 app.                                      |
+| `privacyStatus`                            | Boolean          | Separate privacy flag with unconfirmed behavior.                             |
+| `recordInfo.recording`                     | Boolean          | Reported recording flag. Live samples contain `false`.                       |
+| `autoTrack`                                | Boolean          | Reported automatic tracking flag.                                            |
+| `lightStatus`                              | Boolean          | Separate light flag with unconfirmed behavior.                               |
+| `fillLight.autoLight`                      | Boolean          | Automatic illumination configuration shown by the app.                       |
+| `fillLight.lowLight`                       | Boolean          | Low-light configuration shown by the app.                                    |
+| `fillLight.level`                          | Integer          | Illumination level selected in the app.                                      |
+| `fillLight.brightness2`                    | Integer          | Numeric illumination parameter associated with the selected level.           |
+| `fillLight.active`, `fillLight.brightness` | Integer          | Additional illumination fields with unconfirmed units and code meanings.     |
+| `pir.level`, `pir.sense`                   | Integer          | Motion sensitivity level and its numeric parameter.                          |
+| `otaMode.mode`                             | Integer          | Firmware update mode. See the Android codes below.                           |
+| `otaMode.start`, `otaMode.end`             | Integer          | Update window fields with unconfirmed units and scheduling rules.            |
+| `cloudMode.enableCloud`                    | Boolean          | Reported cloud storage flag.                                                 |
+| `cloudMode.leftCloudStorageQuota`          | Integer          | Remaining cloud quota field with unconfirmed units.                          |
+| `cloudMode.localRecordDuration`            | Integer          | Local recording duration field with unconfirmed units.                       |
+| `tzName`                                   | String           | Device timezone name.                                                        |
+| `petFeature`                               | Array of strings | Pet feature references. The test does not establish their identifier format. |
+
+`BindDevice.isJoyPrivacyStatus` reads `privacyMode.active`.
+Use that field for the JOY1 app privacy state.
+The separate `privacyStatus` flag does not establish the same behavior.
+The samples contain `false` for both flags, so a privacy mode transition remains untested.
+
+The `pir` object contains configuration for motion detection.
+It does not contain a motion event in the inspected replies.
+The presence of `recordInfo.recording` also does not establish whether a live stream is active.
+The shadow can retain either value after its reporting time.
+
+Android `JoyFillLightSetActivity.initStepViewData` labels levels `1`, `2`, and `3` as low, medium, and high.
+Its slider fallback values are `40`, `70`, and `120`.
+`JoyFillLightSetVM.requestConfigFillLight` obtains `brightness2` from a configuration map and falls back to `60` when the selected level has no entry.
+These client defaults do not establish device limits or a percentage scale.
+
+Android `JoyPirSenseSetActivity.initPirSenseLevelData` offers level `2` as medium and level `3` as high.
+Its fallback `sense` values are `75` and `60`, respectively.
+The app can replace those values through a configuration map.
+The inspected UI does not establish a physical unit for `sense`.
+
+Android `DeviceOtaMode` defines `0` as automatic, `1` as manual, and `2` as unknown.
+These codes describe update mode rather than update progress or success.
+`otaMode` reads do not establish that a firmware update is available.
+
+#### State age and update messages
+
+AWS field metadata records reporting times in Unix seconds.
+Device-provided timestamps such as `esp32.connected.timestamp` are separate values with their own format.
+Do not apply the metadata time unit to those values without evidence.
+Use the field metadata to judge the age of a reported value.
+
+The read test also subscribes to `/update/documents` for both shadows.
+AWS accepts those subscriptions, but a 45-second observation receives no update messages.
+This result does not establish a reporting interval or show that updates are unavailable.
+Android handles these messages through `current.state.reported`.
+`/get/accepted` replies place the state directly under `state.reported`.
+
+AWS uses `version` to identify successive versions of a shadow.
+Keep version tracking separate for each camera and shadow.
+A version change does not establish that every field contains a new measurement.
+See the [AWS shadow version and metadata definitions](https://docs.aws.amazon.com/iot/latest/developerguide/device-shadow-document.html).
 
 ### List visits for a day
 
@@ -777,13 +1015,16 @@ These results come from tests against a real account.
 
 ## Open questions
 
+- Charging transitions, including a full battery connected to external power.
+- Battery reporting intervals and observed changes through MQTT `/update/documents`.
+- Privacy and recording transitions, illumination code meanings, and configuration field units.
 - Whether the iPhone uses the Android renewal condition.
 - How renewal behaves near or after the encoded token expiration, and how long
   the previous token remains valid after renewal.
 - History paging with `More` and `Track`.
 - Camera paging and continuation request fields.
 - Camera connection timestamp semantics and subscription code meanings.
-- Which channel reports that a camera is online. The `Topic` messaging topics are one candidate.
+- JOY1 online state transitions through `esp32.connected.status`, including reporting delays.
 - Live video and device replay through the credentials in `AgoraAuth`.
 - Calendar range limits, and behavior with alternate timezone flags.
 - Complete rules for the calendar abnormality summary flags.
