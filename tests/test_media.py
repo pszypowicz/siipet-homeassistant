@@ -295,3 +295,17 @@ async def test_fetch_image_errors(
     assert "amazonaws" not in str(info.value)
     assert "X-Amz" not in str(info.value)
     assert info.value.__cause__ is None
+
+
+async def test_forget_day(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A forgotten older day is read again on the next request."""
+    media = await _media(hass, config_entry)
+    await media.async_day_visits(OLD_DAY)
+    media.forget_day(OLD_DAY)
+    await media.async_day_visits(OLD_DAY)
+    old_reads = [
+        call for call in mock_client.get_day.await_args_list if call.args[0] == OLD_DAY
+    ]
+    assert len(old_reads) == 2

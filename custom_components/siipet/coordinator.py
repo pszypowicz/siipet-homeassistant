@@ -132,6 +132,21 @@ class SiiPetCoordinator(DataUpdateCoordinator[SiiPetData]):
             raise UpdateFailed(str(err)) from err
         return self._snapshot(today, now)
 
+    async def async_refresh_day(self, day: date) -> None:
+        """Read one day of the window again and update the listeners."""
+        if day not in self._days:
+            return
+        now = dt_util.now()
+        today = now.date()
+        until = now.time() if day == today else None
+        try:
+            visits = await self.client.get_day(day, until=until)
+        except SiiPetError as err:
+            _LOGGER.warning("Could not read the visits of %s again: %s", day, err)
+            return
+        self._store(day, visits, now)
+        self.async_set_updated_data(self._snapshot(today, now))
+
     async def _async_refresh_window(self, now: datetime, today: date) -> None:
         synced = False
         if _due(self._synced_at, SYNC_INTERVAL, now):

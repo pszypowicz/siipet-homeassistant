@@ -129,6 +129,10 @@ class SiiPetMedia:
                 ) from None
         raise MediaUnavailable("S3 returned HTTP 403")
 
+    def forget_day(self, day: date) -> None:
+        """Drop a day from the older-day cache."""
+        self._older_days.pop(day, None)
+
     async def _async_presign(self, key: str, lifetime: timedelta) -> str:
         try:
             return await self.signer.async_presign(key, lifetime)

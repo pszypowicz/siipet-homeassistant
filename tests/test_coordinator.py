@@ -477,3 +477,73 @@ async def test_new_visit_on_already_read_past_day_is_new(
     await coordinator.async_refresh()
 
     assert [visit.event_id for visit in coordinator.data.new_visits] == ["old-2"]
+
+
+async def test_refresh_day_shows_an_edit_without_events(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A refreshed day shows the edited visit, and no visit is new."""
+    coordinator = await _coordinator(hass, config_entry)
+    base = fixture_day()
+    edited = DayVisits(
+        tuple(
+            replace(visit, type=VisitType.PEE) if visit.event_id == "ev-1" else visit
+            for visit in base.visits
+        ),
+        base.summaries,
+        False,
+    )
+    mock_client.get_day.side_effect = lambda requested, **_: (
+        edited if requested == TODAY else EMPTY_DAY
+    )
+    mock_client.get_day.reset_mock()
+    await coordinator.async_refresh_day(TODAY)
+    [call] = mock_client.get_day.await_args_list
+    assert call.args[0] == TODAY
+    assert call.kwargs == {"until": time(12, 0)}
+    visit = next(v for v in coordinator.data.days[TODAY] if v.event_id == "ev-1")
+    assert visit.type is VisitType.PEE
+    assert coordinator.data.new_visits == ()
+
+
+async def test_refresh_day_drops_a_deleted_visit(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A refreshed past day in the window no longer holds a deleted visit."""
+    day = TODAY - timedelta(days=2)
+    kept = DayVisits((_visit_on(day, "ev-a"),), {}, False)
+    both = DayVisits((_visit_on(day, "ev-a"), _visit_on(day, "ev-b")), {}, False)
+    mock_client.get_day.side_effect = lambda requested, **_: (
+        both if requested == day else fixture_day() if requested == TODAY else EMPTY_DAY
+    )
+    coordinator = await _coordinator(hass, config_entry)
+    mock_client.get_day.side_effect = lambda requested, **_: (
+        kept if requested == day else fixture_day() if requested == TODAY else EMPTY_DAY
+    )
+    await coordinator.async_refresh_day(day)
+    assert [v.event_id for v in coordinator.data.days[day]] == ["ev-a"]
+
+
+async def test_refresh_day_outside_window_makes_no_call(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A day outside the 7-day window is not read."""
+    coordinator = await _coordinator(hass, config_entry)
+    mock_client.get_day.reset_mock()
+    await coordinator.async_refresh_day(TODAY - timedelta(days=10))
+    mock_client.get_day.assert_not_awaited()
+
+
+async def test_refresh_day_failure_keeps_data(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failed refresh keeps the old data and logs a warning."""
+    coordinator = await _coordinator(hass, config_entry)
+    before = coordinator.data
+    mock_client.get_day.side_effect = SiiPetConnectionError("down")
+    await coordinator.async_refresh_day(TODAY)
+    assert coordinator.data is before
+    assert "Could not read the visits of 2026-09-26 again" in caplog.text
