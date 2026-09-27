@@ -50,7 +50,7 @@ async def test_diagnostics(
         CONF_CLIENT_ID: REDACTED,
     }
 
-    # Also guards the ids that the summary leaves out today.
+    # Also guards the ids that the summary does not include.
     text = json.dumps(result, default=str)
     for private in (
         load_data("login.json")["Token"],
