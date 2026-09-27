@@ -39,6 +39,13 @@ x-timezone: <IANA timezone>
 user-agent: lc01-app/2.1.5
 ```
 
+The server checks `x-device-model`. Live tests show that it accepts values that
+start with `iPhone` or `android-phone`, and rejects the other values that were
+tested. The iOS app sends the device name, for example `iPhone 16 Pro`. The
+Android app sends `android-phone <model>`. With a rejected value, sign-in still
+succeeds, but every authenticated call fails with envelope `Code` -2. The
+integration sends `android-phone Home Assistant`.
+
 A bearer token grants access to whoever holds it. The app sends the bearer token
 from `Data.Token` in the login response. That response reports `ExpireAt` about
 15 days after sign-in. The token itself contains an expiration about 30 days
@@ -643,7 +650,7 @@ They were not tested against the service unless this section says so.
 | `X-Timestamp`         | Milliseconds since the Unix epoch            |
 | `Authorization`       | `Bearer <token>` after sign-in               |
 
-The integration sends the header set of the captured iOS app, because direct tests show that the API accepts it.
+The integration sends the header set of the captured iOS app with an Android-style `x-device-model`. Live tests show that the API accepts this mix.
 
 ### Day list paging
 
@@ -701,8 +708,22 @@ captured server config does not list.
 
 These results come from tests against a real account.
 
-- A SiiPet account allows one signed-in device. While the SiiPet phone app holds a session, a new email-code sign-in still returns a token, but every call with that token fails with envelope `Code` -2 and `Msg` "token illegal, other device device has logged in". The phone keeps its session.
-- Sending the same `x-device-identifier` as the phone app does not change this.
+- The server checks `x-device-model` on authenticated calls. With the same valid token and the same `x-device-identifier`, only the model changed:
+
+  | `x-device-model`                 | Result    |
+  | -------------------------------- | --------- |
+  | `Home Assistant`                 | `Code` -2 |
+  | `HomeAssistant`                  | `Code` -2 |
+  | `Mac`                            | `Code` -2 |
+  | `iPhone`                         | `Code` 0  |
+  | `iPhone 16 Pro`                  | `Code` 0  |
+  | `iPhone 16 Pro (Home Assistant)` | `Code` 0  |
+  | `android-phone Home Assistant`   | `Code` 0  |
+
+- The -2 response has `Msg` "token illegal, other device device has logged in". The message is misleading. The token is valid, and no other device caused the error.
+- The `Accept`, `Accept-Language`, and `Accept-Encoding` headers do not change the result.
+- The email-code sign-in returned `Code` 0 with the model `Home Assistant`. The error showed on the first authenticated call.
+- During these tests, the phone app stayed signed in after each email-code sign-in from another client.
 - The email code request is rate limited per day: `Code` 10010, `Msg` "Too many request today. Please try again tomorrow."
 - A wrong email code is `Code` 10004 (already handled).
 
@@ -727,5 +748,8 @@ These results come from tests against a real account.
   account can be used instead of the admin account.
 - Which envelope codes the server returns for an expired or invalid token. The
   app treats -2 and -4 as an ended session.
-- Which `x-device-os` and `x-device-model` values the server accepts.
-- Which request fields the server uses to decide that two clients are the same device.
+- Whether the server checks `x-device-os`. `iOS 27.0` works with both model prefixes.
+- Whether an account allows more than one active session. The earlier -2 results
+  came from the model header, so they do not answer this.
+- Whether a sign-in from Home Assistant ends the session of the phone app once
+  Home Assistant uses its token.

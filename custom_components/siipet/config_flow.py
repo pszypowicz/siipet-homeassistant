@@ -150,11 +150,14 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
         return {}
 
     async def _async_check_session(self, client: SiiPetClient) -> dict[str, str]:
-        """Read the cats once to confirm the new session survives. Return form errors."""
+        """Read the cats once to confirm that SiiPet accepts the new session.
+
+        Return form errors.
+        """
         try:
             await client.get_cats()
         except SiiPetAuthError:
-            return {"base": "session_in_use"}
+            return {"base": "session_rejected"}
         except SiiPetConnectionError:
             return {"base": "cannot_connect"}
         except SiiPetError:

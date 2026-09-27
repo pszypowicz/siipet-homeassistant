@@ -151,8 +151,10 @@ async def test_code_errors(
     assert result["type"] is FlowResultType.CREATE_ENTRY
 
 
-async def test_code_session_in_use(hass: HomeAssistant, mock_client: AsyncMock) -> None:
-    """A session already held by another device shows an error, and a retry works."""
+async def test_code_session_rejected(
+    hass: HomeAssistant, mock_client: AsyncMock
+) -> None:
+    """A new session that fails its first read shows an error, and a retry works."""
     flow_id = await _start(hass)
     await hass.config_entries.flow.async_configure(
         flow_id, {CONF_EMAIL: "cat@example.com"}
@@ -162,7 +164,7 @@ async def test_code_session_in_use(hass: HomeAssistant, mock_client: AsyncMock) 
         flow_id, {CONF_CODE: "012345"}
     )
     assert result["step_id"] == "code"
-    assert result["errors"] == {"base": "session_in_use"}
+    assert result["errors"] == {"base": "session_rejected"}
 
     mock_client.get_cats.side_effect = None
     result = await hass.config_entries.flow.async_configure(
