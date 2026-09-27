@@ -6,13 +6,14 @@ from datetime import date, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.util import dt as dt_util
 
-from .api import Visit
+from .api import SiiPetAuthError, Visit
 from .const import DOMAIN, UNKNOWN_CAT_ID
 from .coordinator import SiiPetConfigEntry, SiiPetData
+from .media import MediaError
 
 # The day list keeps today and the 30 days before it.
 HISTORY_DAYS = 30
@@ -98,3 +99,22 @@ def check_history_day(data: SiiPetData, day: date) -> None:
                 "last": data.today.isoformat(),
             },
         )
+
+
+async def async_read_day(
+    hass: HomeAssistant, entry: SiiPetConfigEntry, day: date
+) -> tuple[Visit, ...]:
+    """Return the visits of a day, newest first, or raise request_failed.
+
+    An auth error also starts reauth.
+    """
+    try:
+        return await entry.runtime_data.media.async_day_visits(day)
+    except MediaError as err:
+        if isinstance(err.__cause__, SiiPetAuthError):
+            entry.async_start_reauth(hass)
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="request_failed",
+            translation_placeholders={"error": str(err)},
+        ) from err

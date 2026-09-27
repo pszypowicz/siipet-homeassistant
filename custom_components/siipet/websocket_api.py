@@ -15,13 +15,20 @@ from homeassistant.helpers import config_validation as cv
 import voluptuous as vol
 
 from .api import Visit
-from .const import DOMAIN, UNKNOWN_CAT_ID
+from .const import UNKNOWN_CAT_ID
 from .coordinator import SiiPetData
-from .media import MediaError, MediaKind
+from .media import MediaKind
 from .views import image_path
-from .visit_data import cat_id, check_history_day, device_ids, loaded_entry, visit_dict
+from .visit_data import (
+    async_read_day,
+    cat_id,
+    check_history_day,
+    device_ids,
+    loaded_entry,
+    visit_dict,
+)
 
-# Long enough for a dashboard that stays open. The card reads again after 30 minutes.
+# Long enough for a dashboard that stays open. The card must read again before the paths expire.
 SIGNED_PATH_LIFETIME = timedelta(hours=1)
 
 type _Handler = Callable[
@@ -167,14 +174,7 @@ async def ws_day(
     owner = None
     if "cat" in msg:
         owner = cat_id(hass, entry, msg["cat"], allow_unknown=True)
-    try:
-        visits = await runtime.media.async_day_visits(msg["date"])
-    except MediaError as err:
-        raise HomeAssistantError(
-            translation_domain=DOMAIN,
-            translation_key="request_failed",
-            translation_placeholders={"error": str(err)},
-        ) from err
+    visits = await async_read_day(hass, entry, msg["date"])
     data = runtime.coordinator.data
     if owner is not None:
         visits = tuple(visit for visit in visits if owner in data.cat_ids(visit))

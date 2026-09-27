@@ -29,8 +29,8 @@ from .api import (
 from .api.edits import Annotate, EditCall, EditNotPossible, plan_edit
 from .const import DOMAIN, UNKNOWN_CAT_ID, UNKNOWN_CAT_NAME
 from .coordinator import SiiPetConfigEntry, SiiPetRuntime
-from .media import MediaError
 from .visit_data import (
+    async_read_day,
     cat_id,
     check_history_day,
     device_ids,
@@ -122,16 +122,7 @@ async def _async_list_visits(call: ServiceCall) -> ServiceResponse:
         cat_filter = cat_id(hass, entry, call.data[ATTR_CAT], allow_unknown=True)
     visits: list[Visit] = []
     for offset in range(call.data[ATTR_DAYS]):
-        try:
-            visits.extend(
-                await runtime.media.async_day_visits(last - timedelta(days=offset))
-            )
-        except MediaError as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="request_failed",
-                translation_placeholders={"error": str(err)},
-            ) from err
+        visits.extend(await async_read_day(hass, entry, last - timedelta(days=offset)))
     if cat_filter is not None:
         visits = [visit for visit in visits if cat_filter in data.cat_ids(visit)]
     devices = device_ids(hass, entry)

@@ -8,6 +8,7 @@ import json
 from typing import Any
 from unittest.mock import AsyncMock
 
+from homeassistant.config_entries import SOURCE_REAUTH
 from homeassistant.core import HomeAssistant
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -19,7 +20,7 @@ from pytest_homeassistant_custom_component.typing import (
     WebSocketGenerator,
 )
 
-from custom_components.siipet.api import SiiPetConnectionError
+from custom_components.siipet.api import SiiPetAuthError, SiiPetConnectionError
 from custom_components.siipet.const import DOMAIN, UNKNOWN_CAT_ID
 
 from .common import EMPTY_DAY, TODAY, fixture_day, setup_integration, siipet_device_id
@@ -205,6 +206,24 @@ async def test_day_errors(
     assert response["error"]["translation_key"] == key
     assert response["error"]["translation_domain"] == DOMAIN
     assert "Error handling message" not in caplog.text
+
+
+async def test_day_auth_error_starts_reauth(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """An auth error on an older day raises a translated error and starts reauth."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_day.side_effect = SiiPetAuthError("-2: token illegal")
+    day = TODAY - timedelta(days=20)
+    response = await _ws(hass, hass_ws_client, type="siipet/day", date=day.isoformat())
+    assert not response["success"]
+    assert response["error"]["translation_key"] == "request_failed"
+    await hass.async_block_till_done()
+    flows = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+    assert [flow["context"]["source"] for flow in flows] == [SOURCE_REAUTH]
 
 
 async def test_queue(

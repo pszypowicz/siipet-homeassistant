@@ -133,6 +133,20 @@ async def test_list_visits_older_day_failure(
     assert info.value.translation_key == "request_failed"
 
 
+async def test_list_visits_older_day_auth_error_starts_reauth(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """An auth error on an older day raises a translated error and starts reauth."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_day.side_effect = SiiPetAuthError("-2: token illegal")
+    with pytest.raises(HomeAssistantError) as info:
+        await _list(hass, date=(TODAY - timedelta(days=20)).isoformat())
+    assert info.value.translation_key == "request_failed"
+    await hass.async_block_till_done()
+    flows = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+    assert [flow["context"]["source"] for flow in flows] == [SOURCE_REAUTH]
+
+
 @pytest.mark.parametrize("offset", [31, -1])
 async def test_list_visits_date_out_of_range(
     hass: HomeAssistant,
