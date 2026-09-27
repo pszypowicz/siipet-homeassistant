@@ -36,6 +36,9 @@ AUTH_ERROR_CODES: frozenset[int] = frozenset({-2, -4})
 WRONG_CODE = 10004
 # Envelope code for too many email code requests in one day.
 TOO_MANY_REQUESTS = 10010
+# Wait after a failed renewal. The token's encoded expiry is 15 days after
+# ExpireAt, so an hourly retry leaves a wide margin.
+RENEW_RETRY_MS = 3_600_000
 
 
 @contextmanager
@@ -76,6 +79,8 @@ class SiiPetClient:
         self._base_url = base_url
         self._clock = clock
         self._renew_lock = asyncio.Lock()
+        self._renew_retry_at = 0
+        self._renew_warned = False
 
     @property
     def session(self) -> Session | None:
@@ -159,20 +164,41 @@ class SiiPetClient:
         return await self._send(path, body, token=session.token)
 
     async def _ensure_session(self) -> Session:
-        """Renew the token when less than one day remains before `ExpireAt`."""
+        """Renew the token when less than one day remains before `ExpireAt`.
+
+        A renewal that fails without an auth error keeps the current token,
+        and the next try waits `RENEW_RETRY_MS`.
+        """
         if self._session is None:
             raise SiiPetAuthError("No session. Sign in first.")
-        if not needs_renewal(self._session.expire_at, self._now_ms()):
+        if not self._renewal_due():
             return self._session
         async with self._renew_lock:
-            if needs_renewal(self._session.expire_at, self._now_ms()):
+            if self._renewal_due():
                 try:
                     await self._renew()
-                except SiiPetConnectionError as err:
-                    # The token's encoded expiry is later than ExpireAt, so keep
-                    # it and retry later.
-                    _LOGGER.debug("Token renewal failed, retry later: %s", err)
+                except SiiPetAuthError:
+                    raise
+                except SiiPetError as err:
+                    self._renew_retry_at = self._now_ms() + RENEW_RETRY_MS
+                    if self._renew_warned:
+                        _LOGGER.debug("Could not renew the SiiPet token: %s", err)
+                    else:
+                        _LOGGER.warning(
+                            "Could not renew the SiiPet token, retry in one hour: %s",
+                            err,
+                        )
+                        self._renew_warned = True
+                else:
+                    self._renew_warned = False
         return self._session
+
+    def _renewal_due(self) -> bool:
+        assert self._session is not None
+        now = self._now_ms()
+        return needs_renewal(self._session.expire_at, now) and (
+            now >= self._renew_retry_at
+        )
 
     async def _renew(self) -> None:
         """Exchange the current token for a new one."""

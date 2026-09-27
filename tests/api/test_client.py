@@ -363,12 +363,23 @@ async def test_one_renewal_for_parallel_calls(
     assert len(updates) == 1
 
 
-async def test_renewal_connection_error_keeps_token(
-    websession: aiohttp.ClientSession, aioclient_mock: AiohttpClientMocker
+@pytest.mark.parametrize(
+    "refresh",
+    [
+        {"exc": aiohttp.ClientConnectionError()},
+        {"json": {"Code": 1001, "Msg": "busy", "Data": None}},
+        {"json": {"Code": 0, "Msg": "success", "Data": None}},
+    ],
+    ids=["connection", "api-error", "malformed"],
+)
+async def test_renewal_failure_keeps_token(
+    websession: aiohttp.ClientSession,
+    aioclient_mock: AiohttpClientMocker,
+    refresh: dict[str, Any],
 ) -> None:
-    """A renewal that cannot connect keeps the old token for this call."""
+    """A renewal that fails without an auth error keeps the old token for the call."""
     updates: list[Session] = []
-    aioclient_mock.post(url("user/token/refresh"), exc=aiohttp.ClientConnectionError())
+    aioclient_mock.post(url("user/token/refresh"), **refresh)
     aioclient_mock.post(url("user/pet/sync"), json=load_fixture("pet_sync.json"))
     client = make_client(websession, session=DUE, updates=updates)
     await client.get_cats()
@@ -376,6 +387,37 @@ async def test_renewal_connection_error_keeps_token(
     assert sync_headers["authorization"] == f"Bearer {TOKEN}"
     assert updates == []
     assert client.session == DUE
+
+
+async def test_renewal_retries_after_one_hour(
+    websession: aiohttp.ClientSession,
+    aioclient_mock: AiohttpClientMocker,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """After a failed renewal, calls skip renewal for one hour and warn once."""
+    now = [NOW_MS / 1000]
+    client = SiiPetClient(
+        websession,
+        client_id="client-uuid-0001",
+        time_zone="Europe/Warsaw",
+        session=DUE,
+        clock=lambda: now[0],
+    )
+    aioclient_mock.post(url("user/token/refresh"), exc=aiohttp.ClientConnectionError())
+    aioclient_mock.post(url("user/pet/sync"), json=load_fixture("pet_sync.json"))
+
+    await client.get_cats()
+    now[0] += 3599
+    await client.get_cats()
+    await client.get_cats()
+    assert len(calls(aioclient_mock, "user/token/refresh")) == 1
+
+    now[0] += 1
+    await client.get_cats()
+    assert len(calls(aioclient_mock, "user/token/refresh")) == 2
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "renew" in warnings[0].getMessage()
 
 
 async def test_renewal_auth_error_raises(
