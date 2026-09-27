@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -120,32 +121,40 @@ class SiiPetCoordinator(DataUpdateCoordinator[SiiPetData]):
         self._unknown_refs: set[str] = set()
         self._seen: set[str] | None = None
         self._warned_more = False
+        # A regular update that read a day before an edit or a delete must not
+        # store that day after the day refresh. A stale day can bring back a
+        # deleted visit, and the next snapshot then reports it as new.
+        self._lock = asyncio.Lock()
 
     async def _async_update_data(self) -> SiiPetData:
-        now = dt_util.now()
-        today = now.date()
-        try:
-            await self._async_refresh_window(now, today)
-        except SiiPetAuthError as err:
-            raise ConfigEntryAuthFailed(str(err)) from err
-        except SiiPetError as err:
-            raise UpdateFailed(str(err)) from err
-        return self._snapshot(today, now)
+        async with self._lock:
+            now = dt_util.now()
+            today = now.date()
+            try:
+                await self._async_refresh_window(now, today)
+            except SiiPetAuthError as err:
+                raise ConfigEntryAuthFailed(str(err)) from err
+            except SiiPetError as err:
+                raise UpdateFailed(str(err)) from err
+            return self._snapshot(today, now)
 
     async def async_refresh_day(self, day: date) -> None:
         """Read one day of the window again and update the listeners."""
-        if day not in self._days:
-            return
-        now = dt_util.now()
-        today = now.date()
-        until = now.time() if day == today else None
-        try:
-            visits = await self.client.get_day(day, until=until)
-        except SiiPetError as err:
-            _LOGGER.warning("Could not read the visits of %s again: %s", day, err)
-            return
-        self._store(day, visits, now)
-        self.async_set_updated_data(self._snapshot(today, now))
+        async with self._lock:
+            if day not in self._days:
+                return
+            now = dt_util.now()
+            today = now.date()
+            until = now.time() if day == today else None
+            try:
+                visits = await self.client.get_day(day, until=until)
+            except SiiPetError as err:
+                _LOGGER.warning("Could not read the visits of %s again: %s", day, err)
+                # The next regular update reads the day again.
+                self._read_at.pop(day, None)
+                return
+            self._store(day, visits, now)
+            self.async_set_updated_data(self._snapshot(today, now))
 
     async def _async_refresh_window(self, now: datetime, today: date) -> None:
         synced = False

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from datetime import date, time, timedelta
 import logging
@@ -547,3 +548,55 @@ async def test_refresh_day_failure_keeps_data(
     await coordinator.async_refresh_day(TODAY)
     assert coordinator.data is before
     assert "Could not read the visits of 2026-09-26 again" in caplog.text
+
+
+async def test_refresh_day_failure_reads_the_day_at_the_next_update(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    frozen_time: FrozenDateTimeFactory,
+) -> None:
+    """A past day whose refresh failed is read at the next regular update."""
+    coordinator = await _coordinator(hass, config_entry)
+    day = TODAY - timedelta(days=2)
+    mock_client.get_day.side_effect = SiiPetConnectionError("down")
+    await coordinator.async_refresh_day(day)
+
+    mock_client.get_day.side_effect = lambda requested, **_: (
+        fixture_day() if requested == TODAY else EMPTY_DAY
+    )
+    mock_client.get_day.reset_mock()
+    frozen_time.tick(timedelta(minutes=5))
+    await coordinator.async_refresh()
+    assert _days(mock_client) == [TODAY, day]
+
+
+async def test_refresh_day_waits_for_a_running_update(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A day refresh reads nothing until a running update ends."""
+    coordinator = await _coordinator(hass, config_entry)
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls: list[date] = []
+
+    async def get_day(requested: date, **_: object) -> DayVisits:
+        calls.append(requested)
+        if not release.is_set():
+            started.set()
+            await release.wait()
+        return fixture_day() if requested == TODAY else EMPTY_DAY
+
+    mock_client.get_day.side_effect = get_day
+    update = hass.async_create_task(coordinator.async_refresh())
+    await started.wait()
+    refresh = hass.async_create_task(coordinator.async_refresh_day(TODAY))
+    for _ in range(5):
+        await asyncio.sleep(0)
+    assert calls == [TODAY]
+
+    release.set()
+    await update
+    await refresh
+    assert calls == [TODAY, TODAY]
+    assert coordinator.last_update_success is True
