@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.const import EVENT_STATE_CHANGED, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_capture_events,
@@ -158,23 +159,29 @@ async def test_visit_does_not_refire_after_failed_update(
     assert hass.states.get("event.luna_visit").state == first_state
 
 
-async def test_new_cat_fires_its_first_visit(
+async def test_new_cat_fires_its_first_visits(
     hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
 ) -> None:
-    """The first visit of a cat that appears in the same update fires once."""
+    """The first visits of a cat that appears in the same update fire once, in order."""
     await setup_integration(hass, config_entry)
     cats = dict(mock_client.get_cats.return_value)
     cats["pet-nala"] = Cat(pet_id="pet-nala", name="Nala", avatar_key=None)
     mock_client.get_cats.return_value = cats
     base = fixture_day()
-    first = replace(
-        base.visits[0],
-        event_id="ev-7",
-        pet_ids=("pet-nala",),
-        type=VisitType.POOP,
-        start=base.visits[0].start.replace(hour=10),
+    first, second = (
+        replace(
+            base.visits[0],
+            event_id=event_id,
+            pet_ids=("pet-nala",),
+            type=visit_type,
+            start=base.visits[0].start.replace(hour=hour),
+        )
+        for event_id, visit_type, hour in (
+            ("ev-7", VisitType.POOP, 10),
+            ("ev-8", VisitType.PEE, 11),
+        )
     )
-    day = DayVisits((*base.visits, first), base.summaries, False)
+    day = DayVisits((*base.visits, second, first), base.summaries, False)
     mock_client.get_day.side_effect = lambda requested, **_: (
         day if requested == TODAY else EMPTY_DAY
     )
@@ -191,7 +198,10 @@ async def test_new_cat_fires_its_first_visit(
         if change.data["entity_id"] == "event.nala_visit"
         and change.data["new_state"].attributes.get("event_type")
     ]
-    assert [(a["event_type"], a["event_id"]) for a in fired] == [("poop", "ev-7")]
+    assert [(a["event_type"], a["event_id"]) for a in fired] == [
+        ("poop", "ev-7"),
+        ("pee", "ev-8"),
+    ]
     unknown = [
         change
         for change in changes
@@ -199,3 +209,23 @@ async def test_new_cat_fires_its_first_visit(
         and change.data["new_state"].attributes.get("event_id") == "ev-7"
     ]
     assert unknown == []
+
+
+async def test_rename_does_not_fire_again(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    frozen_time: FrozenDateTimeFactory,
+) -> None:
+    """A renamed event entity does not fire the visits of the current update again."""
+    await setup_integration(hass, config_entry)
+    await _add_visits(hass, mock_client, config_entry)
+    before = hass.states.get("event.luna_visit")
+    frozen_time.tick(timedelta(minutes=1))
+    er.async_get(hass).async_update_entity(
+        "event.luna_visit", new_entity_id="event.luna_renamed"
+    )
+    await hass.async_block_till_done()
+    after = hass.states.get("event.luna_renamed")
+    assert after.state == before.state
+    assert after.attributes["event_id"] == before.attributes["event_id"]

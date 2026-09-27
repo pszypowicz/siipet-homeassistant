@@ -38,7 +38,15 @@ class SiiPetVisitEvent(SiiPetCatEntity, EventEntity):
     async def async_added_to_hass(self) -> None:
         """Fire the new visits of the update that added this entity."""
         await super().async_added_to_hass()
-        self._fire_new_visits(self.coordinator.data)
+        data = self.coordinator.data
+        if data is self._handled_data:
+            # A rename adds the same entity again.
+            return
+        self._handled_data = data
+        # Home Assistant drops state writes until the entity is fully added,
+        # so fire on the next loop iteration.
+        handle = self.hass.loop.call_soon(self._fire_new_visits, data)
+        self.async_on_remove(handle.cancel)
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -49,17 +57,17 @@ class SiiPetVisitEvent(SiiPetCatEntity, EventEntity):
             # changed.
             super()._handle_coordinator_update()
             return
+        self._handled_data = data
         if not self._fire_new_visits(data):
             super()._handle_coordinator_update()
 
     @callback
     def _fire_new_visits(self, data: SiiPetData) -> bool:
-        """Fire each new visit of this cat once. Return True if any fired."""
+        """Fire each new visit of this cat in the snapshot. Return True if any fired."""
         fired = False
         for visit in data.new_visits:
             if self.cat_id in data.cat_ids(visit):
                 self._trigger_event(visit.type.key, visit_attributes(data, visit))
                 self.async_write_ha_state()
                 fired = True
-        self._handled_data = data
         return fired
