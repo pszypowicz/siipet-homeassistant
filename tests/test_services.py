@@ -506,6 +506,19 @@ async def test_update_auth_error_starts_reauth(
     assert [flow["context"]["source"] for flow in flows] == [SOURCE_REAUTH]
 
 
+async def test_update_drops_the_calendar_month(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """An edit drops the calendar month of the visit, so the next read calls the API."""
+    await setup_integration(hass, config_entry)
+    calendar = config_entry.runtime_data.calendar
+    await calendar.async_month("pet-luna", TODAY)
+    mock_client.get_visit.side_effect = [_detail(), _detail(note="x")]
+    await _update(hass, event_id="ev-1", note="x")
+    await calendar.async_month("pet-luna", TODAY)
+    assert mock_client.get_calendar.await_count == 2
+
+
 async def test_update_older_visit_drops_its_cached_day(
     hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
 ) -> None:

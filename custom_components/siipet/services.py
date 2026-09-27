@@ -199,9 +199,10 @@ async def _async_send(client: SiiPetClient, event_id: str, edit: EditCall) -> No
 
 
 async def _async_after_change(runtime: SiiPetRuntime, visit: Visit) -> None:
-    """Show the change: drop the cached day and read it again."""
+    """Show the change: drop the cached day and month, and read the day again."""
     day = dt_util.as_local(visit.start).date()
     runtime.media.forget_day(day)
+    runtime.calendar.forget(day)
     await runtime.coordinator.async_refresh_day(day)
 
 

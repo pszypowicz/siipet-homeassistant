@@ -12,6 +12,7 @@ from homeassistant.helpers.typing import ConfigType
 
 from .api import Session, SiiPetClient
 from .api.s3 import S3Signer
+from .calendar_data import SiiPetCalendar
 from .const import CONF_CLIENT_ID, CONF_EXPIRE_AT, CONF_TOKEN, DOMAIN, UNKNOWN_CAT_ID
 from .coordinator import SiiPetConfigEntry, SiiPetCoordinator, SiiPetRuntime
 from .media import SiiPetMedia
@@ -62,7 +63,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: SiiPetConfigEntry) -> bo
         hass, coordinator, client, S3Signer(client.get_media_credentials)
     )
     entry.runtime_data = SiiPetRuntime(
-        client=client, coordinator=coordinator, media=media
+        client=client,
+        coordinator=coordinator,
+        media=media,
+        calendar=SiiPetCalendar(client),
     )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True

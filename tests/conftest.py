@@ -13,6 +13,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.siipet.api import (
     AbnormalLabels,
+    CalendarDay,
     Camera,
     Cat,
     MediaCredentials,
@@ -81,6 +82,10 @@ def mock_client_class() -> Generator[MagicMock]:
         client.request_email_code.return_value = None
         client.get_media_credentials.return_value = MediaCredentials.from_api(
             load_data("aws_auth.json")
+        )
+        client.get_calendar.return_value = tuple(
+            CalendarDay.from_api(item)
+            for item in load_data("pet_calendar.json")["DataCalendar"]
         )
         yield client_class
 
