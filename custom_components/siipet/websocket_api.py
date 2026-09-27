@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterable
-from datetime import timedelta
+from datetime import date, timedelta
 import functools
 from typing import Any
 
@@ -14,12 +14,13 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 import voluptuous as vol
 
-from .api import Visit
-from .const import UNKNOWN_CAT_ID
+from .api import SiiPetAuthError, SiiPetError, Visit
+from .const import DOMAIN, UNKNOWN_CAT_ID
 from .coordinator import SiiPetData
 from .media import MediaKind
 from .views import image_path
 from .visit_data import (
+    HISTORY_DAYS,
     async_read_day,
     cat_id,
     check_history_day,
@@ -40,6 +41,7 @@ type _Handler = Callable[
 def async_setup_websocket_api(hass: HomeAssistant) -> None:
     """Register the websocket commands of the card."""
     websocket_api.async_register_command(hass, ws_cats)
+    websocket_api.async_register_command(hass, ws_calendar)
     websocket_api.async_register_command(hass, ws_day)
     websocket_api.async_register_command(hass, ws_queue)
 
@@ -149,6 +151,66 @@ async def ws_cats(
                 "device_id": devices.get(UNKNOWN_CAT_ID),
                 "waiting": len(data.visits(UNKNOWN_CAT_ID)),
             },
+        },
+    )
+
+
+def _month(value: Any) -> date:
+    """Validate a `YYYY-MM` month and return its first day."""
+    try:
+        return date.fromisoformat(f"{cv.string(value)}-01")
+    except ValueError as err:
+        raise vol.Invalid("Expected a month as YYYY-MM") from err
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "siipet/calendar",
+        vol.Required("month"): _month,
+        vol.Optional("cat"): cv.string,
+    }
+)
+@websocket_api.async_response
+@_translated_errors
+async def ws_calendar(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return the pee and poop counts and the markers of each day of a month."""
+    entry = loaded_entry(hass)
+    runtime = entry.runtime_data
+    data = runtime.coordinator.data
+    pet_ids = list(data.cats)
+    if "cat" in msg:
+        owner = cat_id(hass, entry, msg["cat"], allow_unknown=True)
+        # The Unknown cat has no pet id, so the API has no calendar for it.
+        pet_ids = [] if owner == UNKNOWN_CAT_ID else [owner]
+    days: dict[str, dict[str, Any]] = {}
+    for pet_id in pet_ids:
+        try:
+            month = await runtime.calendar.async_month(pet_id, msg["month"])
+        except SiiPetError as err:
+            if isinstance(err, SiiPetAuthError):
+                entry.async_start_reauth(hass)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="request_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
+        for day in month:
+            total = days.setdefault(
+                day.date.isoformat(), {"visits": 0, "abnormal": 0, "marked": False}
+            )
+            total["visits"] += day.normal + day.abnormal
+            total["abnormal"] += day.abnormal
+            total["marked"] = total["marked"] or day.abnormal > 0 or day.flagged
+    connection.send_result(
+        msg["id"],
+        {
+            "days": days,
+            "first": (data.today - timedelta(days=HISTORY_DAYS)).isoformat(),
+            "last": data.today.isoformat(),
         },
     )
 

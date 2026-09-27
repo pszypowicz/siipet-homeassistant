@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 from http import HTTPStatus
 import json
 from typing import Any
@@ -20,10 +20,21 @@ from pytest_homeassistant_custom_component.typing import (
     WebSocketGenerator,
 )
 
-from custom_components.siipet.api import SiiPetAuthError, SiiPetConnectionError
+from custom_components.siipet.api import (
+    CalendarDay,
+    SiiPetAuthError,
+    SiiPetConnectionError,
+)
 from custom_components.siipet.const import DOMAIN, UNKNOWN_CAT_ID
 
-from .common import EMPTY_DAY, TODAY, fixture_day, setup_integration, siipet_device_id
+from .common import (
+    EMPTY_DAY,
+    TODAY,
+    fixture_day,
+    load_data,
+    setup_integration,
+    siipet_device_id,
+)
 
 COVER_URL = "https://media-bucket.s3.amazonaws.com/events/ev-1/cover.jpg"
 
@@ -281,3 +292,143 @@ async def test_signed_cover_path_loads_without_login(
     image = await client.get(path)
     assert image.status == HTTPStatus.OK
     assert await image.read() == b"jpeg-bytes"
+
+
+def _milo_month(pet_id: str, first: date, last: date) -> tuple[CalendarDay, ...]:
+    """Luna gets the fixture month. Milo gets two days of his own."""
+    if pet_id == "pet-luna":
+        return tuple(
+            CalendarDay.from_api(item)
+            for item in load_data("pet_calendar.json")["DataCalendar"]
+        )
+    return (
+        CalendarDay(date(2026, 9, 24), 1, 0, 60000, 0, False),
+        CalendarDay(date(2026, 9, 26), 0, 1, 0, 70000, True),
+    )
+
+
+async def test_calendar_one_cat(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """One cat's month counts pee and poop, and marks abnormal or flagged days."""
+    await setup_integration(hass, config_entry)
+    response = await _ws(
+        hass,
+        hass_ws_client,
+        type="siipet/calendar",
+        month="2026-09",
+        cat=siipet_device_id(hass, config_entry, "pet-luna"),
+    )
+    assert response["result"] == {
+        "days": {
+            "2026-09-24": {"visits": 4, "abnormal": 1, "marked": True},
+            "2026-09-25": {"visits": 2, "abnormal": 0, "marked": True},
+            "2026-09-26": {"visits": 2, "abnormal": 0, "marked": False},
+        },
+        "first": "2026-08-27",
+        "last": "2026-09-26",
+    }
+    mock_client.get_calendar.assert_awaited_once_with(
+        "pet-luna", date(2026, 9, 1), date(2026, 9, 30)
+    )
+
+
+async def test_calendar_all_cats(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """Without a cat, the month adds the days of every cat together."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_calendar.side_effect = _milo_month
+    response = await _ws(hass, hass_ws_client, type="siipet/calendar", month="2026-09")
+    assert response["result"]["days"] == {
+        "2026-09-24": {"visits": 5, "abnormal": 1, "marked": True},
+        "2026-09-25": {"visits": 2, "abnormal": 0, "marked": True},
+        "2026-09-26": {"visits": 3, "abnormal": 1, "marked": True},
+    }
+    assert [call.args[0] for call in mock_client.get_calendar.await_args_list] == [
+        "pet-luna",
+        "pet-milo",
+    ]
+
+
+async def test_calendar_is_cached(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """A second read of the same month makes no API call."""
+    await setup_integration(hass, config_entry)
+    for _ in range(2):
+        await _ws(hass, hass_ws_client, type="siipet/calendar", month="2026-09")
+    assert mock_client.get_calendar.await_count == 2
+
+
+async def test_calendar_unknown_cat(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """The Unknown cat has no calendar."""
+    await setup_integration(hass, config_entry)
+    response = await _ws(
+        hass,
+        hass_ws_client,
+        type="siipet/calendar",
+        month="2026-09",
+        cat=siipet_device_id(hass, config_entry, UNKNOWN_CAT_ID),
+    )
+    assert response["result"]["days"] == {}
+    mock_client.get_calendar.assert_not_awaited()
+
+
+@pytest.mark.parametrize("month", ["2026-9", "2026-13", "09-2026"])
+async def test_calendar_bad_month(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+    month: str,
+) -> None:
+    """A month that is not YYYY-MM is refused before any call."""
+    await setup_integration(hass, config_entry)
+    response = await _ws(hass, hass_ws_client, type="siipet/calendar", month=month)
+    assert response["error"]["code"] == "invalid_format"
+    mock_client.get_calendar.assert_not_awaited()
+
+
+async def test_calendar_request_failed(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """A failed calendar read gives request_failed."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_calendar.side_effect = SiiPetConnectionError("down")
+    response = await _ws(hass, hass_ws_client, type="siipet/calendar", month="2026-09")
+    assert response["error"]["code"] == "home_assistant_error"
+    assert response["error"]["translation_key"] == "request_failed"
+
+
+async def test_calendar_auth_error_starts_reauth(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """An auth error gives request_failed and starts reauth."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_calendar.side_effect = SiiPetAuthError("-2: token illegal")
+    response = await _ws(hass, hass_ws_client, type="siipet/calendar", month="2026-09")
+    assert response["error"]["translation_key"] == "request_failed"
+    await hass.async_block_till_done()
+    flows = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+    assert [flow["context"]["source"] for flow in flows] == [SOURCE_REAUTH]
