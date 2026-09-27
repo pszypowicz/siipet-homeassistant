@@ -50,7 +50,9 @@ You need a tool that shows the requests of the SiiPet app, for example a proxy a
 4. In Home Assistant, add the integration and choose **Paste an access token**.
 5. Paste both values.
 
-Home Assistant renews the token automatically, one day before the token expires.
+Home Assistant then uses the same session and device identifier as the SiiPet app.
+It renews the token automatically, on the same schedule as the SiiPet app.
+It is not known yet if a renewal on one side ends the session on the other side.
 
 Do not share the access token. It gives full access to your SiiPet account.
 

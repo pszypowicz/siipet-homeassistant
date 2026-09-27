@@ -44,6 +44,7 @@
       "cannot_connect": "Cannot connect to SiiPet. Try again later.",
       "code_request_failed": "SiiPet did not send a code. Check the email address and try again.",
       "invalid_code": "The code is not correct or it expired.",
+      "invalid_device_identifier": "Paste the value of the x-device-identifier header.",
       "invalid_email": "Enter a valid email address.",
       "invalid_token": "This is not a SiiPet access token. Copy the complete value after Bearer.",
       "login_failed": "SiiPet rejected the sign-in. Go back and request a new code.",

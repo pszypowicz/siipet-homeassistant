@@ -36,9 +36,9 @@ from custom_components.siipet.const import (
 from .common import load_data, make_token
 
 LOGIN = load_data("login.json")
-# The exp claim of the fixture token, in milliseconds.
-LOGIN_EXP_MS = 1_792_972_800_000
 NEW_TOKEN = make_token("user-0001", exp=1_795_000_000)
+# The exp claim of NEW_TOKEN minus 15 days, in milliseconds.
+NEW_TOKEN_EXPIRE_AT = 1_793_704_000_000
 PHONE_DEVICE = "phone-device-0001"
 
 
@@ -121,6 +121,7 @@ async def test_invalid_email(hass: HomeAssistant, mock_client: AsyncMock) -> Non
         flow_id, {CONF_EMAIL: "not-an-email"}
     )
     assert result["errors"] == {CONF_EMAIL: "invalid_email"}
+    assert _suggested(result, CONF_EMAIL) == "not-an-email"
     mock_client.request_email_code.assert_not_awaited()
 
 
@@ -247,14 +248,47 @@ async def test_token_flow(
     assert result["data"] == {
         CONF_AUTH_METHOD: AUTH_TOKEN,
         CONF_TOKEN: LOGIN["Token"],
-        CONF_EXPIRE_AT: LOGIN_EXP_MS,
+        CONF_EXPIRE_AT: LOGIN["ExpireAt"],
         CONF_CLIENT_ID: PHONE_DEVICE,
     }
     kwargs = mock_client_class.call_args.kwargs
     assert kwargs["client_id"] == PHONE_DEVICE
-    assert kwargs["session"] == Session(LOGIN["Token"], LOGIN_EXP_MS)
+    assert kwargs["session"] == Session(LOGIN["Token"], LOGIN["ExpireAt"])
     mock_client.get_cats.assert_awaited_once()
     mock_client.login.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "pasted",
+    [
+        f"Bearer\t{LOGIN['Token']}",
+        f"bearer\n{LOGIN['Token']}",
+        f"  BEARER   {LOGIN['Token']}\n",
+    ],
+)
+async def test_token_bearer_prefix(
+    hass: HomeAssistant, mock_client: AsyncMock, pasted: str
+) -> None:
+    """A Bearer prefix with any spaces or line breaks is removed."""
+    flow_id = await _start(hass, "token")
+    result = await hass.config_entries.flow.async_configure(
+        flow_id, {CONF_TOKEN: pasted, CONF_DEVICE_IDENTIFIER: PHONE_DEVICE}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_TOKEN] == LOGIN["Token"]
+
+
+async def test_token_blank_device_identifier(
+    hass: HomeAssistant, mock_client: AsyncMock
+) -> None:
+    """A device identifier of only spaces shows an error and sends no request."""
+    flow_id = await _start(hass, "token")
+    result = await hass.config_entries.flow.async_configure(
+        flow_id, {CONF_TOKEN: LOGIN["Token"], CONF_DEVICE_IDENTIFIER: "   "}
+    )
+    assert result["step_id"] == "token"
+    assert result["errors"] == {CONF_DEVICE_IDENTIFIER: "invalid_device_identifier"}
+    mock_client.get_cats.assert_not_awaited()
 
 
 @pytest.mark.parametrize(
@@ -316,6 +350,29 @@ async def test_token_renewed_during_check(
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_TOKEN] == NEW_TOKEN
     assert result["data"][CONF_EXPIRE_AT] == 1_800_000_000_000
+
+
+async def test_token_renewed_session_survives_retry(
+    hass: HomeAssistant, mock_client_class: MagicMock, mock_client: AsyncMock
+) -> None:
+    """A retry reuses a session that renewed before a failed read."""
+    renewed = Session(NEW_TOKEN, 1_800_000_000_000)
+
+    async def renew_then_fail() -> dict[str, Any]:
+        mock_client_class.call_args.kwargs["on_session_update"](renewed)
+        raise SiiPetConnectionError("down")
+
+    mock_client.get_cats.side_effect = renew_then_fail
+    flow_id = await _start(hass, "token")
+    user_input = {CONF_TOKEN: LOGIN["Token"], CONF_DEVICE_IDENTIFIER: PHONE_DEVICE}
+    result = await hass.config_entries.flow.async_configure(flow_id, user_input)
+    assert result["errors"] == {"base": "cannot_connect"}
+
+    mock_client.get_cats.side_effect = None
+    result = await hass.config_entries.flow.async_configure(flow_id, user_input)
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert mock_client_class.call_args.kwargs["session"] == renewed
+    assert result["data"][CONF_TOKEN] == NEW_TOKEN
 
 
 async def test_single_instance(
@@ -398,7 +455,7 @@ async def test_reauth_email_entry_with_token(
     assert result["reason"] == "reauth_successful"
     assert config_entry.data[CONF_AUTH_METHOD] == AUTH_TOKEN
     assert config_entry.data[CONF_TOKEN] == NEW_TOKEN
-    assert config_entry.data[CONF_EXPIRE_AT] == 1_795_000_000_000
+    assert config_entry.data[CONF_EXPIRE_AT] == NEW_TOKEN_EXPIRE_AT
     assert config_entry.data[CONF_CLIENT_ID] == PHONE_DEVICE
     assert config_entry.data[CONF_EMAIL] == "cat@example.com"
 
@@ -416,7 +473,7 @@ async def test_reauth_token_entry(
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
     assert token_entry.data[CONF_TOKEN] == NEW_TOKEN
-    assert token_entry.data[CONF_EXPIRE_AT] == 1_795_000_000_000
+    assert token_entry.data[CONF_EXPIRE_AT] == NEW_TOKEN_EXPIRE_AT
 
 
 async def test_reauth_token_entry_wrong_account(

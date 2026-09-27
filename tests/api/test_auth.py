@@ -71,9 +71,9 @@ def test_session_user_id() -> None:
 
 
 def test_session_from_token() -> None:
-    """A token without its login response expires at its exp claim."""
-    token = load_data("login.json")["Token"]
-    assert session_from_token(token) == Session(token, 1_792_972_800_000)
+    """A token without its login response gets the ExpireAt of that response."""
+    data = load_data("login.json")
+    assert session_from_token(data["Token"]) == Session(data["Token"], data["ExpireAt"])
 
 
 @pytest.mark.parametrize(

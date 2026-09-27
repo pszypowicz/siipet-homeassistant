@@ -16,6 +16,8 @@ from .errors import SiiPetError
 
 NONCE_SIZE = 12
 RENEW_MARGIN_MS = 86_400_000
+# A login response reports `ExpireAt` 15 days before the `exp` claim of its token.
+EXP_AFTER_EXPIRE_AT_MS = 15 * 86_400_000
 
 
 def encrypt_challenge(
@@ -67,9 +69,9 @@ class Session:
 def session_from_token(token: str) -> Session:
     """Build a session for a token without its login response.
 
-    `ExpireAt` is the `exp` claim of the token, in milliseconds.
+    `ExpireAt` is 15 days before the `exp` claim, as in a login response.
     """
     exp = read_token_payload(token).get("exp")
     if not isinstance(exp, int | float) or isinstance(exp, bool):
         raise SiiPetError("The token has no exp claim")
-    return Session(token, int(exp * 1000))
+    return Session(token, int(exp * 1000) - EXP_AFTER_EXPIRE_AT_MS)

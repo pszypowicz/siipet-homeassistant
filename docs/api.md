@@ -158,7 +158,8 @@ Unix epoch. This inspection reads the payload without authenticating its signatu
 
 For the captured email login, `exp` is about 30 days after sign-in. It is exactly
 15 days later than `Data.ExpireAt` in the same response. These timestamps alone
-do not establish the lifetime that the server enforces.
+do not establish the lifetime that the server enforces. For a pasted token, the
+integration uses `exp` minus 15 days as `ExpireAt`.
 
 The Android package `com.linkric.siipetapp` contains `UserRepository.checkUserLoginToken`.
 The inspected version is 2.1.1.
@@ -754,3 +755,5 @@ These results come from tests against a real account.
   came from the model header, so they do not answer this.
 - Whether a sign-in from Home Assistant ends the session of the phone app once
   Home Assistant uses its token.
+- Whether a renewal ends the other session when Home Assistant and the phone app
+  use the same token and `x-device-identifier`, in either direction.

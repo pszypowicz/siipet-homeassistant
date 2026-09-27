@@ -67,12 +67,11 @@ SIGN_IN_METHODS = ["email", "token"]
 
 
 def _clean_token(value: str) -> str:
-    """Remove spaces and a `Bearer` prefix from a pasted token."""
-    token = value.strip()
-    scheme, _, rest = token.partition(" ")
-    if scheme.lower() == "bearer":
-        token = rest.strip()
-    return token
+    """Remove white space and a `Bearer` prefix from a pasted token."""
+    parts = value.split(None, 1)
+    if len(parts) == 2 and parts[0].lower() == "bearer":
+        return parts[1].strip()
+    return value.strip()
 
 
 class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -85,6 +84,9 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
         self._email = ""
         self._client_id = str(uuid.uuid4())
         self._device_identifier = ""
+        # Sessions that renewed during a token check, by pasted token, so that
+        # a retry after a failed read keeps the renewal.
+        self._renewed: dict[str, Session] = {}
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -109,7 +111,7 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="email",
             data_schema=self.add_suggested_values_to_schema(
-                EMAIL_SCHEMA, {CONF_EMAIL: self._email}
+                EMAIL_SCHEMA, user_input or {CONF_EMAIL: self._email}
             ),
             errors=errors,
         )
@@ -159,22 +161,28 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             self._device_identifier = user_input[CONF_DEVICE_IDENTIFIER].strip()
+            if not self._device_identifier:
+                errors[CONF_DEVICE_IDENTIFIER] = "invalid_device_identifier"
+            token = _clean_token(user_input[CONF_TOKEN])
             try:
-                session = session_from_token(_clean_token(user_input[CONF_TOKEN]))
+                session = self._renewed.get(token) or session_from_token(token)
                 user_id = session.user_id
             except SiiPetError:
                 errors[CONF_TOKEN] = "invalid_token"
-            else:
-                renewed: list[Session] = []
+            if not errors:
+
+                def _keep_renewed(renewed: Session) -> None:
+                    self._renewed[token] = renewed
+
                 client = self._client(
                     self._device_identifier,
                     session=session,
-                    on_session_update=renewed.append,
+                    on_session_update=_keep_renewed,
                 )
                 errors = await self._async_check_session(client, "token_rejected")
                 if not errors:
                     return await self._async_finish(
-                        renewed[-1] if renewed else session,
+                        self._renewed.get(token, session),
                         user_id,
                         AUTH_TOKEN,
                         self._device_identifier,

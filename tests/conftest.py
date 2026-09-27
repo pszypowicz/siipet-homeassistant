@@ -105,14 +105,15 @@ def config_entry(hass: HomeAssistant) -> MockConfigEntry:
 @pytest.fixture
 def token_entry(hass: HomeAssistant) -> MockConfigEntry:
     """A SiiPet entry from a pasted token, with the phone's device identifier."""
+    login = load_data("login.json")
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="SiiPet",
         unique_id="user-0001",
         data={
             CONF_AUTH_METHOD: AUTH_TOKEN,
-            CONF_TOKEN: load_data("login.json")["Token"],
-            CONF_EXPIRE_AT: 1_792_972_800_000,
+            CONF_TOKEN: login["Token"],
+            CONF_EXPIRE_AT: login["ExpireAt"],
             CONF_CLIENT_ID: "phone-device-0001",
         },
     )
