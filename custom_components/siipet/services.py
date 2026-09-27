@@ -22,6 +22,7 @@ from .api import (
     SiiPetApiError,
     SiiPetAuthError,
     SiiPetClient,
+    SiiPetConnectionError,
     SiiPetError,
     Visit,
     VisitType,
@@ -229,6 +230,7 @@ def _request_failed(
     err: SiiPetError,
     key: str,
     event_id: str,
+    **placeholders: str,
 ) -> HomeAssistantError:
     """Return the translated error for a failed request, and start reauth on auth errors."""
     if isinstance(err, SiiPetAuthError):
@@ -236,7 +238,11 @@ def _request_failed(
     return HomeAssistantError(
         translation_domain=DOMAIN,
         translation_key=key,
-        translation_placeholders={"event_id": event_id, "error": str(err)},
+        translation_placeholders={
+            "event_id": event_id,
+            "error": str(err),
+            **placeholders,
+        },
     )
 
 
@@ -293,10 +299,12 @@ async def _async_update_visit(call: ServiceCall) -> None:
     event_id = call.data[ATTR_EVENT_ID]
     cats = None
     if ATTR_CATS in call.data:
-        cats = [
-            _cat_id(hass, entry, device_id, allow_unknown=False)
-            for device_id in call.data[ATTR_CATS]
-        ]
+        cats = list(
+            dict.fromkeys(
+                _cat_id(hass, entry, device_id, allow_unknown=False)
+                for device_id in call.data[ATTR_CATS]
+            )
+        )
     visit_type = VISIT_TYPES[call.data[ATTR_TYPE]] if ATTR_TYPE in call.data else None
     note = call.data[ATTR_NOTE].strip() if ATTR_NOTE in call.data else None
     visit = await _async_read_visit(hass, entry, event_id)
@@ -311,13 +319,24 @@ async def _async_update_visit(call: ServiceCall) -> None:
         for edit in edits:
             await _async_send(runtime.client, event_id, edit)
             sent += 1
+    except SiiPetError as err:
+        if not sent and not isinstance(err, SiiPetConnectionError):
+            raise _request_failed(hass, entry, err, "request_failed", event_id) from err
+        # A timeout or an HTTP error does not prove that SiiPet skipped the
+        # call. A retry without the type can plan from a half-changed visit,
+        # so the error names the type to ask for.
+        requested = visit_type if visit_type is not None else visit.type
+        error = _request_failed(
+            hass, entry, err, "edit_partial", event_id, type=requested.key
+        )
+        await _async_after_change(runtime, visit)
+        raise error from err
+    try:
         check = await runtime.client.get_visit(event_id)
     except SiiPetError as err:
-        key = "edit_partial" if 0 < sent < len(edits) else "request_failed"
-        raise _request_failed(hass, entry, err, key, event_id) from err
+        raise _request_failed(hass, entry, err, "edit_unconfirmed", event_id) from err
     finally:
-        if sent:
-            await _async_after_change(runtime, visit)
+        await _async_after_change(runtime, visit)
     target = None
     if cats is not None or visit_type is not None:
         target = visit_type if visit_type is not None else visit.type

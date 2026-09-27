@@ -385,7 +385,98 @@ async def test_update_partial(
             type="pee",
         )
     assert info.value.translation_key == "edit_partial"
+    assert info.value.translation_placeholders["type"] == "pee"
     assert mock_client.get_day.await_count == reads + 1
+
+
+async def test_update_partial_reassign_of_pee_visit(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A failed operation 3 after a reassign of a pee visit names the type pee."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_visit.side_effect = [_detail(type=VisitType.PEE)]
+    mock_client.annotate.side_effect = [None, SiiPetApiError(1001, "busy")]
+    reads = mock_client.get_day.await_count
+    with pytest.raises(HomeAssistantError) as info:
+        await _update(
+            hass, event_id="ev-1", cats=[_device_id(hass, config_entry, "pet-milo")]
+        )
+    assert info.value.translation_key == "edit_partial"
+    assert info.value.translation_placeholders["type"] == "pee"
+    assert mock_client.get_day.await_count == reads + 1
+
+
+async def test_update_first_call_connection_error(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A connection error on the first of two calls can be a partial change."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_visit.side_effect = [_detail()]
+    mock_client.annotate.side_effect = SiiPetConnectionError("timeout")
+    reads = mock_client.get_day.await_count
+    with pytest.raises(HomeAssistantError) as info:
+        await _update(
+            hass,
+            event_id="ev-1",
+            cats=[_device_id(hass, config_entry, "pet-milo")],
+            type="pee",
+        )
+    assert info.value.translation_key == "edit_partial"
+    assert info.value.translation_placeholders["type"] == "pee"
+    assert mock_client.get_day.await_count == reads + 1
+
+
+async def test_update_read_back_fails(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A failed read-back after all calls says the change is not confirmed."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_visit.side_effect = [_detail(), SiiPetConnectionError("down")]
+    reads = mock_client.get_day.await_count
+    with pytest.raises(HomeAssistantError) as info:
+        await _update(hass, event_id="ev-1", type="pee")
+    assert info.value.translation_key == "edit_unconfirmed"
+    assert info.value.translation_placeholders["event_id"] == "ev-1"
+    assert mock_client.get_day.await_count == reads + 1
+
+
+async def test_update_clear_note(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """An empty memo clears the memo, and an empty read-back passes."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_visit.side_effect = [_detail(note="old"), _detail(note="")]
+    await _update(hass, event_id="ev-1", note="")
+    assert _edit_calls(mock_client) == [("set_note", ("ev-1", ""))]
+
+
+async def test_update_reassign_not_applied(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A read-back that still shows the old cat raises an error."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_visit.side_effect = [_detail(), _detail()]
+    with pytest.raises(HomeAssistantError) as info:
+        await _update(
+            hass, event_id="ev-1", cats=[_device_id(hass, config_entry, "pet-milo")]
+        )
+    assert info.value.translation_key == "edit_not_applied"
+
+
+async def test_update_duplicate_cats(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A cat given twice is sent once."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_visit.side_effect = [_detail(), _detail(pet_ids=("pet-milo",))]
+    milo = _device_id(hass, config_entry, "pet-milo")
+    await _update(hass, event_id="ev-1", cats=[milo, milo])
+    assert _edit_calls(mock_client) == [
+        (
+            "annotate",
+            ("ev-1", 2, {"PetIds": ["pet-milo"], "GonePotty": True, "Manual": True}),
+        )
+    ]
 
 
 async def test_update_first_call_fails(
