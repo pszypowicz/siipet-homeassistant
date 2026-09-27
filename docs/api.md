@@ -766,6 +766,13 @@ These results come from tests against a real account.
 - The recordings play in Safari on macOS and on iOS, and in the Home Assistant app on macOS and on iOS.
 - The detail call for an event id that does not exist returns `Code` 10000 with an empty `Msg`.
 - Edits and a delete were tested on visits that the account owner picked. See "Edit a visit" and "Visit delete".
+- The three Home Assistant actions ran against the live account, on visits that the account owner picked. The SiiPet app showed each change.
+  - `siipet.list_visits` returned today and the day before, and a day 20 days back. A date 31 days back was refused.
+  - `siipet.update_visit` moved a poop visit to another cat and back. It set a memo and cleared it with an empty memo. A reassign kept the memo.
+  - It changed a poop visit to pee. A reassign of that pee visit sent op 2 and then op 3, and the visit stayed pee with the new cat.
+  - The same visit then went to poop, lingering, and poop. After pee to poop, `FecesAbnormal` was null, as the op 2 results predict.
+  - A reassign to the Unknown cat, and a type that the visit already had, were refused before any call.
+  - `siipet.delete_visit` deleted a lingering visit, and the visit left the day list.
 - The day list returns visits for today and the 30 days before it. An older day returns an empty list, although the cat summaries report 55 to 63 days of collected data.
 
 ## Open questions
@@ -780,7 +787,8 @@ These results come from tests against a real account.
 - Live video and device replay through the credentials in `AgoraAuth`.
 - Calendar range limits, and behavior with alternate timezone flags.
 - Complete rules for the calendar abnormality summary flags.
-- Live examples of unknown, lingering, and pee events.
+- Live examples of unknown and pee events. Lingering visits occur in the day list.
+- How the server answers op 2 with an empty `PetIds` list. A type edit of an unrecognized visit sends it. No such visit was available for the live check.
 - Stool code edits other than `[0, 0]`, and the effect of `Manual`.
 - Whether S3 removes the media of a deleted visit later.
 - Complete meanings of stool and event abnormality codes.
