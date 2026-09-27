@@ -17,14 +17,17 @@ custom_components/siipet/
     auth.py            challenge encryption, token payload, renewal rule
     challenge_key.py   AES key for the sign-in challenge
     models.py          Cat, Camera, Visit, VisitType, DayVisits, DaySummary, AbnormalLabels, MediaCredentials
+    edits.py           plan_edit: the annotate and memo calls for one visit edit
     errors.py          SiiPetError and its subclasses
     s3.py              SigV4 presigned GET URLs, credential cache
-  __init__.py          setup of the image view, entry setup and unload, device removal
+  __init__.py          setup of the image view and the actions, entry setup and unload, device removal
   config_flow.py       sign-in menu, email and code steps, token step, reauth menu
   const.py             constants: config keys, Unknown cat id, intervals
   coordinator.py       SiiPetCoordinator, SiiPetData, SiiPetRuntime
   entity.py            cat and camera entity bases
   sensor.py  event.py  diagnostics.py
+  services.py          actions: list_visits, update_visit, delete_visit
+  services.yaml        action fields and selectors
   media.py             SiiPetMedia: media keys, recording URLs, image fetch
   media_source.py      media browser: the last 30 days and their visits
   views.py             authenticated image view for covers, stool images, and avatars
@@ -43,6 +46,8 @@ docs/api.md            SiiPet cloud API reference
 - Entities read only `coordinator.data`. They never call the client.
 - `SiiPetData.cat_ids(visit)` decides which cats own a visit.
   A visit with no known cat belongs to the virtual Unknown cat (`UNKNOWN_CAT_ID`).
+- `api/edits.py` has no I/O. `plan_edit` returns the calls, and `services.py` sends them.
+- After an edit or a delete, `services.py` drops the day from the media cache and calls `async_refresh_day`.
 - S3 credentials stay inside `api/`. Other modules get signed URLs from `S3Signer`.
 - Only `media_source.py` returns a signed S3 URL, and only for a recording.
   Images go through the image view in `views.py`, so their signed URLs stay inside Home Assistant.
