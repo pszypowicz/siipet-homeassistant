@@ -8,9 +8,14 @@ import json
 from typing import Any
 from unittest.mock import AsyncMock
 
+from homeassistant.auth.models import User
 from homeassistant.config_entries import SOURCE_REAUTH
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.core import Context, HomeAssistant
+from homeassistant.exceptions import (
+    HomeAssistantError,
+    ServiceValidationError,
+    Unauthorized,
+)
 from homeassistant.helpers import device_registry as dr
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -423,3 +428,66 @@ async def test_update_older_visit_drops_its_cached_day(
     await _list(hass, date=day.isoformat())
     reads = [c for c in mock_client.get_day.await_args_list if c.args[0] == day]
     assert len(reads) == 2
+
+
+async def _delete(hass: HomeAssistant, **data: Any) -> None:
+    await hass.services.async_call(DOMAIN, "delete_visit", data, blocking=True)
+
+
+async def test_delete_visit(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A delete reads the visit, deletes it, and refreshes its day."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_visit.side_effect = [_detail()]
+    reads = mock_client.get_day.await_count
+    await _delete(hass, event_id="ev-1")
+    assert _edit_calls(mock_client) == [("delete_visit", ("ev-1",))]
+    assert mock_client.get_day.await_count == reads + 1
+    assert mock_client.get_day.await_args_list[-1].args[0] == TODAY
+
+
+async def test_delete_unknown_visit(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """An unknown or deleted visit is refused, and nothing is deleted."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_visit.side_effect = SiiPetApiError(40000, "")
+    with pytest.raises(ServiceValidationError) as info:
+        await _delete(hass, event_id="ev-x")
+    assert info.value.translation_key == "unknown_visit"
+    assert _edit_calls(mock_client) == []
+
+
+async def test_delete_fails(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A failed delete raises a translated error and refreshes nothing."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_visit.side_effect = [_detail()]
+    mock_client.delete_visit.side_effect = SiiPetConnectionError("down")
+    reads = mock_client.get_day.await_count
+    with pytest.raises(HomeAssistantError) as info:
+        await _delete(hass, event_id="ev-1")
+    assert info.value.translation_key == "request_failed"
+    assert mock_client.get_day.await_count == reads
+
+
+async def test_delete_needs_admin(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_read_only_user: User,
+) -> None:
+    """A user who is not an admin cannot delete a visit."""
+    await setup_integration(hass, config_entry)
+    with pytest.raises(Unauthorized):
+        await hass.services.async_call(
+            DOMAIN,
+            "delete_visit",
+            {"event_id": "ev-1"},
+            blocking=True,
+            context=Context(user_id=hass_read_only_user.id),
+        )
+    mock_client.get_visit.assert_not_awaited()
+    assert _edit_calls(mock_client) == []

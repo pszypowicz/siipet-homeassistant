@@ -187,6 +187,16 @@
           "description": "The new memo, up to 200 characters. An empty memo clears it."
         }
       }
+    },
+    "delete_visit": {
+      "name": "Delete visit",
+      "description": "Deletes a litter box visit for good. You cannot undo it.",
+      "fields": {
+        "event_id": {
+          "name": "Event ID",
+          "description": "The event_id of the visit, from the List visits response or a Visit event."
+        }
+      }
     }
   },
   "selector": {

@@ -42,3 +42,10 @@ update_visit:
       selector:
         text:
           multiline: true
+
+delete_visit:
+  fields:
+    event_id:
+      required: true
+      selector:
+        text:

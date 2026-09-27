@@ -14,6 +14,7 @@ from homeassistant.core import (
 )
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv, device_registry as dr
+from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.util import dt as dt_util
 import voluptuous as vol
 
@@ -32,6 +33,7 @@ from .media import MediaError
 
 SERVICE_LIST_VISITS = "list_visits"
 SERVICE_UPDATE_VISIT = "update_visit"
+SERVICE_DELETE_VISIT = "delete_visit"
 
 ATTR_CAT = "cat"
 ATTR_CATS = "cats"
@@ -75,6 +77,8 @@ UPDATE_VISIT_SCHEMA = vol.Schema(
     }
 )
 
+DELETE_VISIT_SCHEMA = vol.Schema({vol.Required(ATTR_EVENT_ID): cv.string})
+
 
 @callback
 def async_setup_services(hass: HomeAssistant) -> None:
@@ -91,6 +95,13 @@ def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_UPDATE_VISIT,
         _async_update_visit,
         schema=UPDATE_VISIT_SCHEMA,
+    )
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        SERVICE_DELETE_VISIT,
+        _async_delete_visit,
+        schema=DELETE_VISIT_SCHEMA,
     )
 
 
@@ -316,3 +327,17 @@ async def _async_update_visit(call: ServiceCall) -> None:
             translation_key="edit_not_applied",
             translation_placeholders={"event_id": event_id},
         )
+
+
+async def _async_delete_visit(call: ServiceCall) -> None:
+    """Delete a visit for good."""
+    hass = call.hass
+    entry = _loaded_entry(hass)
+    runtime = entry.runtime_data
+    event_id = call.data[ATTR_EVENT_ID]
+    visit = await _async_read_visit(hass, entry, event_id)
+    try:
+        await runtime.client.delete_visit(event_id)
+    except SiiPetError as err:
+        raise _request_failed(hass, entry, err, "request_failed", event_id) from err
+    await _async_after_change(runtime, visit)
