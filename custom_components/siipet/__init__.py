@@ -10,8 +10,10 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import Session, SiiPetClient
+from .api.s3 import S3Signer
 from .const import CONF_CLIENT_ID, CONF_EXPIRE_AT, CONF_TOKEN, DOMAIN, UNKNOWN_CAT_ID
 from .coordinator import SiiPetConfigEntry, SiiPetCoordinator, SiiPetRuntime
+from .media import SiiPetMedia
 
 PLATFORMS: list[Platform] = [Platform.EVENT, Platform.SENSOR]
 SESSION_KEYS = (CONF_TOKEN, CONF_EXPIRE_AT, CONF_CLIENT_ID)
@@ -44,7 +46,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: SiiPetConfigEntry) -> bo
     )
     coordinator = SiiPetCoordinator(hass, entry, client)
     await coordinator.async_config_entry_first_refresh()
-    entry.runtime_data = SiiPetRuntime(client=client, coordinator=coordinator)
+    media = SiiPetMedia(
+        hass, coordinator, client, S3Signer(client.get_media_credentials)
+    )
+    entry.runtime_data = SiiPetRuntime(
+        client=client, coordinator=coordinator, media=media
+    )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 

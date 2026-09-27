@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 import logging
+from typing import TYPE_CHECKING
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -35,6 +36,9 @@ from .const import (
     WINDOW_DAYS,
 )
 
+if TYPE_CHECKING:
+    from .media import SiiPetMedia
+
 _LOGGER = logging.getLogger(__name__)
 
 # Scheduler jitter can end the twelfth update a moment before an hour has
@@ -48,6 +52,7 @@ class SiiPetRuntime:
 
     client: SiiPetClient
     coordinator: SiiPetCoordinator
+    media: SiiPetMedia
 
 
 type SiiPetConfigEntry = ConfigEntry[SiiPetRuntime]
