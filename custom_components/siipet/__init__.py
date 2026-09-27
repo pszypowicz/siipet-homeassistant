@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryError
@@ -56,7 +57,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: SiiPetConfigEntry) -> b
 async def async_remove_config_entry_device(
     hass: HomeAssistant, entry: SiiPetConfigEntry, device_entry: dr.DeviceEntry
 ) -> bool:
-    """Allow removal of a cat or camera device that the account no longer has."""
+    """Allow removal of a cat or camera device that the account no longer has.
+
+    Without a loaded entry there is no current data, so nothing is removable.
+    """
+    if entry.state is not ConfigEntryState.LOADED:
+        return False
     data = entry.runtime_data.coordinator.data
     current = {UNKNOWN_CAT_ID, *data.cats, *data.cameras}
     return not any(

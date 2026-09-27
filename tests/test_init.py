@@ -139,3 +139,17 @@ async def test_remove_device(
     assert (
         await async_remove_config_entry_device(hass, config_entry, device) is removable
     )
+
+
+async def test_remove_device_while_not_loaded(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A device cannot be removed while the entry is not loaded."""
+    mock_client.get_day.side_effect = SiiPetConnectionError("down")
+    await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert config_entry.state is ConfigEntryState.SETUP_RETRY
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=config_entry.entry_id, identifiers={(DOMAIN, "pet-gone")}
+    )
+    assert await async_remove_config_entry_device(hass, config_entry, device) is False
