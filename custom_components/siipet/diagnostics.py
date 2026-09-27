@@ -24,6 +24,7 @@ TO_REDACT = {
     "Owner",
     "PetId",
     "Phone",
+    "S3Bucket",
     "SN",
     "SecretAccessKey",
     "SessionToken",

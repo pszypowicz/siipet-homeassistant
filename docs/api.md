@@ -624,6 +624,14 @@ See the [Home Assistant media documentation](https://www.home-assistant.io/integ
 Initial playback targets macOS and iPhone clients with native H.265 support.
 Video conversion is outside this scope.
 
+The integration shows the recordings in the Home Assistant media browser:
+
+- A recording resolves to a signed S3 URL. Its lifetime is one hour, or less when the credentials expire sooner.
+- Covers, stool images, and cat avatars go through an authenticated Home Assistant view.
+  The view signs a 5-minute URL, fetches the image on the server, and returns the bytes.
+- The integration renews the credentials 10 minutes before `ExpireTime`.
+  When S3 returns 403 to the image view, the integration gets new credentials and tries once more.
+
 The download and decoding tests establish access to cloud media.
 Playback inside Home Assistant and access to recordings stored only on the device remain untested.
 

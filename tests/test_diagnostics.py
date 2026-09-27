@@ -16,7 +16,10 @@ from custom_components.siipet.const import (
     CONF_EXPIRE_AT,
     CONF_TOKEN,
 )
-from custom_components.siipet.diagnostics import async_get_config_entry_diagnostics
+from custom_components.siipet.diagnostics import (
+    TO_REDACT,
+    async_get_config_entry_diagnostics,
+)
 
 from .common import load_data, setup_integration
 
@@ -63,3 +66,8 @@ async def test_diagnostics(
         "ev-1",
     ):
         assert private not in text
+
+
+def test_media_credential_keys_are_redacted() -> None:
+    """Every field of the media credentials is on the redaction list."""
+    assert {"AccessKeyId", "SecretAccessKey", "SessionToken", "S3Bucket"} <= TO_REDACT

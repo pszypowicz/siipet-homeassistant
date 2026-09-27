@@ -16,14 +16,18 @@ custom_components/siipet/
     client.py          SiiPetClient: headers, envelope, one method per endpoint
     auth.py            challenge encryption, token payload, renewal rule
     challenge_key.py   AES key for the sign-in challenge
-    models.py          Cat, Camera, Visit, VisitType, DayVisits, DaySummary, AbnormalLabels
+    models.py          Cat, Camera, Visit, VisitType, DayVisits, DaySummary, AbnormalLabels, MediaCredentials
     errors.py          SiiPetError and its subclasses
-  __init__.py          entry setup and unload
+    s3.py              SigV4 presigned GET URLs, credential cache
+  __init__.py          setup of the image view, entry setup and unload, device removal
   config_flow.py       sign-in menu, email and code steps, token step, reauth menu
   const.py             constants: config keys, Unknown cat id, intervals
   coordinator.py       SiiPetCoordinator, SiiPetData, SiiPetRuntime
   entity.py            cat and camera entity bases
   sensor.py  event.py  diagnostics.py
+  media.py             SiiPetMedia: media keys, recording URLs, image fetch
+  media_source.py      media browser: the last 30 days and their visits
+  views.py             authenticated image view for covers, stool images, and avatars
   translations/en.json
   brand/               icon.png and icon@2x.png, loaded by Home Assistant 2026.3 and later
 tests/
@@ -39,6 +43,9 @@ docs/api.md            SiiPet cloud API reference
 - Entities read only `coordinator.data`. They never call the client.
 - `SiiPetData.cat_ids(visit)` decides which cats own a visit.
   A visit with no known cat belongs to the virtual Unknown cat (`UNKNOWN_CAT_ID`).
+- Only `api/s3.py` and `media.py` handle S3 credentials.
+- Only `media_source.py` returns a signed S3 URL, and only for a recording.
+  Images go through the image view in `views.py`, so their signed URLs stay inside Home Assistant.
 
 ## API facts that are easy to get wrong
 
@@ -64,7 +71,7 @@ This repo is public. Keep these values out of commits, tests, logs, and entity a
 
 - Tokens, emails, and passwords.
 - Camera serial numbers, `UserId`, `GroupId`, `PetId`, and messaging topics.
-- S3 credentials, media keys, and signed URLs.
+- S3 credentials, the bucket name, media keys, and signed URLs.
 - Raw API captures. Build test fixtures from the documented shapes with fake values.
 
 Entity attributes can contain cat names, camera names, event IDs, types, durations, and abnormal data.

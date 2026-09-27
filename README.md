@@ -5,7 +5,7 @@ A Home Assistant custom integration for [SiiPet](https://siipet.com) LitterLens 
 ## Status
 
 The integration is in early development. It signs in to your SiiPet account and polls the SiiPet cloud every 5 minutes.
-It gives statistics and visit events for each cat. Recordings and visit edits come in a later version.
+It gives statistics and visit events for each cat, and it shows the cloud recordings in the media browser. Visit edits come in a later version.
 
 ## Requirements
 
@@ -88,6 +88,19 @@ When a cat or a camera leaves your SiiPet account, its entities become unavailab
 To remove it, open its device page in Home Assistant and choose **Delete**.
 Home Assistant does not let you delete a cat or a camera that is still in the account.
 The delete works only while the SiiPet integration is loaded.
+
+## Recordings
+
+Open **Media** in the Home Assistant sidebar and choose **SiiPet**.
+The list shows the last 30 days. Each day lists its visits, newest first, with the time, the cats, the type, and the duration.
+
+The recordings use H.265 video. Safari and the Home Assistant app on macOS and iOS can play them.
+Other browsers can fail. The integration does not convert video.
+
+A visit marked **(on camera only)** has no cloud recording, so it cannot play.
+
+Home Assistant fetches the thumbnails from the SiiPet cloud for you.
+A recording plays directly from the SiiPet cloud storage, through a link that expires after one hour.
 
 ## Example: notify on an unrecognized visit
 
