@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Any
 
 from homeassistant.core import (
     HomeAssistant,
@@ -13,7 +12,7 @@ from homeassistant.core import (
     callback,
 )
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-from homeassistant.helpers import config_validation as cv, device_registry as dr
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.util import dt as dt_util
 import voluptuous as vol
@@ -29,8 +28,15 @@ from .api import (
 )
 from .api.edits import Annotate, EditCall, EditNotPossible, plan_edit
 from .const import DOMAIN, UNKNOWN_CAT_ID, UNKNOWN_CAT_NAME
-from .coordinator import SiiPetConfigEntry, SiiPetData, SiiPetRuntime
+from .coordinator import SiiPetConfigEntry, SiiPetRuntime
 from .media import MediaError
+from .visit_data import (
+    cat_id,
+    check_history_day,
+    device_ids,
+    loaded_entry,
+    visit_dict,
+)
 
 SERVICE_LIST_VISITS = "list_visits"
 SERVICE_UPDATE_VISIT = "update_visit"
@@ -52,9 +58,6 @@ VISIT_TYPES = {
     "poop": VisitType.POOP,
     "lingering": VisitType.LINGERING,
 }
-
-# The day list keeps today and the 30 days before it.
-HISTORY_DAYS = 30
 
 LIST_VISITS_SCHEMA = vol.Schema(
     {
@@ -106,92 +109,17 @@ def async_setup_services(hass: HomeAssistant) -> None:
     )
 
 
-def _loaded_entry(hass: HomeAssistant) -> SiiPetConfigEntry:
-    entries = hass.config_entries.async_loaded_entries(DOMAIN)
-    if not entries:
-        raise ServiceValidationError(
-            translation_domain=DOMAIN, translation_key="not_loaded"
-        )
-    return entries[0]
-
-
-def _cat_id(
-    hass: HomeAssistant,
-    entry: SiiPetConfigEntry,
-    device_id: str,
-    *,
-    allow_unknown: bool,
-) -> str:
-    """Return the pet id of a cat device, or UNKNOWN_CAT_ID for the Unknown cat."""
-    device = dr.async_get(hass).async_get(device_id)
-    cats = entry.runtime_data.coordinator.data.cats
-    if device is not None and entry.entry_id in device.config_entries:
-        for domain, identifier in device.identifiers:
-            if domain != DOMAIN:
-                continue
-            if identifier in cats or (allow_unknown and identifier == UNKNOWN_CAT_ID):
-                return identifier
-    raise ServiceValidationError(
-        translation_domain=DOMAIN, translation_key="invalid_cat"
-    )
-
-
-def _device_ids(hass: HomeAssistant, entry: SiiPetConfigEntry) -> dict[str, str]:
-    """Map pet ids and UNKNOWN_CAT_ID to their device ids."""
-    registry = dr.async_get(hass)
-    ids: dict[str, str] = {}
-    for cat_id in (*entry.runtime_data.coordinator.data.cats, UNKNOWN_CAT_ID):
-        device = registry.async_get_device_by_identifier(
-            (DOMAIN, cat_id), entry.entry_id
-        )
-        if device is not None:
-            ids[cat_id] = device.id
-    return ids
-
-
-def _visit_response(
-    data: SiiPetData, devices: dict[str, str], visit: Visit
-) -> dict[str, Any]:
-    camera = data.cameras.get(visit.sn)
-    return {
-        "event_id": visit.event_id,
-        "start": dt_util.as_local(visit.start).isoformat(),
-        "duration": round(visit.duration_ms / 1000),
-        "type": visit.type.key,
-        "cats": [
-            {"device_id": devices.get(cat_id), "name": data.cats[cat_id].name}
-            for cat_id in data.cat_ids(visit)
-            if cat_id in data.cats
-        ],
-        "camera": camera.name if camera else None,
-        "note": visit.note,
-        "abnormal": visit.abnormal,
-        "abnormal_reasons": data.labels.reasons(visit),
-        "has_video": visit.cloud_stored and visit.video_key is not None,
-        "has_stool_image": visit.stool_key is not None,
-    }
-
-
 async def _async_list_visits(call: ServiceCall) -> ServiceResponse:
     """Return the visits of up to 7 days that end on `date`, newest first."""
     hass = call.hass
-    entry = _loaded_entry(hass)
+    entry = loaded_entry(hass)
     runtime = entry.runtime_data
     data = runtime.coordinator.data
     last: date = call.data.get(ATTR_DATE, data.today)
-    first_allowed = data.today - timedelta(days=HISTORY_DAYS)
-    if not first_allowed <= last <= data.today:
-        raise ServiceValidationError(
-            translation_domain=DOMAIN,
-            translation_key="date_out_of_range",
-            translation_placeholders={
-                "first": first_allowed.isoformat(),
-                "last": data.today.isoformat(),
-            },
-        )
+    check_history_day(data, last)
     cat_filter = None
     if ATTR_CAT in call.data:
-        cat_filter = _cat_id(hass, entry, call.data[ATTR_CAT], allow_unknown=True)
+        cat_filter = cat_id(hass, entry, call.data[ATTR_CAT], allow_unknown=True)
     visits: list[Visit] = []
     for offset in range(call.data[ATTR_DAYS]):
         try:
@@ -206,7 +134,7 @@ async def _async_list_visits(call: ServiceCall) -> ServiceResponse:
             ) from err
     if cat_filter is not None:
         visits = [visit for visit in visits if cat_filter in data.cat_ids(visit)]
-    devices = _device_ids(hass, entry)
+    devices = device_ids(hass, entry)
     cats = [
         {"device_id": devices.get(pet_id), "name": cat.name, "unknown": False}
         for pet_id, cat in data.cats.items()
@@ -220,7 +148,7 @@ async def _async_list_visits(call: ServiceCall) -> ServiceResponse:
     )
     return {
         "cats": cats,
-        "visits": [_visit_response(data, devices, visit) for visit in visits],
+        "visits": [visit_dict(data, devices, visit) for visit in visits],
     }
 
 
@@ -294,14 +222,14 @@ def _applied(
 async def _async_update_visit(call: ServiceCall) -> None:
     """Change the cats, the type, or the memo of a visit."""
     hass = call.hass
-    entry = _loaded_entry(hass)
+    entry = loaded_entry(hass)
     runtime = entry.runtime_data
     event_id = call.data[ATTR_EVENT_ID]
     cats = None
     if ATTR_CATS in call.data:
         cats = list(
             dict.fromkeys(
-                _cat_id(hass, entry, device_id, allow_unknown=False)
+                cat_id(hass, entry, device_id, allow_unknown=False)
                 for device_id in call.data[ATTR_CATS]
             )
         )
@@ -351,7 +279,7 @@ async def _async_update_visit(call: ServiceCall) -> None:
 async def _async_delete_visit(call: ServiceCall) -> None:
     """Delete a visit for good."""
     hass = call.hass
-    entry = _loaded_entry(hass)
+    entry = loaded_entry(hass)
     runtime = entry.runtime_data
     event_id = call.data[ATTR_EVENT_ID]
     visit = await _async_read_visit(hass, entry, event_id)
