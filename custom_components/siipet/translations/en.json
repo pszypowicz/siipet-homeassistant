@@ -63,6 +63,18 @@
   "exceptions": {
     "entry_outdated": {
       "message": "Remove the SiiPet entry and add it again."
+    },
+    "not_loaded": {
+      "message": "SiiPet is not loaded. Check the SiiPet integration."
+    },
+    "invalid_cat": {
+      "message": "Choose a SiiPet cat device."
+    },
+    "date_out_of_range": {
+      "message": "Choose a date from {first} to {last}."
+    },
+    "request_failed": {
+      "message": "SiiPet could not complete the request: {error}"
     }
   },
   "entity": {
@@ -117,6 +129,26 @@
       },
       "subscription_expires": {
         "name": "Subscription expires"
+      }
+    }
+  },
+  "services": {
+    "list_visits": {
+      "name": "List visits",
+      "description": "Returns the litter box visits of up to 7 days, newest first. The response holds no links.",
+      "fields": {
+        "date": {
+          "name": "Date",
+          "description": "The last day to list. Today or one of the 30 days before it. Default: today."
+        },
+        "days": {
+          "name": "Days",
+          "description": "How many days to list, ending on the date. 1 to 7. Default: 1."
+        },
+        "cat": {
+          "name": "Cat",
+          "description": "List only the visits of this cat. The Unknown cat lists unrecognized visits."
+        }
       }
     }
   }

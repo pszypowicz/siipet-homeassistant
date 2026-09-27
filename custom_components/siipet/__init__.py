@@ -15,6 +15,7 @@ from .api.s3 import S3Signer
 from .const import CONF_CLIENT_ID, CONF_EXPIRE_AT, CONF_TOKEN, DOMAIN, UNKNOWN_CAT_ID
 from .coordinator import SiiPetConfigEntry, SiiPetCoordinator, SiiPetRuntime
 from .media import SiiPetMedia
+from .services import async_setup_services
 from .views import SiiPetImageView
 
 PLATFORMS: list[Platform] = [Platform.EVENT, Platform.SENSOR]
@@ -26,6 +27,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Register the image view once for the integration."""
     hass.http.register_view(SiiPetImageView(hass))
+    async_setup_services(hass)
     return True
 
 
