@@ -86,7 +86,7 @@ async def test_headers_and_envelope(
     assert headers["x-app-version"] == "2.1.5"
     assert headers["user-agent"] == "lc01-app/2.1.5"
     assert headers["x-device-os"] == "iOS 27.0"
-    assert headers["x-device-model"] == "Home Assistant"
+    assert headers["x-device-model"] == "android-phone Home Assistant"
 
 
 async def test_get_cameras(

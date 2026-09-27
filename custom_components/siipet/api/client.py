@@ -20,8 +20,11 @@ _LOGGER = logging.getLogger(__name__)
 BASE_URL = "https://api-siipet.linkric.com"
 APP_VERSION = "2.1.5"
 USER_AGENT = f"lc01-app/{APP_VERSION}"
-DEVICE_MODEL = "Home Assistant"
-# The header set copies the captured iOS app, which the API accepts.
+# If the model does not start with "iPhone" or "android-phone", every
+# authenticated call fails with Code -2.
+DEVICE_MODEL = "android-phone Home Assistant"
+# The other headers copy the captured iOS app. The API accepts them with the
+# Android-style model.
 DEVICE_OS = "iOS 27.0"
 DEVICE_LANGUAGE = "en"
 REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=30)
