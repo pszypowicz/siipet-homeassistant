@@ -6,9 +6,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.siipet import async_remove_config_entry_device
 from custom_components.siipet.api import Session, SiiPetAuthError, SiiPetConnectionError
 from custom_components.siipet.const import (
     CONF_CLIENT_ID,
@@ -115,3 +117,24 @@ async def test_entry_missing_key(
     assert "Remove the SiiPet entry and add it again" in caplog.text
     assert "KeyError" not in caplog.text
     assert hass.config_entries.flow.async_progress_by_handler(DOMAIN) == []
+
+
+@pytest.mark.parametrize(
+    ("identifier", "removable"),
+    [("pet-luna", False), ("unknown", False), ("SN0001", False), ("pet-gone", True)],
+)
+async def test_remove_device(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    identifier: str,
+    removable: bool,
+) -> None:
+    """Only a device that the account no longer has can be removed."""
+    await setup_integration(hass, config_entry)
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=config_entry.entry_id, identifiers={(DOMAIN, identifier)}
+    )
+    assert (
+        await async_remove_config_entry_device(hass, config_entry, device) is removable
+    )

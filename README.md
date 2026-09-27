@@ -82,6 +82,12 @@ The Unknown cat has no baseline entities.
 | -------------------- | ----------------------------------- |
 | Subscription expires | The end of the camera subscription. |
 
+### Removed cats and cameras
+
+When a cat or a camera leaves your SiiPet account, its entities become unavailable.
+To remove it, open its device page in Home Assistant and choose **Delete**.
+Home Assistant does not let you delete a cat or a camera that is still in the account.
+
 ## Example: notify on an unrecognized visit
 
 ```yaml

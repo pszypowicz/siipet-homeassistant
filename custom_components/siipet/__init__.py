@@ -5,10 +5,11 @@ from __future__ import annotations
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import Session, SiiPetClient
-from .const import CONF_CLIENT_ID, CONF_EXPIRE_AT, CONF_TOKEN
+from .const import CONF_CLIENT_ID, CONF_EXPIRE_AT, CONF_TOKEN, DOMAIN, UNKNOWN_CAT_ID
 from .coordinator import SiiPetConfigEntry, SiiPetCoordinator, SiiPetRuntime
 
 PLATFORMS: list[Platform] = [Platform.EVENT, Platform.SENSOR]
@@ -48,3 +49,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: SiiPetConfigEntry) -> bo
 async def async_unload_entry(hass: HomeAssistant, entry: SiiPetConfigEntry) -> bool:
     """Unload a SiiPet config entry."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, entry: SiiPetConfigEntry, device_entry: dr.DeviceEntry
+) -> bool:
+    """Allow removal of a cat or camera device that the account no longer has."""
+    data = entry.runtime_data.coordinator.data
+    current = {UNKNOWN_CAT_ID, *data.cats, *data.cameras}
+    return not any(
+        domain == DOMAIN and identifier in current
+        for domain, identifier in device_entry.identifiers
+    )
