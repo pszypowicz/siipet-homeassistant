@@ -12,6 +12,7 @@ import {
   settle,
   stubTileParts,
   text,
+  UNASSIGNED,
   withState,
 } from "./helpers";
 
@@ -48,11 +49,14 @@ describe("registration", () => {
     const form = cardClass().getConfigForm();
     expect(form.schema).toEqual([
       { name: "cat", selector: { device: { filter: { integration: "siipet", model: "Cat" } } } },
+      { name: "hide_cat_picker", selector: { boolean: {} } },
     ]);
     expect(form.computeLabel({ name: "cat" })).toBe("Cat");
+    expect(form.computeLabel({ name: "hide_cat_picker" })).toBe("Hide the cat picker");
     expect(form.computeHelper({ name: "cat" })).toBe(
       "Optional. Without a cat, the card starts with the first cat.",
     );
+    expect(form.computeHelper({ name: "hide_cat_picker" })).toBe("Keep the card on one cat.");
     expect(new (cardClass())().getGridOptions()).toEqual({
       columns: 12,
       min_columns: 6,
@@ -67,6 +71,15 @@ describe("registration", () => {
     expect(() => card.setConfig({ type: "custom:siipet-visits-card", cat: 3 })).toThrow(
       "The cat option must be a device ID.",
     );
+  });
+
+  it("rejects a hide_cat_picker that is not a boolean", () => {
+    const card = document.createElement("siipet-visits-card") as HTMLElement & {
+      setConfig(config: unknown): void;
+    };
+    expect(() =>
+      card.setConfig({ type: "custom:siipet-visits-card", hide_cat_picker: "yes" }),
+    ).toThrow("The hide_cat_picker option must be true or false.");
   });
 });
 
@@ -349,6 +362,16 @@ describe("unknown queue", () => {
     expect(text(find(card, '.header [slot="primary"]'))).toBe("Unknown");
   });
 
+  it("shows the shared empty-queue text on a cat strip card with no cat to switch to", async () => {
+    const fake = fakeHass({
+      cats: catsResult({ cats: [], unknown: { device_id: "dev-unknown", waiting: 1 } }),
+      queue: { visits: [] },
+    });
+    const card = await mount(fake);
+    expect(text(find(card, '.header [slot="primary"]'))).toBe("Unknown");
+    expect(text(find(card, ".empty"))).toBe("No visits are waiting.");
+  });
+
   it("goes to the first cat when the queue is empty", async () => {
     const fake = fakeHass({ cats: waiting(), queue: { visits: [] } });
     const card = await mount(fake, { cat: "dev-unknown" });
@@ -359,6 +382,66 @@ describe("unknown queue", () => {
     expect(find(card, "ha-control-select.cats")?.value).toBe("dev-luna");
     const options = find(card, "ha-control-select.cats")?.options as { value: string }[];
     expect(options.map((option) => option.value)).toEqual(["dev-luna", "dev-milo"]);
+  });
+});
+
+describe("hide_cat_picker", () => {
+  it("hides the cat strip and stays on the configured cat", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake, { cat: "dev-milo", hide_cat_picker: true });
+    expect(sent(fake)).toEqual([
+      { type: "siipet/cats" },
+      { type: "siipet/day", date: "2026-09-27", cat: "dev-milo" },
+      { type: "siipet/calendar", month: "2026-09", cat: "dev-milo" },
+    ]);
+    expect(find(card, "ha-control-select.cats")).toBeNull();
+  });
+
+  it("hides the cat strip and reads the first cat without a configured cat", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake, { hide_cat_picker: true });
+    expect(sent(fake)[1]).toEqual({ type: "siipet/day", date: "2026-09-27", cat: "dev-luna" });
+    expect(find(card, "ha-control-select.cats")).toBeNull();
+  });
+
+  it("shows the cat strip again when hide_cat_picker turns off, with no restart", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake, { hide_cat_picker: true });
+    expect(find(card, "ha-control-select.cats")).toBeNull();
+    fake.callWS.mockClear();
+
+    card.setConfig({ type: "custom:siipet-visits-card", hide_cat_picker: false });
+    await settle(card);
+    expect(sent(fake)).toEqual([]);
+    expect(find(card, "ha-control-select.cats")).not.toBeNull();
+  });
+
+  it("stays on the Unknown queue at start when it is empty", async () => {
+    const fake = fakeHass({ queue: { visits: [] } });
+    const card = await mount(fake, { cat: "dev-unknown", hide_cat_picker: true });
+    expect(sent(fake)).toEqual([{ type: "siipet/cats" }, { type: "siipet/queue" }]);
+    expect(text(find(card, '.header [slot="primary"]'))).toBe("Unknown");
+    expect(text(find(card, ".empty"))).toBe("No visits are waiting.");
+    expect(find(card, "ha-control-select.cats")).toBeNull();
+  });
+
+  it("stays on the Unknown queue after a refresh finds it empty", async () => {
+    const fake = fakeHass({
+      cats: catsResult({ unknown: { device_id: "dev-unknown", waiting: 1 } }),
+      queue: { visits: [UNASSIGNED] },
+    });
+    const card = await mount(fake, { cat: "dev-unknown", hide_cat_picker: true });
+    expect(findAll(card, ".visit")).toHaveLength(1);
+
+    fake.results.cats = catsResult({ unknown: { device_id: "dev-unknown", waiting: 0 } });
+    fake.results.queue = { visits: [] };
+    fake.callWS.mockClear();
+    fake.listeners.get("ready")!();
+    await settle(card);
+
+    expect(sent(fake)).toEqual([{ type: "siipet/cats" }, { type: "siipet/queue" }]);
+    expect(text(find(card, '.header [slot="primary"]'))).toBe("Unknown");
+    expect(text(find(card, ".empty"))).toBe("No visits are waiting.");
   });
 });
 

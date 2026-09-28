@@ -100,4 +100,5 @@ export interface HomeAssistant {
 export interface CardConfig {
   type: string;
   cat?: string;
+  hide_cat_picker?: boolean;
 }

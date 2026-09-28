@@ -140,12 +140,16 @@ export function renderCalendar(options: CalendarOptions): TemplateResult {
 
 const AVATAR_STYLE = "width: 20px; height: 20px; border-radius: 50%; object-fit: cover";
 
-/** The cat strip, or nothing when there is only one option. */
+/** The cat strip, or nothing when it is hidden or there is only one option. */
 export function renderCatStrip(
   cats: CatsResult,
   selected: string,
+  hidden: boolean,
   onSelect: (deviceId: string) => void,
 ): TemplateResult | typeof nothing {
+  if (hidden) {
+    return nothing;
+  }
   // The option icons render inside ha-control-select, where the card styles do not reach.
   const options = cats.cats.map((cat) => ({
     value: cat.device_id,
@@ -231,7 +235,8 @@ export function renderTimeline(
     return nothing;
   }
   if (visits.length === 0) {
-    return html`<div class="message empty">No visits on this day.</div>`;
+    const text = withDay ? "No visits are waiting." : "No visits on this day.";
+    return html`<div class="message empty">${text}</div>`;
   }
   return html`<div class="timeline">
     ${visits.map((visit) => renderVisit(visit, withDay, onOpen))}

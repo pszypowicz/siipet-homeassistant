@@ -99,18 +99,29 @@ export class SiiPetVisitsCard extends LitElement {
     return {
       schema: [
         { name: "cat", selector: { device: { filter: { integration: "siipet", model: "Cat" } } } },
+        { name: "hide_cat_picker", selector: { boolean: {} } },
       ],
-      computeLabel: (schema: { name: string }) => (schema.name === "cat" ? "Cat" : undefined),
+      computeLabel: (schema: { name: string }) =>
+        schema.name === "cat"
+          ? "Cat"
+          : schema.name === "hide_cat_picker"
+            ? "Hide the cat picker"
+            : undefined,
       computeHelper: (schema: { name: string }) =>
         schema.name === "cat"
           ? "Optional. Without a cat, the card starts with the first cat."
-          : undefined,
+          : schema.name === "hide_cat_picker"
+            ? "Keep the card on one cat."
+            : undefined,
     };
   }
 
   setConfig(config: CardConfig): void {
     if (config.cat !== undefined && (typeof config.cat !== "string" || config.cat === "")) {
       throw new Error("The cat option must be a device ID.");
+    }
+    if (config.hide_cat_picker !== undefined && typeof config.hide_cat_picker !== "boolean") {
+      throw new Error("The hide_cat_picker option must be true or false.");
     }
     const restart = this._started && config.cat !== this._config?.cat;
     this._config = config;
@@ -272,6 +283,10 @@ export class SiiPetVisitsCard extends LitElement {
     return this._cat !== undefined && this._cat === this._cats?.unknown.device_id;
   }
 
+  private _fixed(): boolean {
+    return this._config?.hide_cat_picker === true;
+  }
+
   private _showsLatest(): boolean {
     return this._isQueue() || (this._date !== undefined && this._date === this._cats?.today);
   }
@@ -288,7 +303,7 @@ export class SiiPetVisitsCard extends LitElement {
 
   private _startCat(cats: CatsResult): string | undefined {
     const wanted = this._config?.cat;
-    if (wanted === cats.unknown.device_id && cats.unknown.waiting > 0) {
+    if (wanted === cats.unknown.device_id && (this._fixed() || cats.unknown.waiting > 0)) {
       return wanted;
     }
     return cats.cats.find((cat) => cat.device_id === wanted)?.device_id ?? this._fallbackCat(cats);
@@ -379,7 +394,7 @@ export class SiiPetVisitsCard extends LitElement {
           unknown: { ...this._cats.unknown, waiting: queue.visits.length },
         };
       }
-      if (queue.visits.length === 0) {
+      if (queue.visits.length === 0 && !this._fixed()) {
         const first = this._cats && this._firstCat(this._cats);
         if (first !== undefined) {
           this._selectCat(first);
@@ -440,7 +455,7 @@ export class SiiPetVisitsCard extends LitElement {
       await this._init(cats);
       return;
     }
-    if (this._isQueue() && cats.unknown.waiting === 0) {
+    if (this._isQueue() && cats.unknown.waiting === 0 && !this._fixed()) {
       const next = this._firstCat(cats);
       if (next !== undefined) {
         this._selectCat(next);
@@ -560,7 +575,7 @@ export class SiiPetVisitsCard extends LitElement {
   }
 
   private _renderView(cats: CatsResult, selected: string): TemplateResult {
-    const strip = renderCatStrip(cats, selected, (cat) => this._selectCat(cat));
+    const strip = renderCatStrip(cats, selected, this._fixed(), (cat) => this._selectCat(cat));
     if (this._isQueue()) {
       return renderHeader({
         icon: "mdi:help",
