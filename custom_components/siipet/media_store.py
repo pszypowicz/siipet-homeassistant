@@ -188,8 +188,7 @@ class MediaStore:
     async def async_delete_before(self, day: date) -> None:
         """Delete the day folders before `day`, with their index entries.
 
-        The index is pruned even when the delete fails, so it never points at
-        a folder that a partial delete already removed.
+        The index is pruned even when the delete fails.
         """
         async with self._lock:
             try:

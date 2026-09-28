@@ -231,16 +231,19 @@ class SiiPetMirror:
                     self._add(job)
 
     def _retry_failures(self) -> None:
-        """Add again the failed visit jobs whose wait is over and still due.
+        """Add again the failed jobs of an unpolled day whose wait is over.
 
-        An avatar always comes back from the current cat data above, with its
-        current key, so it is not retried from its failure record.
+        A polled day's current data decides what to queue, so a failure of
+        that day, or of an avatar, is not retried from its own record.
         """
         now = dt_util.utcnow()
+        polled_days = self.coordinator.data.days
         for failure in list(self._failures.values()):
             job = failure.job
             if (
                 job.kind is not None
+                and job.day not in polled_days
+                and job.job_key not in self._pending
                 and failure.retry_at <= now
                 and not self._should_skip(job)
             ):

@@ -456,7 +456,7 @@ async def test_unload_stops_a_daily_run_in_progress(
     """Unloading while the daily backfill waits on a day read drops that day."""
     next_run = datetime.fromisoformat("2026-09-27T00:05:00+00:00")
     old_day = next_run.date() - timedelta(days=9)
-    old = mirror_visit(start=mirror_visit().start - timedelta(days=9))
+    old = mirror_visit(start=mirror_visit().start - timedelta(days=8))
     armed = False
     waiting = asyncio.Event()
     release = asyncio.Event()
@@ -469,6 +469,11 @@ async def test_unload_stops_a_daily_run_in_progress(
         return replace(fixture_day(), visits=())
 
     mock_client.get_day.side_effect = get_day
+    # The fixture credentials expire before the clock reaches the next day.
+    mock_client.get_media_credentials.return_value = replace(
+        mock_client.get_media_credentials.return_value,
+        expires=next_run + timedelta(days=1),
+    )
     mock_s3(aioclient_mock)
     await setup_mirror(hass, config_entry, 10)
 
@@ -714,3 +719,61 @@ async def test_forget_during_a_failing_download_is_not_retried(
     await _refresh(hass, config_entry)
     assert s3_gets(aioclient_mock, "events/ev-1/video.mp4") == 1
     assert not day_folder(media_dir).exists()
+
+
+async def test_a_polled_days_failure_does_not_retry_a_key_that_left_the_data(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    frozen_time: FrozenDateTimeFactory,
+    media_dir: Path,
+) -> None:
+    """A failed recording of a polled day is not retried once it leaves the current data."""
+    serve_days(mock_client, {TODAY: (mirror_visit(video_md5=md5_hex(b"other")),)})
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7)
+    assert not (day_folder(media_dir) / "ev-1.mp4").exists()
+    assert s3_gets(aioclient_mock, "events/ev-1/video.mp4") == 1
+
+    # The current data no longer has a cloud recording for this visit.
+    serve_days(mock_client, {TODAY: (mirror_visit(cloud_stored=False),)})
+    frozen_time.tick(timedelta(minutes=6))
+    await _refresh(hass, config_entry)
+    assert s3_gets(aioclient_mock, "events/ev-1/video.mp4") == 1
+    assert not (day_folder(media_dir) / "ev-1.mp4").exists()
+
+
+async def test_a_changed_recording_is_not_blocked_by_the_old_hashs_backoff(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    frozen_time: FrozenDateTimeFactory,
+    media_dir: Path,
+) -> None:
+    """A polled visit's changed recording downloads without waiting for the old backoff."""
+    new_video = b"video-ev-1-new"
+    video: dict[str, bytes] = {"data": VIDEO}
+
+    async def respond(method: str, url: Any, data: Any) -> AiohttpClientMockResponse:
+        return AiohttpClientMockResponse(method, url, response=video["data"])
+
+    aioclient_mock.get(S3 + "events/ev-1/video.mp4", side_effect=respond)
+    serve_days(mock_client, {TODAY: (mirror_visit(video_md5=md5_hex(b"other")),)})
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7)
+    assert not (day_folder(media_dir) / "ev-1.mp4").exists()
+
+    video["data"] = new_video
+    serve_days(
+        mock_client,
+        {
+            TODAY: (
+                mirror_visit(video_size=len(new_video), video_md5=md5_hex(new_video)),
+            )
+        },
+    )
+    frozen_time.tick(timedelta(minutes=1))
+    await _refresh(hass, config_entry)
+    assert (day_folder(media_dir) / "ev-1.mp4").read_bytes() == new_video
