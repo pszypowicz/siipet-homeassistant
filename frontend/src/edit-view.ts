@@ -136,6 +136,7 @@ export class SiiPetVisitEditor extends LitElement {
   declare _partialEdit: boolean;
 
   private _disarm?: ReturnType<typeof setTimeout>;
+  private _resolveSeq = 0;
 
   constructor() {
     super();
@@ -185,14 +186,31 @@ export class SiiPetVisitEditor extends LitElement {
     return video !== null && !video.paused;
   }
 
+  // A video the user started, even one they then paused, must not be reset by a
+  // renewal answer that lands after they started it.
+  private _isVideoActive(): boolean {
+    const video = this.renderRoot.querySelector("video");
+    return video !== null && (!video.paused || video.currentTime > 0);
+  }
+
   private async _resolveVideo(eventId: string): Promise<void> {
+    const seq = ++this._resolveSeq;
+    // A resolve that finds a URL already in place is a background renewal: its
+    // failure must keep the working player, not replace it with an error note.
+    // Only the first resolve of a visit, which has no player to protect, does.
+    const isRenewal = this._video !== undefined;
     try {
       const url = await resolveVideo(this.hass!, eventId);
-      if (this.visit?.event_id === eventId) {
-        this._video = url;
+      if (this.visit?.event_id !== eventId || seq !== this._resolveSeq) {
+        return;
       }
+      if (this._isVideoActive()) {
+        return;
+      }
+      this._video = url;
+      this._videoNote = undefined;
     } catch (err) {
-      if (this.visit?.event_id === eventId) {
+      if (this.visit?.event_id === eventId && seq === this._resolveSeq && !isRenewal) {
         this._videoNote = errorMessage(err);
       }
     }

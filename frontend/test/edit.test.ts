@@ -460,6 +460,118 @@ describe("edit view", () => {
     expect(video.getAttribute("src")).toBe("https://video.example/ev-1-1.mp4");
   });
 
+  it("keeps the current recording after a failed renewal", async () => {
+    const fake = fakeHass();
+    const original = fake.callWS.getMockImplementation() as (
+      message: Record<string, unknown>,
+    ) => Promise<unknown>;
+    let resolves = 0;
+    fake.callWS.mockImplementation(async (message: Record<string, unknown>) => {
+      if (message.type === "media_source/resolve_media") {
+        resolves += 1;
+        if (resolves === 1) {
+          return { url: "https://video.example/ev-1-a.mp4", mime_type: "video/mp4" };
+        }
+        throw { message: "Media not found" };
+      }
+      return original(message);
+    });
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+    const video = inEditor(editor, "video") as unknown as HTMLVideoElement;
+    expect(video.getAttribute("src")).toBe("https://video.example/ev-1-a.mp4");
+
+    fake.results.day = { ...fake.results.day, visits: [{ ...POOP }, LINGERING] };
+    fake.listeners.get("ready")!();
+    await settle(card);
+
+    const stillVideo = inEditor(editor, "video") as unknown as HTMLVideoElement;
+    expect(stillVideo).not.toBeNull();
+    expect(stillVideo.getAttribute("src")).toBe("https://video.example/ev-1-a.mp4");
+    expect(inEditor(editor, ".video-note")).toBeNull();
+  });
+
+  it("keeps the current recording when the video starts while a renewal is pending", async () => {
+    const fake = fakeHass();
+    const original = fake.callWS.getMockImplementation() as (
+      message: Record<string, unknown>,
+    ) => Promise<unknown>;
+    let resolves = 0;
+    let releaseSecond!: () => void;
+    fake.callWS.mockImplementation(async (message: Record<string, unknown>) => {
+      if (message.type === "media_source/resolve_media") {
+        resolves += 1;
+        if (resolves === 1) {
+          return { url: "https://video.example/ev-1-a.mp4", mime_type: "video/mp4" };
+        }
+        return new Promise((resolve) => {
+          releaseSecond = () =>
+            resolve({ url: "https://video.example/ev-1-b.mp4", mime_type: "video/mp4" });
+        });
+      }
+      return original(message);
+    });
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+    const video = inEditor(editor, "video") as unknown as HTMLVideoElement;
+    expect(video.getAttribute("src")).toBe("https://video.example/ev-1-a.mp4");
+
+    fake.results.day = { ...fake.results.day, visits: [{ ...POOP }, LINGERING] };
+    fake.listeners.get("ready")!();
+    await settle(card);
+
+    await video.play();
+    releaseSecond();
+    await settle(card);
+
+    expect(video.getAttribute("src")).toBe("https://video.example/ev-1-a.mp4");
+  });
+
+  it("applies only the latest resolve when two answer out of order", async () => {
+    const fake = fakeHass();
+    const original = fake.callWS.getMockImplementation() as (
+      message: Record<string, unknown>,
+    ) => Promise<unknown>;
+    let resolves = 0;
+    let releaseFirstRenewal!: () => void;
+    fake.callWS.mockImplementation(async (message: Record<string, unknown>) => {
+      if (message.type === "media_source/resolve_media") {
+        resolves += 1;
+        if (resolves === 1) {
+          return { url: "https://video.example/ev-1-0.mp4", mime_type: "video/mp4" };
+        }
+        if (resolves === 2) {
+          return new Promise((resolve) => {
+            releaseFirstRenewal = () =>
+              resolve({ url: "https://video.example/ev-1-1.mp4", mime_type: "video/mp4" });
+          });
+        }
+        return { url: "https://video.example/ev-1-2.mp4", mime_type: "video/mp4" };
+      }
+      return original(message);
+    });
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+    const video = inEditor(editor, "video") as unknown as HTMLVideoElement;
+    expect(video.getAttribute("src")).toBe("https://video.example/ev-1-0.mp4");
+
+    // First refresh: its renewal (the 2nd resolve call) is held.
+    fake.results.day = { ...fake.results.day, visits: [{ ...POOP }, LINGERING] };
+    fake.listeners.get("ready")!();
+    await settle(card);
+
+    // Second refresh: its renewal (the 3rd resolve call) answers right away.
+    fake.results.day = { ...fake.results.day, visits: [{ ...POOP }, LINGERING] };
+    fake.listeners.get("ready")!();
+    await settle(card);
+    expect(video.getAttribute("src")).toBe("https://video.example/ev-1-2.mp4");
+
+    // The held first renewal answers last and must not override the second's answer.
+    releaseFirstRenewal();
+    await settle(card);
+    expect(video.getAttribute("src")).toBe("https://video.example/ev-1-2.mp4");
+  });
+
   it("keeps the opened visit as the Save baseline through a refresh", async () => {
     const fake = fakeHass();
     const card = await mount(fake);
