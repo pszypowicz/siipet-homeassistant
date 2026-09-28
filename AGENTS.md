@@ -20,7 +20,7 @@ custom_components/siipet/
     edits.py           plan_edit: the annotate and memo calls for one visit edit
     errors.py          SiiPetError and its subclasses
     s3.py              SigV4 presigned GET URLs, credential cache
-  __init__.py          setup of the image view, the actions, and the card commands, entry setup and unload, device removal
+  __init__.py          setup of the image view, the actions, the card commands, and the card, entry setup and unload, device removal
   config_flow.py       sign-in menu, email and code steps, token step, reauth menu
   const.py             constants: config keys, Unknown cat id, intervals
   coordinator.py       SiiPetCoordinator, SiiPetData, SiiPetRuntime
@@ -34,12 +34,17 @@ custom_components/siipet/
   media.py             SiiPetMedia: media keys, recording URLs, image fetch
   media_source.py      media browser: the last 30 days and their visits
   views.py             authenticated image view for covers, stool images, and avatars
+  card.py              serving of the card file, with a content version in its URL
+  frontend/            siipet-visits-card.js, the card bundle built from frontend/ at the repo root
   translations/en.json
   brand/               icon.png and icon@2x.png, loaded by Home Assistant 2026.3 and later
 tests/
   api/                 client tests, with the Home Assistant HTTP mocker
   fixtures/            JSON responses with fake values only
 docs/api.md            SiiPet cloud API reference
+frontend/              source of the dashboard card: TypeScript, Lit, esbuild, vitest
+  src/                 card element, day view, edit view, API calls, date and text helpers
+  test/                card tests with happy-dom and stub tile parts
 ```
 
 ## Boundaries
@@ -56,6 +61,10 @@ docs/api.md            SiiPet cloud API reference
 - Only `media_source.py` returns a signed S3 URL, and only for a recording.
   Images go through the image view in `views.py`, so their signed URLs stay inside Home Assistant.
 - The card commands in `websocket_api.py` sign image view paths for the logged-in user. They return no S3 URL.
+- The card reads only through the `siipet/*` websocket commands and `media_source/resolve_media`.
+  It writes only through `siipet.update_visit` and `siipet.delete_visit`.
+- The card reuses internal tile parts of the Home Assistant frontend. `frontend/src/tile-parts.ts` lists them.
+  If a part is missing, the card names it and shows nothing else.
 
 ## API facts that are easy to get wrong
 
@@ -104,11 +113,25 @@ Run the tests and the linters:
 .venv/bin/ruff format --check .
 ```
 
+The card build needs Node.js 24 or later. Run the card checks in `frontend/`:
+
+```bash
+cd frontend
+npm ci
+npm run check
+```
+
+`npm run check` runs prettier, the type check, the tests, and the build.
+The build writes `custom_components/siipet/frontend/siipet-visits-card.js`.
+Commit that file together with the source change, because HACS installs only `custom_components/siipet/`.
+CI fails when the committed file differs from a new build.
+
 ## Tests
 
 - Write the test first, then the code.
 - Integration tests mock `SiiPetClient` with the fixtures in `tests/conftest.py`.
 - Client tests mock HTTP with the `aioclient_mock` fixture.
+- Card tests define stub tile parts, because the Home Assistant frontend is not available in tests.
 - Tests run in UTC with the time frozen at 2026-09-26 12:00.
 
 ## Style

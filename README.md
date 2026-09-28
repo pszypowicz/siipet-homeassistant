@@ -6,7 +6,7 @@ A Home Assistant custom integration for [SiiPet](https://siipet.com) LitterLens 
 
 The integration is in early development. It signs in to your SiiPet account and polls the SiiPet cloud every 5 minutes.
 It gives statistics and visit events for each cat, and it shows the cloud recordings in the media browser.
-Its actions list, edit, and delete visits.
+Its actions list, edit, and delete visits. A dashboard card shows the visits of each day.
 
 ## Requirements
 
@@ -103,6 +103,73 @@ A visit marked **(on camera only)** has no cloud recording, so it cannot play.
 Home Assistant fetches the thumbnails from the SiiPet cloud for you.
 A recording plays directly from the SiiPet cloud storage, through a link that expires after one hour.
 
+## Dashboard card
+
+The integration adds the **SiiPet visits** card to your dashboards. You do not add a resource.
+
+1. Edit a dashboard and choose **Add card**.
+2. Search for **SiiPet visits** and add it.
+3. Optional: pick a cat. Without a cat, the card starts with your first cat.
+
+```yaml
+type: custom:siipet-visits-card
+cat: <device id of a cat> # optional
+hide_cat_picker: true # optional, keeps the card on one cat
+```
+
+The card shows the visits of one cat on one day, newest first:
+
+- The header shows the cat and the visit counts of the day.
+- Tap the date to open the month calendar. A red dot marks a day with an abnormal visit or a warning.
+  Only today and the 30 days before it open.
+- The cat strip changes the cat. **Unknown** shows while visits of the last 7 days have no cat.
+- Tap a visit to open it. You can play the recording, change the cats, the type, and the memo, and save.
+- Administrators can also delete a visit. Tap **Delete**, then tap again within 5 seconds.
+
+The card uses the tile parts of the Home Assistant frontend, so it looks like the tile cards around it.
+If a Home Assistant update removes one of these parts, the card names the missing part.
+
+The recordings use H.265 video, so the limits in [Recordings](#recordings) apply to the card too.
+
+### One card per cat
+
+To show each cat in its own card, set `cat` and `hide_cat_picker: true` on each card.
+The card then shows no cat picker and stays on its cat.
+
+```yaml
+type: custom:siipet-visits-card
+cat: <device id of a cat>
+hide_cat_picker: true
+```
+
+A card fixed on the Unknown cat shows the visits that have no cat, also when none are waiting.
+
+### Open a visit from a notification
+
+A dashboard link with `?siipet_visit=<event id>` opens that visit in the card.
+A card fixed on a cat opens only the visits of its cat.
+A card with the cat picker changes to the cat and the day of the visit.
+The card finds the visits of the last 7 days.
+
+This automation sends a notification after each visit of one cat. A tap opens the visit.
+Replace the entity, the notify action, and the dashboard path with your own.
+The Home Assistant app on iOS reads `url`, and the app on Android reads `clickAction`.
+
+```yaml
+triggers:
+  - trigger: state
+    entity_id: event.luna_visit
+    not_from: unavailable
+    not_to: unavailable
+actions:
+  - action: notify.mobile_app_phone
+    data:
+      message: "Luna used the litter box: {{ trigger.to_state.attributes.event_type }}."
+      data:
+        url: "/dashboard-cats/cats?siipet_visit={{ trigger.to_state.attributes.event_id }}"
+        clickAction: "/dashboard-cats/cats?siipet_visit={{ trigger.to_state.attributes.event_id }}"
+```
+
 ## Actions
 
 Use the actions in scripts and automations, or in **Developer tools > Actions**.
@@ -148,6 +215,8 @@ You cannot undo a delete.
 
 ## Example: notify on an unrecognized visit
 
+A tap on the notification opens the visit in a card fixed on the Unknown cat, where you can pick the cat and the type.
+
 ```yaml
 triggers:
   - trigger: state
@@ -157,7 +226,10 @@ triggers:
 actions:
   - action: notify.mobile_app_phone
     data:
-      message: "A visit has no cat. Open the SiiPet app to assign it."
+      message: "A visit has no cat. Tap to assign it."
+      data:
+        url: "/dashboard-cats/unknown?siipet_visit={{ trigger.to_state.attributes.event_id }}"
+        clickAction: "/dashboard-cats/unknown?siipet_visit={{ trigger.to_state.attributes.event_id }}"
 ```
 
 ## Example: assign unrecognized visits to your cat

@@ -52,3 +52,21 @@ jobs:
       - run: pip install -r requirements_lint.txt
       - run: ruff check .
       - run: ruff format --check .
+
+  card:
+    name: Card
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      # The committed bundle must match a new build of the source.
+      - run: git diff --exit-code -- ../custom_components/siipet/frontend/
