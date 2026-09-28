@@ -1,3 +1,4 @@
+import { render } from "lit";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { Visit } from "../src/types";
@@ -115,6 +116,32 @@ describe("day view", () => {
     expect(sent(fake)[1]).toEqual({ type: "siipet/day", date: "2026-09-27", cat: "dev-milo" });
     expect(find(card, ".header ha-tile-icon")?.icon).toBe("mdi:cat");
     expect(find(card, "ha-control-select.cats")?.value).toBe("dev-milo");
+  });
+
+  it("renders each cat's name next to its avatar or icon in one row", async () => {
+    const card = await mount(fakeHass());
+    const options = find(card, "ha-control-select.cats")?.options as {
+      value: string;
+      label?: string;
+      ariaLabel?: string;
+      icon: unknown;
+    }[];
+    const [luna, milo] = options;
+    expect(luna.label).toBeUndefined();
+    expect(luna.ariaLabel).toBe("Luna");
+    expect(milo.ariaLabel).toBe("Milo");
+
+    const lunaContainer = document.createElement("div");
+    render(luna.icon, lunaContainer);
+    expect(text(lunaContainer)).toBe("Luna");
+    expect(lunaContainer.querySelector("img")?.getAttribute("src")).toBe(
+      "/api/siipet/image/avatar/p1?authSig=c",
+    );
+
+    const miloContainer = document.createElement("div");
+    render(milo.icon, miloContainer);
+    expect(text(miloContainer)).toBe("Milo");
+    expect(miloContainer.querySelector("ha-icon")?.getAttribute("icon")).toBe("mdi:cat");
   });
 
   it("starts again when the editor changes the cat", async () => {
@@ -428,9 +455,25 @@ describe("unknown queue", () => {
     const busy = await mount(fakeHass({ cats: waiting() }));
     const options = find(busy, "ha-control-select.cats")?.options as {
       value: string;
-      label: string;
+      ariaLabel: string;
     }[];
-    expect(options[2]).toMatchObject({ value: "dev-unknown", label: "Unknown (1)" });
+    expect(options[2]).toMatchObject({ value: "dev-unknown", ariaLabel: "Unknown (1)" });
+  });
+
+  it("renders the Unknown option's icon and name in one row", async () => {
+    const busy = await mount(fakeHass({ cats: waiting() }));
+    const options = find(busy, "ha-control-select.cats")?.options as {
+      value: string;
+      label?: string;
+      icon: unknown;
+    }[];
+    const unknown = options[2];
+    expect(unknown.label).toBeUndefined();
+
+    const container = document.createElement("div");
+    render(unknown.icon, container);
+    expect(text(container)).toBe("Unknown (1)");
+    expect(container.querySelector("ha-icon")?.getAttribute("icon")).toBe("mdi:help");
   });
 
   it("shows the visits without a cat, with the day on each row", async () => {

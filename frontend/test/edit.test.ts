@@ -1,3 +1,4 @@
+import { render } from "lit";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
@@ -316,6 +317,24 @@ describe("edit view", () => {
 
     expect(heard).not.toHaveBeenCalled();
     expect(inEditor(editor, ".save")?.disabled).toBe(false);
+  });
+
+  it("renders each type's name next to its icon in one row", async () => {
+    const editor = await openVisit(await mount(fakeHass()));
+    const options = inEditor(editor, "ha-control-select.type")?.options as {
+      value: string;
+      label?: string;
+      ariaLabel?: string;
+      icon: unknown;
+    }[];
+    const pee = options.find((option) => option.value === "pee")!;
+    expect(pee.label).toBeUndefined();
+    expect(pee.ariaLabel).toBe("Pee");
+
+    const container = document.createElement("div");
+    render(pee.icon, container);
+    expect(text(container)).toBe("Pee");
+    expect(container.querySelector("ha-icon")?.getAttribute("icon")).toBe("mdi:water");
   });
 
   it("asks again for a tap on Delete after 5 seconds", async () => {

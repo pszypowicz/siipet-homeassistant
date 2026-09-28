@@ -12,6 +12,20 @@ const MEMO_LENGTH = 200;
 const DELETE_WINDOW_MS = 5000;
 const TYPES = ["pee", "poop", "lingering"] as const;
 
+// ha-control-select stacks an option's icon and label in a column that does not
+// fit the tile control height, so the icon template puts both in one row instead
+// and the option's label stays unset; the name goes to ariaLabel for aria-label
+// and title.
+const OPTION_ROW_STYLE =
+  "display: inline-flex; align-items: center; gap: 8px; max-width: 100%; white-space: nowrap";
+const OPTION_NAME_STYLE = "overflow: hidden; text-overflow: ellipsis; min-width: 0";
+
+function optionRow(icon: TemplateResult, name: string): TemplateResult {
+  return html`<span style=${OPTION_ROW_STYLE}
+    >${icon}<span style=${OPTION_NAME_STYLE}>${name}</span></span
+  >`;
+}
+
 export interface CloseDetail {
   changed: boolean;
   /** The event id of the visit this editor showed, so a card that opened another
@@ -338,8 +352,11 @@ export class SiiPetVisitEditor extends LitElement {
   private _renderType(form: EditForm): TemplateResult {
     const options = TYPES.map((type) => ({
       value: type,
-      label: TYPE_STYLE[type].label,
-      icon: html`<ha-icon icon=${TYPE_STYLE[type].icon}></ha-icon>`,
+      ariaLabel: TYPE_STYLE[type].label,
+      icon: optionRow(
+        html`<ha-icon icon=${TYPE_STYLE[type].icon}></ha-icon>`,
+        TYPE_STYLE[type].label,
+      ),
     }));
     return html`
       <ha-control-select
