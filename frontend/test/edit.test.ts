@@ -113,6 +113,52 @@ describe("edit view", () => {
     expect(computed.width).toBe("40%");
   });
 
+  it("opens the stool photo full screen on a tap", async () => {
+    const editor = await openVisit(await mount(fakeHass()));
+    const dialog = inEditor(editor, ".stool-dialog") as unknown as HTMLDialogElement;
+    expect(dialog.open).toBe(false);
+
+    inEditor(editor, ".stool-photo")!.dispatchEvent(new Event("click"));
+    await settle();
+
+    expect(dialog.open).toBe(true);
+    expect(inEditor(editor, ".stool-dialog-photo")?.getAttribute("src")).toBe(POOP.stool);
+  });
+
+  it("opens the stool photo full screen on Enter", async () => {
+    const editor = await openVisit(await mount(fakeHass()));
+    inEditor(editor, ".stool-photo")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    await settle();
+
+    const dialog = inEditor(editor, ".stool-dialog") as unknown as HTMLDialogElement;
+    expect(dialog.open).toBe(true);
+  });
+
+  it("closes the full screen stool photo on a tap on the close button", async () => {
+    const editor = await openVisit(await mount(fakeHass()));
+    inEditor(editor, ".stool-photo")!.dispatchEvent(new Event("click"));
+    await settle();
+    const dialog = inEditor(editor, ".stool-dialog") as unknown as HTMLDialogElement;
+    expect(dialog.open).toBe(true);
+
+    inEditor(editor, ".stool-dialog-close")!.dispatchEvent(new Event("click", { bubbles: true }));
+    await settle();
+
+    expect(dialog.open).toBe(false);
+  });
+
+  it("closes the full screen stool photo on a tap on the enlarged photo or the backdrop", async () => {
+    const editor = await openVisit(await mount(fakeHass()));
+    inEditor(editor, ".stool-photo")!.dispatchEvent(new Event("click"));
+    await settle();
+    const dialog = inEditor(editor, ".stool-dialog") as unknown as HTMLDialogElement;
+
+    dialog.dispatchEvent(new Event("click", { bubbles: true }));
+    await settle();
+
+    expect(dialog.open).toBe(false);
+  });
+
   it("explains a recording that the browser cannot play", async () => {
     const editor = await openVisit(await mount(fakeHass()));
     inEditor(editor, "video")!.dispatchEvent(new Event("error"));

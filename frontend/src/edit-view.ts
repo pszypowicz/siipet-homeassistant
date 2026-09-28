@@ -72,6 +72,7 @@ export class SiiPetVisitEditor extends LitElement {
     _error: { state: true },
     _busy: { state: true },
     _partialEdit: { state: true },
+    _stoolDialogSrc: { state: true },
   };
 
   static styles = [
@@ -108,11 +109,48 @@ export class SiiPetVisitEditor extends LitElement {
         height: auto;
         object-fit: contain;
         border-radius: var(--ha-border-radius-lg, 12px);
+        cursor: zoom-in;
       }
       .stool-label {
         color: var(--primary-text-color);
         font-size: var(--ha-font-size-m, 14px);
         font-weight: var(--ha-font-weight-medium, 500);
+      }
+      .stool-dialog {
+        width: 100vw;
+        height: 100vh;
+        max-width: 100vw;
+        max-height: 100vh;
+        margin: 0;
+        padding: 0;
+        border: none;
+        background: black;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .stool-dialog::backdrop {
+        background: black;
+      }
+      .stool-dialog-photo {
+        max-width: 100vw;
+        max-height: 100vh;
+        object-fit: contain;
+      }
+      .stool-dialog-close {
+        position: fixed;
+        top: 0;
+        right: 0;
+        width: 48px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+        padding: 0;
+        color: white;
+        background: transparent;
+        cursor: pointer;
       }
       ha-control-button.cat img {
         width: 20px;
@@ -172,6 +210,8 @@ export class SiiPetVisitEditor extends LitElement {
   declare _error?: string;
   declare _busy: boolean;
   declare _partialEdit: boolean;
+  /** The photo shown full screen in `.stool-dialog`, or unset while it is closed. */
+  declare _stoolDialogSrc?: string;
 
   private _resolveSeq = 0;
 
@@ -180,6 +220,25 @@ export class SiiPetVisitEditor extends LitElement {
     this.cats = [];
     this._busy = false;
     this._partialEdit = false;
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this._stoolDialog()?.close();
+  }
+
+  private _stoolDialog(): HTMLDialogElement | null {
+    return this.renderRoot.querySelector(".stool-dialog");
+  }
+
+  private _openStoolDialog(stool: string): void {
+    this._stoolDialogSrc = stool;
+    this._stoolDialog()?.showModal();
+  }
+
+  private _closeStoolDialog(): void {
+    // The native `close` event, which also fires for Escape, clears the source.
+    this._stoolDialog()?.close();
   }
 
   protected willUpdate(changed: PropertyValues<this>): void {
@@ -204,6 +263,7 @@ export class SiiPetVisitEditor extends LitElement {
     this._videoNote = this.visit.has_video ? undefined : "Recording is on the camera only.";
     this._error = undefined;
     this._partialEdit = false;
+    this._stoolDialog()?.close();
     if (this.visit.has_video) {
       void this._resolveVideo(this.visit.event_id);
     }
@@ -344,6 +404,7 @@ export class SiiPetVisitEditor extends LitElement {
         ${this._error ? html`<div class="error">${this._error}</div>` : nothing}
         ${this._renderActions(check.data)}
       </div>
+      ${this._renderStoolDialog()}
     `;
   }
 
@@ -470,14 +531,51 @@ export class SiiPetVisitEditor extends LitElement {
     if (!stool && visit.abnormal_reasons.length === 0) {
       return nothing;
     }
+    const photo = stool
+      ? html`<img
+          class="stool-photo"
+          src=${stool}
+          alt="Stool photo"
+          role="button"
+          tabindex="0"
+          @click=${() => this._openStoolDialog(stool)}
+          @keydown=${(ev: KeyboardEvent) => {
+            if (ev.key === "Enter" || ev.key === " ") {
+              ev.preventDefault();
+              this._openStoolDialog(stool);
+            }
+          }}
+        />`
+      : nothing;
     return html`
       <div class="stool-row">
-        ${stool ? html`<img class="stool-photo" src=${stool} alt="Stool photo" />` : nothing}
+        ${photo}
         <div>
           ${stool ? html`<div class="stool-label">Stool photo</div>` : nothing}
           <span class="reasons">${visit.abnormal_reasons.join(", ")}</span>
         </div>
       </div>
+    `;
+  }
+
+  private _renderStoolDialog(): TemplateResult {
+    return html`
+      <dialog
+        class="stool-dialog"
+        @click=${() => this._closeStoolDialog()}
+        @close=${() => {
+          this._stoolDialogSrc = undefined;
+        }}
+      >
+        ${
+          this._stoolDialogSrc
+            ? html`<img class="stool-dialog-photo" src=${this._stoolDialogSrc} alt="Stool photo" />`
+            : nothing
+        }
+        <button class="stool-dialog-close" aria-label="Close">
+          <ha-icon icon="mdi:close"></ha-icon>
+        </button>
+      </dialog>
     `;
   }
 
