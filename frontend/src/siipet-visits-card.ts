@@ -130,6 +130,12 @@ export class SiiPetVisitsCard extends LitElement {
   // The value of `changeCount` when the last cats read started.
   private _changesSeen?: number;
   private _connection?: HassConnection;
+  // Each day, queue, and calendar read takes the next number of its kind (for the
+  // calendar, of its month). A move away and back passes the cat and date checks,
+  // so only the answer of the latest number applies.
+  private _daySeq = 0;
+  private _queueSeq = 0;
+  private _calendarSeq = new Map<string, number>();
   private _active?: Promise<void>;
   private _trailing = false;
   // The linked event id this card has read while the address still holds it.
@@ -483,12 +489,13 @@ export class SiiPetVisitsCard extends LitElement {
     await Promise.all([this._loadDay(), this._loadCalendar(monthOf(this._date))]);
   }
 
-  // Each read checks that the card still shows what it asked for, so a slow answer
-  // for an earlier day or cat does not replace the newer one.
+  // Each read checks that the card still shows what it asked for, and that no
+  // newer read of its kind started, so a slow answer does not replace a newer one.
   private async _loadDay(): Promise<void> {
     const cat = this._cat!;
     const date = this._date!;
-    const current = () => cat === this._cat && date === this._date;
+    const seq = ++this._daySeq;
+    const current = () => seq === this._daySeq && cat === this._cat && date === this._date;
     try {
       const day = await fetchDay(this.hass!, date, cat);
       if (current()) {
@@ -507,9 +514,11 @@ export class SiiPetVisitsCard extends LitElement {
 
   private async _loadQueue(): Promise<void> {
     const cat = this._cat;
+    const seq = ++this._queueSeq;
+    const current = () => seq === this._queueSeq && cat === this._cat;
     try {
       const queue = await fetchQueue(this.hass!);
-      if (cat !== this._cat) {
+      if (!current()) {
         return;
       }
       this._dataRead = Date.now();
@@ -532,7 +541,7 @@ export class SiiPetVisitsCard extends LitElement {
       this._queue = queue;
       this._refreshEditing(queue.visits);
     } catch (err) {
-      if (cat === this._cat) {
+      if (current()) {
         this._error = errorMessage(err);
         this._scheduleRetry();
       }
@@ -541,14 +550,17 @@ export class SiiPetVisitsCard extends LitElement {
 
   private async _loadCalendar(month: string): Promise<void> {
     const cat = this._cat!;
+    const seq = (this._calendarSeq.get(month) ?? 0) + 1;
+    this._calendarSeq.set(month, seq);
+    const current = () => seq === this._calendarSeq.get(month) && cat === this._cat;
     try {
       const calendar = await fetchCalendar(this.hass!, month, cat);
-      if (cat === this._cat) {
+      if (current()) {
         this._calendars = { ...this._calendars, [month]: calendar };
         this._first = calendar.first;
       }
     } catch (err) {
-      if (cat === this._cat) {
+      if (current()) {
         this._error = errorMessage(err);
       }
     }

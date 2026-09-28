@@ -956,6 +956,116 @@ describe("refresh", () => {
   });
 });
 
+describe("answers out of order", () => {
+  /** Hold the next call of `type`, and return a function that answers it. */
+  function holdNext(fake: FakeHass, type: string): (value: unknown) => void {
+    let release: ((value: unknown) => void) | undefined;
+    let waiting = true;
+    const original = fake.callWS.getMockImplementation() as (
+      message: Record<string, unknown>,
+    ) => Promise<unknown>;
+    fake.callWS.mockImplementation(async (message: Record<string, unknown>) => {
+      if (waiting && message.type === type) {
+        waiting = false;
+        return new Promise((resolve) => (release = resolve));
+      }
+      return original(message);
+    });
+    return (value) => release!(value);
+  }
+
+  function shownEvents(card: TestCard): string[] {
+    return findAll(card, ".visit").map((row) => row.dataset.event!);
+  }
+
+  it("does not bring back a deleted visit with an old answer for the same day", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    find(card, ".prev-day")!.click();
+    await settle(card);
+
+    const releaseOld = holdNext(fake, "siipet/day");
+    find(card, ".next-day")!.click();
+    await settle(card);
+    find(card, ".prev-day")!.click();
+    await settle(card);
+    find(card, ".next-day")!.click();
+    await settle(card);
+    expect(shownEvents(card)).toEqual(["ev-1", "ev-2"]);
+
+    fake.results.day = {
+      summary: { visits: 0, pee: 0, poop: 0, abnormal: 0 },
+      visits: [LINGERING],
+    };
+    findAll(card, ".visit")[0].dispatchEvent(
+      new CustomEvent("action", { detail: { action: "tap" } }),
+    );
+    await settle(card);
+    const editor = find(card, "siipet-visit-editor")!;
+    (editor.shadowRoot!.querySelector(".delete") as HTMLElement).click();
+    await settle(card);
+    (editor.shadowRoot!.querySelector(".delete") as HTMLElement).click();
+    await settle(card);
+    expect(shownEvents(card)).toEqual(["ev-2"]);
+
+    releaseOld(DAY);
+    await settle(card);
+    expect(shownEvents(card)).toEqual(["ev-2"]);
+  });
+
+  it("applies only the latest queue answer", async () => {
+    const newer: Visit = { ...UNASSIGNED, event_id: "ev-8" };
+    const fake = fakeHass({
+      cats: catsResult({ unknown: { device_id: "dev-unknown", waiting: 1 } }),
+    });
+    const card = await mount(fake);
+    const select = (cat: string) =>
+      find(card, "ha-control-select.cats")!.dispatchEvent(
+        new CustomEvent("value-changed", { detail: { value: cat } }),
+      );
+
+    const releaseOld = holdNext(fake, "siipet/queue");
+    select("dev-unknown");
+    await settle(card);
+    select("dev-luna");
+    await settle(card);
+    fake.results.queue = { visits: [newer] };
+    select("dev-unknown");
+    await settle(card);
+    expect(shownEvents(card)).toEqual(["ev-8"]);
+
+    releaseOld({ visits: [UNASSIGNED] });
+    await settle(card);
+    expect(shownEvents(card)).toEqual(["ev-8"]);
+  });
+
+  it("applies only the latest calendar answer of a month", async () => {
+    const august = (marked: boolean) => ({
+      days: { "2026-08-24": { visits: 1, abnormal: marked ? 1 : 0, marked } },
+      first: "2026-08-28",
+      last: "2026-09-27",
+    });
+    const fake = fakeHass();
+    const card = await mount(fake);
+    find(card, ".date")!.click();
+    await settle(card);
+
+    const releaseOld = holdNext(fake, "siipet/calendar");
+    find(card, ".prev-month")!.click();
+    await settle(card);
+    find(card, ".next-month")!.click();
+    await settle(card);
+    fake.results.calendar = august(false);
+    find(card, ".prev-month")!.click();
+    await settle(card);
+    expect(find(card, '.cell[data-date="2026-08-24"] .dot')).toBeNull();
+
+    releaseOld(august(true));
+    await settle(card);
+    expect(find(card, '.cell[data-date="2026-08-24"] .dot')).toBeNull();
+  });
+});
+
 describe("a change in another card", () => {
   function reads(fake: FakeHass): Record<string, unknown>[] {
     return sent(fake).filter((message) => String(message.type).startsWith("siipet/"));
