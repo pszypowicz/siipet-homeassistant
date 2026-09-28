@@ -279,4 +279,6 @@ async def _async_delete_visit(call: ServiceCall) -> None:
         await runtime.client.delete_visit(event_id)
     except SiiPetError as err:
         raise _request_failed(hass, entry, err, "request_failed", event_id) from err
+    if runtime.mirror is not None:
+        runtime.mirror.async_forget(event_id)
     await _async_after_change(runtime, visit)
