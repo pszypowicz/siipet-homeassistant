@@ -189,7 +189,9 @@ describe("day view", () => {
     expect(icon.style.getPropertyValue("--tile-icon-color")).toBe("var(--brown-color)");
     expect(text(poop.querySelector(".chip"))).toBe("Soft stool");
     expect(poop.querySelector(".cover")?.getAttribute("src")).toBe(POOP.cover);
-    expect(poop.querySelector(".stool")?.getAttribute("src")).toBe(POOP.stool);
+    expect(poop.querySelector(".poster .stool")).toBeNull();
+    expect(text(poop.querySelector(".stool-row .stool-label"))).toBe("Stool photo");
+    expect(poop.querySelector(".stool-row .stool")?.getAttribute("src")).toBe(POOP.stool);
     expect(poop.querySelector(".camera-only")).toBeNull();
 
     expect(lingering.classList.contains("lingering")).toBe(true);
@@ -197,6 +199,7 @@ describe("day view", () => {
     expect(lingering.querySelector(".memo")).not.toBeNull();
     expect(lingering.querySelector(".chip")).toBeNull();
     expect(lingering.querySelector(".cover")).toBeNull();
+    expect(lingering.querySelector(".stool-row")).toBeNull();
   });
 
   it("wraps the poster so its background stays inside the row instead of the tile padding", async () => {
@@ -209,12 +212,20 @@ describe("day view", () => {
     expect(poster?.querySelector(".cover")?.getAttribute("src")).toBe(POOP.cover);
   });
 
-  it("gives the poster a portrait box, since every recording and cover is 9:16", () => {
+  it("gives the poster a 16:9 box filled from the middle of the cover", () => {
     const posterRule = cardStyles.cssText.match(/\.poster\s*\{([^}]*)\}/)?.[1] ?? "";
-    expect(posterRule).toMatch(/aspect-ratio:\s*3 \/ 4/);
+    expect(posterRule).toMatch(/aspect-ratio:\s*16 \/ 9/);
     const coverRule = cardStyles.cssText.match(/\.cover\s*\{([^}]*)\}/)?.[1] ?? "";
     expect(coverRule).toMatch(/object-fit:\s*cover/);
     expect(coverRule).toMatch(/object-position:\s*center/);
+  });
+
+  it("shows the stool photo whole as a small thumbnail below the poster", () => {
+    const stoolRule = cardStyles.cssText.match(/\.stool\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(stoolRule).toMatch(/height:\s*56px/);
+    expect(stoolRule).toMatch(/width:\s*auto/);
+    expect(stoolRule).toMatch(/object-fit:\s*contain/);
+    expect(stoolRule).not.toMatch(/position:\s*absolute/);
   });
 
   it("marks a visit that has no cloud recording", async () => {

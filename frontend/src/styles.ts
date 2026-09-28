@@ -123,14 +123,15 @@ export const cardStyles = css`
   /* ha-tile-container pads its features slot, so the poster's background and
      radius would sit inside that padding instead of filling the row; a plain
      wrapper takes the slot and padding, and the poster box fills the wrapper.
-     Taps on both pass through to the tap area of the row. */
+     Taps on the wrapper and everything in it, the stool row too, pass through
+     to the tap area of the row. */
   .poster-slot {
     pointer-events: none;
   }
   .poster {
     position: relative;
     pointer-events: none;
-    aspect-ratio: 3 / 4;
+    aspect-ratio: 16 / 9;
     overflow: hidden;
     border-radius: var(--ha-border-radius-lg, 12px);
     background-color: var(--secondary-background-color);
@@ -145,14 +146,24 @@ export const cardStyles = css`
     object-fit: cover;
     object-position: center;
   }
+  .stool-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    color: var(--secondary-text-color);
+    font-size: var(--ha-font-size-m, 14px);
+    --mdc-icon-size: 18px;
+  }
+  .stool-label {
+    flex: 1;
+  }
   .stool {
-    position: absolute;
-    right: 8px;
-    bottom: 8px;
-    width: 28%;
-    aspect-ratio: 1;
-    object-fit: cover;
-    border: 2px solid var(--card-background-color, white);
+    display: block;
+    height: 56px;
+    width: auto;
+    max-width: 40%;
+    object-fit: contain;
     border-radius: var(--ha-border-radius-md, 8px);
   }
   .camera-only {

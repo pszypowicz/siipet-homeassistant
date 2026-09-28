@@ -208,7 +208,11 @@ function renderVisit(
     ? html`<img class="cover" src=${visit.cover} alt="" loading="lazy" />`
     : nothing;
   const stool = visit.stool
-    ? html`<img class="stool" src=${visit.stool} alt="Stool photo" loading="lazy" />`
+    ? html`<div class="stool-row">
+        <ha-icon icon="mdi:camera-outline"></ha-icon>
+        <span class="stool-label">Stool photo</span>
+        <img class="stool" src=${visit.stool} alt="Stool photo" loading="lazy" />
+      </div>`
     : nothing;
   const cameraOnly = visit.has_video
     ? nothing
@@ -231,7 +235,8 @@ function renderVisit(
       </ha-tile-info>
       ${chip}
       <div slot="features" class="poster-slot">
-        <div class="poster">${cover} ${stool} ${cameraOnly}</div>
+        <div class="poster">${cover} ${cameraOnly}</div>
+        ${stool}
       </div>
     </ha-tile-container>
   `;

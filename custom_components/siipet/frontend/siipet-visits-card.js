@@ -79,7 +79,11 @@ var I=globalThis,B=I.ShadowRoot&&(I.ShadyCSS===void 0||I.ShadyCSS.nativeShadow)&
       .label=${"Cat"}
       @value-changed=${o=>{o.stopPropagation(),i(o.detail.value)}}
     ></ha-control-select>
-  `}function Ue(s,e,t){let i=k[s.type],n=R(s.start),o=e?`${g(s.start.slice(0,10))} ${n}`:n,r=s.note?a`<ha-icon class="memo" icon="mdi:note-text-outline"></ha-icon>`:l,c=s.abnormal_reasons[0]??"Abnormal",d=s.abnormal?a`<span slot="features-inline" class="chip">${c}</span>`:l,h=s.cover?a`<img class="cover" src=${s.cover} alt="" loading="lazy" />`:l,p=s.stool?a`<img class="stool" src=${s.stool} alt="Stool photo" loading="lazy" />`:l,u=s.has_video?l:a`<span class="camera-only">On camera only</span>`;return a`
+  `}function Ue(s,e,t){let i=k[s.type],n=R(s.start),o=e?`${g(s.start.slice(0,10))} ${n}`:n,r=s.note?a`<ha-icon class="memo" icon="mdi:note-text-outline"></ha-icon>`:l,c=s.abnormal_reasons[0]??"Abnormal",d=s.abnormal?a`<span slot="features-inline" class="chip">${c}</span>`:l,h=s.cover?a`<img class="cover" src=${s.cover} alt="" loading="lazy" />`:l,p=s.stool?a`<div class="stool-row">
+        <ha-icon icon="mdi:camera-outline"></ha-icon>
+        <span class="stool-label">Stool photo</span>
+        <img class="stool" src=${s.stool} alt="Stool photo" loading="lazy" />
+      </div>`:l,u=s.has_video?l:a`<span class="camera-only">On camera only</span>`;return a`
     <ha-tile-container
       class="visit ${s.type}"
       data-event=${s.event_id}
@@ -97,7 +101,8 @@ var I=globalThis,B=I.ShadowRoot&&(I.ShadyCSS===void 0||I.ShadyCSS.nativeShadow)&
       </ha-tile-info>
       ${d}
       <div slot="features" class="poster-slot">
-        <div class="poster">${h} ${p} ${u}</div>
+        <div class="poster">${h} ${u}</div>
+        ${p}
       </div>
     </ha-tile-container>
   `}function _t(s,e,t){return s===void 0?l:s.length===0?a`<div class="message empty">${e?"No visits are waiting.":"No visits on this day."}</div>`:a`<div class="timeline">
@@ -223,14 +228,15 @@ var I=globalThis,B=I.ShadowRoot&&(I.ShadyCSS===void 0||I.ShadyCSS.nativeShadow)&
   /* ha-tile-container pads its features slot, so the poster's background and
      radius would sit inside that padding instead of filling the row; a plain
      wrapper takes the slot and padding, and the poster box fills the wrapper.
-     Taps on both pass through to the tap area of the row. */
+     Taps on the wrapper and everything in it, the stool row too, pass through
+     to the tap area of the row. */
   .poster-slot {
     pointer-events: none;
   }
   .poster {
     position: relative;
     pointer-events: none;
-    aspect-ratio: 3 / 4;
+    aspect-ratio: 16 / 9;
     overflow: hidden;
     border-radius: var(--ha-border-radius-lg, 12px);
     background-color: var(--secondary-background-color);
@@ -245,14 +251,24 @@ var I=globalThis,B=I.ShadowRoot&&(I.ShadyCSS===void 0||I.ShadyCSS.nativeShadow)&
     object-fit: cover;
     object-position: center;
   }
+  .stool-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    color: var(--secondary-text-color);
+    font-size: var(--ha-font-size-m, 14px);
+    --mdc-icon-size: 18px;
+  }
+  .stool-label {
+    flex: 1;
+  }
   .stool {
-    position: absolute;
-    right: 8px;
-    bottom: 8px;
-    width: 28%;
-    aspect-ratio: 1;
-    object-fit: cover;
-    border: 2px solid var(--card-background-color, white);
+    display: block;
+    height: 56px;
+    width: auto;
+    max-width: 40%;
+    object-fit: contain;
     border-radius: var(--ha-border-radius-md, 8px);
   }
   .camera-only {
