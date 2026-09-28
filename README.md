@@ -30,32 +30,14 @@ Option 2: Copy the files by hand.
 Then, for either option:
 
 1. Go to **Settings > Devices & Services > Add Integration** and search for **SiiPet**.
-2. Choose **Sign in with an email code**.
-3. Enter the email address of your SiiPet account.
-4. Enter the code that SiiPet sends to that address.
+2. Enter the email address of your SiiPet account.
+3. Enter the code that SiiPet sends to that address.
 
 If you added SiiPet 0.0.1 before, remove that entry and add the integration again.
 
-The session renews automatically. If SiiPet ends the session, Home Assistant asks you to sign in again. You can then choose either sign-in method.
+The session renews automatically. If SiiPet ends the session, Home Assistant asks you to sign in again with an email code.
 
-SiiPet limits how many sign-in codes it sends per day. If it refuses, try again the next day, or sign in with an access token.
-
-## Sign in with an access token
-
-You can sign in with the access token of the SiiPet app instead of an email code.
-You need a tool that shows the requests of the SiiPet app, for example a proxy app on your phone.
-
-1. Find a request of the SiiPet app to `api-siipet.linkric.com`.
-2. Copy the value after `Bearer` in the `authorization` header.
-3. Copy the value of the `x-device-identifier` header from the same request.
-4. In Home Assistant, add the integration and choose **Paste an access token**.
-5. Paste both values.
-
-Home Assistant then uses the same session and device identifier as the SiiPet app.
-It renews the token automatically, on the same schedule as the SiiPet app.
-It is not known yet if a renewal on one side ends the session on the other side.
-
-Do not share the access token. It gives full access to your SiiPet account.
+SiiPet limits how many sign-in codes it sends per day. If it refuses, try again the next day.
 
 ## Devices and entities
 

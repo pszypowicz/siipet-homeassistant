@@ -21,7 +21,7 @@ custom_components/siipet/
     errors.py          SiiPetError and its subclasses
     s3.py              SigV4 presigned GET URLs, credential cache
   __init__.py          setup of the image view, the actions, the card commands, and the card, entry setup and unload, device removal
-  config_flow.py       sign-in menu, email and code steps, token step, reauth menu
+  config_flow.py       email and code steps, reauth
   const.py             constants: config keys, Unknown cat id, intervals
   coordinator.py       SiiPetCoordinator, SiiPetData, SiiPetRuntime
   entity.py            cat and camera entity bases

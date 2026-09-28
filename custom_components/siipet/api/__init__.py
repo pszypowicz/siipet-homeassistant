@@ -1,6 +1,6 @@
 """Client for the SiiPet cloud API. This package has no Home Assistant imports."""
 
-from .auth import Session, session_from_token
+from .auth import Session
 from .client import SiiPetClient
 from .errors import (
     SiiPetApiError,
@@ -36,5 +36,4 @@ __all__ = [
     "SiiPetError",
     "Visit",
     "VisitType",
-    "session_from_token",
 ]

@@ -158,8 +158,7 @@ Unix epoch. This inspection reads the payload without authenticating its signatu
 
 For the captured email login, `exp` is about 30 days after sign-in. It is exactly
 15 days later than `Data.ExpireAt` in the same response. These timestamps alone
-do not establish the lifetime that the server enforces. For a pasted token, the
-integration uses `exp` minus 15 days as `ExpireAt`.
+do not establish the lifetime that the server enforces.
 
 The Android package `com.linkric.siipetapp` contains `UserRepository.checkUserLoginToken`.
 The inspected version is 2.1.1.
