@@ -65,14 +65,14 @@ def shadow_topic(sn: str, shadow: str, suffix: str) -> str:
 
 
 def _describe(err: BaseException) -> str:
-    """Describe an error without its URL. The URL holds the signed credentials."""
+    """Describe an error without its URL or other private text."""
     if isinstance(err, aiohttp.WSServerHandshakeError):
         return f"WebSocket handshake failed with HTTP {err.status}"
-    if isinstance(err, aiohttp.ClientError):
-        return type(err).__name__
+    if isinstance(err, SiiPetError):
+        return str(err)
     if isinstance(err, TimeoutError):
         return "timeout"
-    return str(err)
+    return type(err).__name__
 
 
 def _rejected_code(payload: bytes) -> object:
@@ -165,7 +165,7 @@ class ShadowLink:
         while not self._stopping:
             try:
                 await self._connection()
-            except (SiiPetError, aiohttp.ClientError, TimeoutError) as err:
+            except Exception as err:
                 if self._stopping:
                     return
                 if self._starting is not None:
@@ -270,21 +270,24 @@ class ShadowLink:
     async def _start_cameras(self, session: MqttSession) -> None:
         """Start each camera that is not started, unless it waits after a denial."""
         for sn in list(self._cameras):
-            if sn in self._started:
+            shadows = self._cameras.get(sn)
+            if shadows is None or sn in self._started:
+                # set_cameras can remove a camera while an earlier one starts.
                 continue
             denied_at = self._denied.get(sn)
             if denied_at is not None and (
                 self._clock() - denied_at < self._timings.denied_retry
             ):
                 continue
-            await self._start_camera(session, sn)
+            await self._start_camera(session, sn, shadows)
 
-    async def _start_camera(self, session: MqttSession, sn: str) -> None:
+    async def _start_camera(
+        self, session: MqttSession, sn: str, shadows: CameraShadows
+    ) -> None:
         """Subscribe to the replies of both shadows, then read both.
 
         While this runs, a closed connection denies the camera.
         """
-        shadows = self._cameras[sn]
         self._starting = sn
         topics = [
             shadow_topic(sn, shadows.name(kind), suffix)
@@ -308,8 +311,10 @@ class ShadowLink:
         finally:
             for kind in SHADOW_KINDS:
                 self._pending.pop((sn, kind), None)
-        self._denied.pop(sn, None)
-        self._started.add(sn)
+        if self._cameras.get(sn) == shadows:
+            # set_cameras can replace or remove the camera while it starts.
+            self._denied.pop(sn, None)
+            self._started.add(sn)
         self._starting = None
 
     async def _wait_replies(

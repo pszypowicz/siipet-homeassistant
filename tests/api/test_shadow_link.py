@@ -73,12 +73,19 @@ class Recorder:
 
     states: dict[str, DeviceState] = field(default_factory=dict)
     connection: list[bool] = field(default_factory=list)
+    hook: Callable[[str], None] | None = None
+    fail_first_connect: bool = False
 
     def on_state(self, sn: str, state: DeviceState) -> None:
         self.states[sn] = state
+        if self.hook is not None:
+            self.hook(sn)
 
     def on_connection(self, connected: bool) -> None:
         self.connection.append(connected)
+        if connected and self.fail_first_connect:
+            self.fail_first_connect = False
+            raise RuntimeError("callback failed")
 
 
 @dataclass
@@ -121,8 +128,11 @@ async def _running(
 async def _until(check: Callable[[], bool], limit: float = 4.0) -> None:
     """Poll `check` every 10 ms until it is true, for up to `limit` seconds."""
     for _ in range(int(limit / 0.01)):
-        if check():
-            return
+        try:
+            if check():
+                return
+        except Exception:
+            pass
         await asyncio.sleep(0.01)
     raise AssertionError("The condition did not become true in time")
 
@@ -295,6 +305,50 @@ async def test_set_cameras() -> None:
         await asyncio.sleep(0.1)
         assert "SN0001" not in running.recorder.states
         assert len(broker.connections) == 1
+
+
+async def test_camera_removed_while_another_starts() -> None:
+    """A camera removed while an earlier camera starts is skipped."""
+    async with _running(_broker()) as running:
+
+        def drop_second(sn: str) -> None:
+            if sn == "SN0001":
+                running.link.set_cameras({"SN0001": SHADOWS})
+
+        running.recorder.hook = drop_second
+        await _until(lambda: running.recorder.connection == [True])
+        assert not running.task.done()
+        assert "SN0002" not in running.recorder.states
+
+
+async def test_shadow_names_change_while_a_camera_starts() -> None:
+    """New shadow names during a start lead to a new start with those names."""
+    broker = _broker()
+    renamed = CameraShadows(config="next_configInfo", system="next_systemInfo")
+    broker.documents["SN0001/next_configInfo"] = load_fixture(
+        "shadow_config_accepted.json"
+    )
+    async with _running(broker, cameras={"SN0001": SHADOWS}) as running:
+        renames: list[str] = []
+
+        def rename(sn: str) -> None:
+            if not renames:
+                renames.append(sn)
+                running.link.set_cameras({"SN0001": renamed})
+
+        running.recorder.hook = rename
+        topic = shadow_topic("SN0001", "next_configInfo", "get/accepted")
+        await _until(lambda: topic in running.broker.connections[0].subscriptions)
+        assert len(running.broker.connections) == 1
+
+
+async def test_unexpected_error_does_not_end_the_link() -> None:
+    """An unexpected error backs off, and the link connects again."""
+    async with _running(_broker()) as running:
+        running.recorder.fail_first_connect = True
+        await _until(lambda: running.recorder.connection.count(True) == 2)
+        assert not running.task.done()
+        assert len(running.broker.connections) == 2
 
 
 async def test_rejected_read_logs_code_only(caplog: pytest.LogCaptureFixture) -> None:
