@@ -18,6 +18,8 @@ SESSION_KEYS: Final = (CONF_TOKEN, CONF_EXPIRE_AT, CONF_CLIENT_ID)
 
 DEFAULT_MEDIA_DAYS: Final = 7
 MAX_MEDIA_DAYS: Final = 30
+# A dot folder, so that the local media browser does not list it.
+MEDIA_FOLDER: Final = ".siipet"
 
 AUTH_EMAIL: Final = "email"
 AUTH_TOKEN: Final = "token"

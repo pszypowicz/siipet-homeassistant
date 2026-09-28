@@ -40,6 +40,7 @@ from .const import (
 if TYPE_CHECKING:
     from .calendar_data import SiiPetCalendar
     from .media import SiiPetMedia
+    from .media_mirror import SiiPetMirror
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ class SiiPetRuntime:
     coordinator: SiiPetCoordinator
     media: SiiPetMedia
     calendar: SiiPetCalendar
+    mirror: SiiPetMirror | None = None
 
 
 type SiiPetConfigEntry = ConfigEntry[SiiPetRuntime]

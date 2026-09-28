@@ -18,6 +18,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .api import Visit
+from .const import MEDIA_FOLDER
 
 AVATAR_FOLDER = "avatars"
 PART_SUFFIX = ".part"
@@ -60,6 +61,12 @@ def visit_day(visit: Visit) -> date:
 def key_hash(key: str) -> str:
     """Return a short hash of a media key, for the name of an avatar file."""
     return hashlib.sha256(key.encode()).hexdigest()[:12]
+
+
+def media_root(hass: HomeAssistant) -> Path | None:
+    """Return the folder of the local copy, or None without a local media folder."""
+    local = hass.config.media_dirs.get("local")
+    return Path(local) / MEDIA_FOLDER if local else None
 
 
 async def async_delete_folder(hass: HomeAssistant, root: Path) -> None:

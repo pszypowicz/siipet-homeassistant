@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+import contextlib
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 
@@ -109,23 +111,36 @@ class SiiPetMedia:
     async def async_fetch_image(self, kind: MediaKind, item_id: str) -> bytes:
         """Fetch an image from S3 on the server and return its bytes."""
         key = await self.async_image_key(kind, item_id)
+        async with self.async_open(key, f"{kind} image", IMAGE_TIMEOUT) as response:
+            return await response.read()
+
+    @contextlib.asynccontextmanager
+    async def async_open(
+        self, key: str, label: str, client_timeout: aiohttp.ClientTimeout
+    ) -> AsyncIterator[aiohttp.ClientResponse]:
+        """Open an S3 object for reading, and retry once after a 403.
+
+        Errors, also those of reading the body, name the `label` and never the URL
+        or the key.
+        """
         session = async_get_clientsession(self.hass)
         for attempt in range(2):
             url = await self._async_presign(key, IMAGE_URL_LIFETIME)
             try:
-                async with session.get(url, timeout=IMAGE_TIMEOUT) as response:
+                async with session.get(url, timeout=client_timeout) as response:
                     if response.status == 403 and attempt == 0:
                         # The credentials can end before their expiry time.
                         self.signer.invalidate()
                         continue
                     if response.status == 404:
-                        raise MediaNotFound(f"No {kind} image")
+                        raise MediaNotFound(f"No {label}")
                     if response.status != 200:
                         raise MediaUnavailable(f"S3 returned HTTP {response.status}")
-                    return await response.read()
+                    yield response
+                    return
             except (TimeoutError, aiohttp.ClientError) as err:
                 raise MediaUnavailable(
-                    f"Could not fetch the {kind} image ({type(err).__name__})"
+                    f"Could not fetch the {label} ({type(err).__name__})"
                 ) from None
         raise MediaUnavailable("S3 returned HTTP 403")
 
