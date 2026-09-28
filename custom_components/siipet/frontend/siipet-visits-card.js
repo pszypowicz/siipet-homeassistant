@@ -254,7 +254,7 @@ var L=globalThis,j=L.ShadowRoot&&(L.ShadyCSS===void 0||L.ShadyCSS.nativeShadow)&
     color: white;
     background-color: rgba(0, 0, 0, 0.6);
   }
-`;var Xt=200,$e=5e3,be=["pee","poop","lingering"],ht=class extends f{static{this.properties={hass:{attribute:!1},visit:{attribute:!1},cats:{attribute:!1},_form:{state:!0},_video:{state:!0},_videoNote:{state:!0},_error:{state:!0},_busy:{state:!0},_armed:{state:!0},_partialEdit:{state:!0}}}static{this.styles=[q,P`
+`;var Xt=200,$e=5e3,be=["pee","poop","lingering"],ht=class extends f{static{this.properties={hass:{attribute:!1},visit:{attribute:!1},cats:{attribute:!1},_baseline:{state:!0},_form:{state:!0},_video:{state:!0},_videoNote:{state:!0},_error:{state:!0},_busy:{state:!0},_armed:{state:!0},_partialEdit:{state:!0}}}static{this.styles=[q,P`
       :host {
         display: block;
       }
@@ -334,14 +334,14 @@ var L=globalThis,j=L.ShadowRoot&&(L.ShadyCSS===void 0||L.ShadyCSS.nativeShadow)&
       .error {
         margin: 0;
       }
-    `]}constructor(){super(),this.cats=[],this._busy=!1,this._armed=!1,this._partialEdit=!1}disconnectedCallback(){super.disconnectedCallback(),clearTimeout(this._disarm),this._armed=!1}willUpdate(t){if(!t.has("visit")||!this.visit)return;if(t.get("visit")?.event_id===this.visit.event_id){this.visit.has_video&&this._video===void 0&&this._resolveVideo(this.visit.event_id);return}this._form=ct(this.visit),this._video=void 0,this._videoNote=this.visit.has_video?void 0:"Recording is on the camera only.",this._error=void 0,this._partialEdit=!1,this.visit.has_video&&this._resolveVideo(this.visit.event_id)}async _resolveVideo(t){try{let e=await Nt(this.hass,t);this.visit?.event_id===t&&(this._video=e)}catch(e){this.visit?.event_id===t&&(this._videoNote=v(e))}}_close(t){let e={changed:t,eventId:this.visit.event_id};this.dispatchEvent(new CustomEvent("siipet-close",{detail:e}))}_back(){this._busy||this._close(!1)}_toggleCat(t){if(this._busy)return;let e=this._form,s=e.cats.includes(t);if(s&&e.cats.length===1)return;let n=s?e.cats.filter(r=>r!==t):[...e.cats,t];this._form={...e,cats:n}}async _save(t){this._busy=!0,this._error=void 0;try{await Vt(this.hass,t),this._close(!0)}catch(e){this._error=v(e),this._partialEdit=jt(e)}finally{this._busy=!1}}async _delete(){if(!this._armed){this._armed=!0,this._disarm=setTimeout(()=>{this._armed=!1},$e);return}clearTimeout(this._disarm),this._armed=!1,this._busy=!0,this._error=void 0;try{await Lt(this.hass,this.visit.event_id),this._close(!0)}catch(t){this._error=v(t)}finally{this._busy=!1}}render(){let t=this.visit,e=this._form;if(!t||!e)return l;let s=Jt(t,e,{sendType:this._partialEdit}),n=s.reason==="type_required"?"Pick a type as well.":void 0;return a`
+    `]}constructor(){super(),this.cats=[],this._busy=!1,this._armed=!1,this._partialEdit=!1}disconnectedCallback(){super.disconnectedCallback(),clearTimeout(this._disarm),this._armed=!1}willUpdate(t){if(!t.has("visit")||!this.visit)return;if(t.get("visit")?.event_id===this.visit.event_id){this.visit.has_video&&!this._isVideoPlaying()&&this._resolveVideo(this.visit.event_id);return}this._baseline=this.visit,this._form=ct(this.visit),this._video=void 0,this._videoNote=this.visit.has_video?void 0:"Recording is on the camera only.",this._error=void 0,this._partialEdit=!1,this.visit.has_video&&this._resolveVideo(this.visit.event_id)}_isVideoPlaying(){let t=this.renderRoot.querySelector("video");return t!==null&&!t.paused}async _resolveVideo(t){try{let e=await Nt(this.hass,t);this.visit?.event_id===t&&(this._video=e)}catch(e){this.visit?.event_id===t&&(this._videoNote=v(e))}}_close(t){let e={changed:t,eventId:this.visit.event_id};this.dispatchEvent(new CustomEvent("siipet-close",{detail:e}))}_back(){this._busy||this._close(!1)}_toggleCat(t){if(this._busy)return;let e=this._form,s=e.cats.includes(t);if(s&&e.cats.length===1)return;let n=s?e.cats.filter(r=>r!==t):[...e.cats,t];this._form={...e,cats:n}}async _save(t){this._busy=!0,this._error=void 0;try{await Vt(this.hass,t),this._partialEdit=!1,this._close(!0)}catch(e){this._error=v(e),jt(e)&&(this._partialEdit=!0)}finally{this._busy=!1}}async _delete(){if(!this._armed){this._armed=!0,this._disarm=setTimeout(()=>{this._armed=!1},$e);return}clearTimeout(this._disarm),this._armed=!1,this._busy=!0,this._error=void 0;try{await Lt(this.hass,this.visit.event_id),this._close(!0)}catch(t){this._error=v(t)}finally{this._busy=!1}}render(){let t=this._baseline,e=this.visit,s=this._form;if(!t||!e||!s)return l;let n=Jt(t,s,{sendType:this._partialEdit}),r=n.reason==="type_required"?"Pick a type as well.":void 0;return a`
       ${this._renderHeader(t)}
       <div class="editor">
-        ${this._renderVideo(t)} ${this._renderStool(t)} ${this._renderCats(e)}
-        ${this._renderType(e)} ${this._renderMemo(e)}
-        ${n?a`<div class="hint">${n}</div>`:l}
+        ${this._renderVideo(e.cover)} ${this._renderStool(t,e.stool)}
+        ${this._renderCats(s)} ${this._renderType(s)} ${this._renderMemo(s)}
+        ${r?a`<div class="hint">${r}</div>`:l}
         ${this._error?a`<div class="error">${this._error}</div>`:l}
-        ${this._renderActions(s.data)}
+        ${this._renderActions(n.data)}
       </div>
     `}_renderHeader(t){let e=k[t.type],s=t.cats.map(r=>r.name).join(", ")||"Unknown",n=[m(t.start.slice(0,10)),e.label,W(t.duration),...t.abnormal_reasons.slice(0,1)].join(" \xB7 ");return a`
       <ha-tile-container class="header" .interactive=${!0} @action=${()=>this._back()}>
@@ -400,13 +400,13 @@ var L=globalThis,j=L.ShadowRoot&&(L.ShadyCSS===void 0||L.ShadyCSS.nativeShadow)&
         controls
         playsinline
         preload="none"
-        poster=${t.cover??l}
+        poster=${t??l}
         src=${this._video??l}
         @error=${()=>{this._videoNote="This browser cannot play the recording. Safari and the Home Assistant app can."}}
       ></video>
-    `}_renderStool(t){return!t.stool&&t.abnormal_reasons.length===0?l:a`
+    `}_renderStool(t,e){return!e&&t.abnormal_reasons.length===0?l:a`
       <div class="stool-row">
-        ${t.stool?a`<img class="stool-photo" src=${t.stool} alt="Stool photo" />`:l}
+        ${e?a`<img class="stool-photo" src=${e} alt="Stool photo" />`:l}
         <span class="reasons">${t.abnormal_reasons.join(", ")}</span>
       </div>
     `}_renderCats(t){return a`

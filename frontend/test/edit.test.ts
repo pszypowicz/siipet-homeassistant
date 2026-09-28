@@ -409,6 +409,125 @@ describe("edit view", () => {
     expect((inEditor(reopened!, ".memo-input") as unknown as HTMLInputElement).value).toBe("note");
   });
 
+  it("renews the recording URL on a refresh when the video is not playing", async () => {
+    const fake = fakeHass();
+    const original = fake.callWS.getMockImplementation() as (
+      message: Record<string, unknown>,
+    ) => Promise<unknown>;
+    let resolves = 0;
+    fake.callWS.mockImplementation(async (message: Record<string, unknown>) => {
+      if (message.type === "media_source/resolve_media") {
+        resolves += 1;
+        return { url: `https://video.example/ev-1-${resolves}.mp4`, mime_type: "video/mp4" };
+      }
+      return original(message);
+    });
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+    const video = inEditor(editor, "video") as unknown as HTMLVideoElement;
+    expect(video.getAttribute("src")).toBe("https://video.example/ev-1-1.mp4");
+
+    fake.results.day = { ...fake.results.day, visits: [{ ...POOP }, LINGERING] };
+    fake.listeners.get("ready")!();
+    await settle(card);
+
+    expect(video.getAttribute("src")).toBe("https://video.example/ev-1-2.mp4");
+  });
+
+  it("does not renew the recording URL while the video is playing", async () => {
+    const fake = fakeHass();
+    const original = fake.callWS.getMockImplementation() as (
+      message: Record<string, unknown>,
+    ) => Promise<unknown>;
+    let resolves = 0;
+    fake.callWS.mockImplementation(async (message: Record<string, unknown>) => {
+      if (message.type === "media_source/resolve_media") {
+        resolves += 1;
+        return { url: `https://video.example/ev-1-${resolves}.mp4`, mime_type: "video/mp4" };
+      }
+      return original(message);
+    });
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+    const video = inEditor(editor, "video") as unknown as HTMLVideoElement;
+    expect(video.getAttribute("src")).toBe("https://video.example/ev-1-1.mp4");
+    await video.play();
+
+    fake.results.day = { ...fake.results.day, visits: [{ ...POOP }, LINGERING] };
+    fake.listeners.get("ready")!();
+    await settle(card);
+
+    expect(video.getAttribute("src")).toBe("https://video.example/ev-1-1.mp4");
+  });
+
+  it("keeps the opened visit as the Save baseline through a refresh", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+    pickType(editor, "pee");
+    await settle();
+
+    const refreshed = {
+      ...POOP,
+      note: "from the app",
+      cover: "/api/siipet/image/cover/ev-1?authSig=z",
+      stool: "/api/siipet/image/stool/ev-1?authSig=z",
+    };
+    fake.results.day = { ...fake.results.day, visits: [refreshed, LINGERING] };
+    fake.listeners.get("ready")!();
+    await settle(card);
+
+    const reopened = find(card, "siipet-visit-editor");
+    expect(reopened).toBe(editor);
+    const video = inEditor(reopened!, "video") as unknown as HTMLVideoElement;
+    expect(video.getAttribute("poster")).toBe(refreshed.cover);
+    expect(inEditor(reopened!, ".stool-photo")?.getAttribute("src")).toBe(refreshed.stool);
+
+    inEditor(reopened!, ".save")!.click();
+    await settle(card);
+    expect(fake.callService).toHaveBeenCalledWith(
+      "siipet",
+      "update_visit",
+      { event_id: "ev-1", type: "pee" },
+      undefined,
+      false,
+    );
+  });
+
+  it("keeps the partial edit flag across an unrelated failure", async () => {
+    const fake = fakeHass();
+    fake.callService
+      .mockRejectedValueOnce({
+        code: "home_assistant_error",
+        message: "SiiPet could not finish the edit",
+        translation_key: "edit_partial",
+      })
+      .mockRejectedValueOnce({ code: "home_assistant_error", message: "Connection lost" });
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+    const [, milo] = allInEditor(editor, "ha-control-button.cat");
+    milo.click();
+    await settle();
+
+    inEditor(editor, ".save")!.click();
+    await settle(card);
+    expect(text(inEditor(editor, ".error"))).toBe("SiiPet could not finish the edit");
+
+    inEditor(editor, ".save")!.click();
+    await settle(card);
+    expect(text(inEditor(editor, ".error"))).toBe("Connection lost");
+
+    inEditor(editor, ".save")!.click();
+    await settle(card);
+    expect(fake.callService).toHaveBeenLastCalledWith(
+      "siipet",
+      "update_visit",
+      { event_id: "ev-1", cats: ["dev-luna", "dev-milo"], type: "poop" },
+      undefined,
+      false,
+    );
+  });
+
   it("shows the message of a failed video resolve", async () => {
     const fake = fakeHass({
       fail: { "media_source/resolve_media": { message: "Media not found" } },

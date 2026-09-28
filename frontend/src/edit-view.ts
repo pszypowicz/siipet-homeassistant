@@ -25,6 +25,7 @@ export class SiiPetVisitEditor extends LitElement {
     hass: { attribute: false },
     visit: { attribute: false },
     cats: { attribute: false },
+    _baseline: { state: true },
     _form: { state: true },
     _video: { state: true },
     _videoNote: { state: true },
@@ -122,6 +123,10 @@ export class SiiPetVisitEditor extends LitElement {
   declare hass?: HomeAssistant;
   declare visit?: Visit;
   declare cats: Cat[];
+  /** The visit this editor opened with. Save compares the form with this, not
+   * with a refreshed `visit`, so a field changed elsewhere between opens does
+   * not look like a change the form itself made. */
+  declare _baseline?: Visit;
   declare _form?: EditForm;
   declare _video?: string;
   declare _videoNote?: string;
@@ -154,16 +159,17 @@ export class SiiPetVisitEditor extends LitElement {
     }
     const previous = changed.get("visit") as Visit | undefined;
     if (previous?.event_id === this.visit.event_id) {
-      // A refreshed visit object for the same event: the image paths render
-      // straight from `visit`, so they renew on their own. Keep the form, the
-      // error, and the busy and armed state, and resolve the recording again
-      // only when it has not resolved yet, so a video already playing is not
-      // interrupted by a new source.
-      if (this.visit.has_video && this._video === undefined) {
+      // A refreshed visit object for the same event: the Save baseline, the
+      // form, the error, and the busy and armed state stay as they are. The
+      // cover and the stool photo render straight from `visit`, so they renew
+      // on their own. The recording renews too, unless it is currently
+      // playing, so a refresh does not interrupt it.
+      if (this.visit.has_video && !this._isVideoPlaying()) {
         void this._resolveVideo(this.visit.event_id);
       }
       return;
     }
+    this._baseline = this.visit;
     this._form = initialForm(this.visit);
     this._video = undefined;
     this._videoNote = this.visit.has_video ? undefined : "Recording is on the camera only.";
@@ -172,6 +178,11 @@ export class SiiPetVisitEditor extends LitElement {
     if (this.visit.has_video) {
       void this._resolveVideo(this.visit.event_id);
     }
+  }
+
+  private _isVideoPlaying(): boolean {
+    const video = this.renderRoot.querySelector("video");
+    return video !== null && !video.paused;
   }
 
   private async _resolveVideo(eventId: string): Promise<void> {
@@ -217,10 +228,16 @@ export class SiiPetVisitEditor extends LitElement {
     this._error = undefined;
     try {
       await updateVisit(this.hass!, data);
+      this._partialEdit = false;
       this._close(true);
     } catch (err) {
       this._error = errorMessage(err);
-      this._partialEdit = isPartialEdit(err);
+      // A later failure for another reason (for example a dropped connection)
+      // must not clear a flag an earlier partial edit set: the server's type
+      // is still out of step with the visit until a save succeeds.
+      if (isPartialEdit(err)) {
+        this._partialEdit = true;
+      }
     } finally {
       this._busy = false;
     }
@@ -249,18 +266,19 @@ export class SiiPetVisitEditor extends LitElement {
   }
 
   protected render(): TemplateResult | typeof nothing {
-    const visit = this.visit;
+    const baseline = this._baseline;
+    const current = this.visit;
     const form = this._form;
-    if (!visit || !form) {
+    if (!baseline || !current || !form) {
       return nothing;
     }
-    const check = changedFields(visit, form, { sendType: this._partialEdit });
+    const check = changedFields(baseline, form, { sendType: this._partialEdit });
     const hint = check.reason === "type_required" ? "Pick a type as well." : undefined;
     return html`
-      ${this._renderHeader(visit)}
+      ${this._renderHeader(baseline)}
       <div class="editor">
-        ${this._renderVideo(visit)} ${this._renderStool(visit)} ${this._renderCats(form)}
-        ${this._renderType(form)} ${this._renderMemo(form)}
+        ${this._renderVideo(current.cover)} ${this._renderStool(baseline, current.stool)}
+        ${this._renderCats(form)} ${this._renderType(form)} ${this._renderMemo(form)}
         ${hint ? html`<div class="hint">${hint}</div>` : nothing}
         ${this._error ? html`<div class="error">${this._error}</div>` : nothing}
         ${this._renderActions(check.data)}
@@ -362,7 +380,7 @@ export class SiiPetVisitEditor extends LitElement {
     `;
   }
 
-  private _renderVideo(visit: Visit): TemplateResult {
+  private _renderVideo(cover: string | null): TemplateResult {
     if (this._videoNote !== undefined) {
       return html`<div class="video-note">${this._videoNote}</div>`;
     }
@@ -372,7 +390,7 @@ export class SiiPetVisitEditor extends LitElement {
         controls
         playsinline
         preload="none"
-        poster=${visit.cover ?? nothing}
+        poster=${cover ?? nothing}
         src=${this._video ?? nothing}
         @error=${() => {
           this._videoNote =
@@ -382,17 +400,13 @@ export class SiiPetVisitEditor extends LitElement {
     `;
   }
 
-  private _renderStool(visit: Visit): TemplateResult | typeof nothing {
-    if (!visit.stool && visit.abnormal_reasons.length === 0) {
+  private _renderStool(visit: Visit, stool: string | null): TemplateResult | typeof nothing {
+    if (!stool && visit.abnormal_reasons.length === 0) {
       return nothing;
     }
     return html`
       <div class="stool-row">
-        ${
-          visit.stool
-            ? html`<img class="stool-photo" src=${visit.stool} alt="Stool photo" />`
-            : nothing
-        }
+        ${stool ? html`<img class="stool-photo" src=${stool} alt="Stool photo" />` : nothing}
         <span class="reasons">${visit.abnormal_reasons.join(", ")}</span>
       </div>
     `;
