@@ -175,7 +175,11 @@ export function renderCatStrip(
   `;
 }
 
-function renderVisit(visit: Visit, withDay: boolean): TemplateResult {
+function renderVisit(
+  visit: Visit,
+  withDay: boolean,
+  onOpen: (visit: Visit) => void,
+): TemplateResult {
   const style = TYPE_STYLE[visit.type];
   const time = timeOf(visit.start);
   const primary = withDay ? `${dayLabel(visit.start.slice(0, 10))} ${time}` : time;
@@ -196,7 +200,12 @@ function renderVisit(visit: Visit, withDay: boolean): TemplateResult {
     ? nothing
     : html`<span class="camera-only">On camera only</span>`;
   return html`
-    <ha-tile-container class="visit ${visit.type}">
+    <ha-tile-container
+      class="visit ${visit.type}"
+      data-event=${visit.event_id}
+      .interactive=${true}
+      @action=${() => onOpen(visit)}
+    >
       <ha-tile-icon
         slot="icon"
         .icon=${style.icon}
@@ -216,6 +225,7 @@ function renderVisit(visit: Visit, withDay: boolean): TemplateResult {
 export function renderTimeline(
   visits: Visit[] | undefined,
   withDay: boolean,
+  onOpen: (visit: Visit) => void,
 ): TemplateResult | typeof nothing {
   if (visits === undefined) {
     return nothing;
@@ -223,5 +233,7 @@ export function renderTimeline(
   if (visits.length === 0) {
     return html`<div class="message empty">No visits on this day.</div>`;
   }
-  return html`<div class="timeline">${visits.map((visit) => renderVisit(visit, withDay))}</div>`;
+  return html`<div class="timeline">
+    ${visits.map((visit) => renderVisit(visit, withDay, onOpen))}
+  </div>`;
 }

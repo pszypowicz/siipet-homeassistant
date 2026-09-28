@@ -120,8 +120,10 @@ export const cardStyles = css`
     color: var(--error-color);
     background-color: color-mix(in srgb, var(--error-color) 20%, transparent);
   }
+  /* Taps on the poster pass through to the tap area of the row. */
   .poster {
     position: relative;
+    pointer-events: none;
     aspect-ratio: 16 / 9;
     overflow: hidden;
     border-radius: var(--ha-border-radius-lg, 12px);

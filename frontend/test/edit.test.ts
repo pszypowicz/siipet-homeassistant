@@ -1,0 +1,262 @@
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+import {
+  catsResult,
+  fakeHass,
+  find,
+  findAll,
+  mount,
+  POOP,
+  sent,
+  settle,
+  stubTileParts,
+  text,
+  type TestCard,
+} from "./helpers";
+
+beforeAll(async () => {
+  stubTileParts();
+  await import("../src/siipet-visits-card");
+});
+
+afterEach(() => {
+  document.body.replaceChildren();
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
+
+type Part = HTMLElement & Record<string, unknown>;
+
+/** Tap a timeline row and return the editor that opens. */
+async function openVisit(card: TestCard, index = 0): Promise<HTMLElement> {
+  findAll(card, ".visit")[index].dispatchEvent(
+    new CustomEvent("action", { detail: { action: "tap" } }),
+  );
+  await settle(card);
+  const editor = find(card, "siipet-visit-editor");
+  expect(editor).not.toBeNull();
+  return editor!;
+}
+
+function inEditor(editor: HTMLElement, selector: string): Part | null {
+  return editor.shadowRoot!.querySelector(selector) as Part | null;
+}
+
+function allInEditor(editor: HTMLElement, selector: string): Part[] {
+  return [...editor.shadowRoot!.querySelectorAll(selector)] as Part[];
+}
+
+function pickType(editor: HTMLElement, type: string): void {
+  inEditor(editor, "ha-control-select.type")!.dispatchEvent(
+    new CustomEvent("value-changed", { detail: { value: type } }),
+  );
+}
+
+async function typeMemo(editor: HTMLElement, value: string): Promise<void> {
+  const input = inEditor(editor, ".memo-input") as unknown as HTMLInputElement;
+  input.value = value;
+  input.dispatchEvent(new Event("input"));
+  await settle();
+}
+
+describe("edit view", () => {
+  it("opens a visit and resolves its recording", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+
+    expect(find(card, ".timeline")).toBeNull();
+    expect(text(inEditor(editor, '.header [slot="primary"]'))).toBe("20:11 · Luna");
+    expect(text(inEditor(editor, '.header [slot="secondary"]'))).toBe(
+      "Sun 27 Sep · Poop · 57 s · Soft stool",
+    );
+    expect(sent(fake).at(-1)).toEqual({
+      type: "media_source/resolve_media",
+      media_content_id: "media-source://siipet/visit/ev-1",
+    });
+    const video = inEditor(editor, "video") as unknown as HTMLVideoElement;
+    expect(video.getAttribute("src")).toBe("https://video.example/ev-1.mp4");
+    expect(video.getAttribute("poster")).toBe(POOP.cover);
+    expect(inEditor(editor, ".stool-photo")?.getAttribute("src")).toBe(POOP.stool);
+    expect(text(inEditor(editor, ".reasons"))).toBe("Soft stool");
+  });
+
+  it("explains a recording that the browser cannot play", async () => {
+    const editor = await openVisit(await mount(fakeHass()));
+    inEditor(editor, "video")!.dispatchEvent(new Event("error"));
+    await settle();
+    expect(text(inEditor(editor, ".video-note"))).toBe(
+      "This browser cannot play the recording. Safari and the Home Assistant app can.",
+    );
+  });
+
+  it("does not ask for a recording that is on the camera only", async () => {
+    const day = { summary: { visits: 1, pee: 0, poop: 1, abnormal: 1 } };
+    const fake = fakeHass({ day: { ...day, visits: [{ ...POOP, has_video: false }] } });
+    const editor = await openVisit(await mount(fake));
+    expect(inEditor(editor, "video")).toBeNull();
+    expect(text(inEditor(editor, ".video-note"))).toBe("Recording is on the camera only.");
+    expect(sent(fake).map((message) => message.type)).not.toContain("media_source/resolve_media");
+  });
+
+  it("keeps Save off until a field changes, then sends only the change", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+    expect(inEditor(editor, ".save")?.disabled).toBe(true);
+
+    pickType(editor, "pee");
+    await settle();
+    expect(inEditor(editor, ".save")?.disabled).toBe(false);
+    fake.callWS.mockClear();
+
+    inEditor(editor, ".save")!.click();
+    await settle(card);
+    expect(fake.callService).toHaveBeenCalledWith(
+      "siipet",
+      "update_visit",
+      { event_id: "ev-1", type: "pee" },
+      undefined,
+      false,
+    );
+    expect(find(card, "siipet-visit-editor")).toBeNull();
+    expect(sent(fake).map((message) => message.type)).toEqual([
+      "siipet/cats",
+      "siipet/day",
+      "siipet/calendar",
+    ]);
+  });
+
+  it("keeps at least one cat on", async () => {
+    const fake = fakeHass();
+    const editor = await openVisit(await mount(fake));
+    const [luna, milo] = allInEditor(editor, "ha-control-button.cat");
+    expect(luna.classList.contains("on")).toBe(true);
+
+    luna.click();
+    await settle();
+    expect(luna.classList.contains("on")).toBe(true);
+
+    milo.click();
+    await settle();
+    luna.click();
+    await settle();
+    expect(luna.classList.contains("on")).toBe(false);
+    expect(milo.classList.contains("on")).toBe(true);
+
+    inEditor(editor, ".save")!.click();
+    await settle();
+    expect(fake.callService.mock.calls[0][2]).toEqual({ event_id: "ev-1", cats: ["dev-milo"] });
+  });
+
+  it("asks for a type when a visit of unknown type gets a cat", async () => {
+    const fake = fakeHass({
+      cats: catsResult({ unknown: { device_id: "dev-unknown", waiting: 1 } }),
+    });
+    const card = await mount(fake, { cat: "dev-unknown" });
+    const editor = await openVisit(card);
+    expect(text(inEditor(editor, '.header [slot="primary"]'))).toBe("03:12 · Unknown");
+
+    allInEditor(editor, "ha-control-button.cat")[0].click();
+    await settle();
+    expect(inEditor(editor, ".save")?.disabled).toBe(true);
+    expect(text(inEditor(editor, ".hint"))).toBe("Pick a type as well.");
+
+    pickType(editor, "poop");
+    await settle();
+    inEditor(editor, ".save")!.click();
+    await settle();
+    expect(fake.callService.mock.calls[0][2]).toEqual({
+      event_id: "ev-9",
+      cats: ["dev-luna"],
+      type: "poop",
+    });
+  });
+
+  it("counts the memo characters and sends the memo trimmed", async () => {
+    const fake = fakeHass();
+    const editor = await openVisit(await mount(fake));
+    await typeMemo(editor, "  soft  ");
+    expect(text(inEditor(editor, ".counter"))).toBe("8/200");
+    expect(inEditor(editor, ".memo-input")?.getAttribute("maxlength")).toBe("200");
+
+    inEditor(editor, ".save")!.click();
+    await settle();
+    expect(fake.callService.mock.calls[0][2]).toEqual({ event_id: "ev-1", note: "soft" });
+  });
+
+  it("shows the error of a failed save and keeps the inputs", async () => {
+    const fake = fakeHass();
+    fake.callService.mockRejectedValue({
+      code: "home_assistant_error",
+      message: "SiiPet could not save the visit",
+    });
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+    await typeMemo(editor, "soft");
+
+    inEditor(editor, ".save")!.click();
+    await settle(card);
+    expect(find(card, "siipet-visit-editor")).toBe(editor);
+    expect(text(inEditor(editor, ".error"))).toBe("SiiPet could not save the visit");
+    expect((inEditor(editor, ".memo-input") as unknown as HTMLInputElement).value).toBe("soft");
+  });
+
+  it("deletes after a second tap on Delete", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+
+    inEditor(editor, ".delete")!.click();
+    await settle();
+    expect(text(inEditor(editor, ".delete"))).toBe("Tap again to delete");
+    expect(fake.callService).not.toHaveBeenCalled();
+
+    inEditor(editor, ".delete")!.click();
+    await settle(card);
+    expect(fake.callService).toHaveBeenCalledWith(
+      "siipet",
+      "delete_visit",
+      { event_id: "ev-1" },
+      undefined,
+      false,
+    );
+    expect(find(card, "siipet-visit-editor")).toBeNull();
+  });
+
+  it("asks again for a tap on Delete after 5 seconds", async () => {
+    const fake = fakeHass();
+    const editor = await openVisit(await mount(fake));
+    vi.useFakeTimers();
+
+    inEditor(editor, ".delete")!.click();
+    await vi.advanceTimersByTimeAsync(5001);
+    expect(text(inEditor(editor, ".delete"))).toBe("Delete");
+
+    inEditor(editor, ".delete")!.click();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fake.callService).not.toHaveBeenCalled();
+  });
+
+  it("shows Delete only to admins", async () => {
+    const editor = await openVisit(await mount(fakeHass({}, false)));
+    expect(inEditor(editor, ".delete")).toBeNull();
+  });
+
+  it("goes back from the header and brings the visit into view", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    const editor = await openVisit(card, 1);
+    const scroll = vi.spyOn(HTMLElement.prototype, "scrollIntoView");
+    fake.callWS.mockClear();
+
+    inEditor(editor, ".header")!.dispatchEvent(
+      new CustomEvent("action", { detail: { action: "tap" } }),
+    );
+    await settle(card);
+    expect(find(card, "siipet-visit-editor")).toBeNull();
+    expect(sent(fake)).toEqual([]);
+    expect(scroll).toHaveBeenCalledOnce();
+    expect(scroll.mock.contexts[0]).toBe(find(card, '.visit[data-event="ev-2"]'));
+  });
+});

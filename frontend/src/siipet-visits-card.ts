@@ -12,6 +12,8 @@ import {
   renderHeader,
   renderTimeline,
 } from "./day-view";
+import "./edit-view";
+import type { CloseDetail } from "./edit-view";
 import { dayLabel, monthOf, shiftDay, shiftMonth, timeOf } from "./format";
 import { cardStyles } from "./styles";
 import { loadTileParts } from "./tile-parts";
@@ -23,6 +25,7 @@ import type {
   HassConnection,
   HomeAssistant,
   QueueResult,
+  Visit,
 } from "./types";
 
 // The time since the last successful read after which a visible page reads again.
@@ -58,6 +61,7 @@ export class SiiPetVisitsCard extends LitElement {
     _day: { state: true },
     _queue: { state: true },
     _error: { state: true },
+    _editing: { state: true },
   };
 
   static styles = cardStyles;
@@ -75,6 +79,7 @@ export class SiiPetVisitsCard extends LitElement {
   declare _day?: DayResult;
   declare _queue?: QueueResult;
   declare _error?: string;
+  declare _editing?: Visit;
 
   private _started = false;
   private _signature?: string;
@@ -461,6 +466,18 @@ export class SiiPetVisitsCard extends LitElement {
     void this._loadCalendar(this._month);
   }
 
+  /** Return to the day view. After an edit, read again. Then bring the visit into view. */
+  private async _closeEditor(changed: boolean): Promise<void> {
+    const eventId = this._editing?.event_id;
+    this._editing = undefined;
+    if (changed) {
+      await this._run(() => this._refresh());
+    }
+    await this.updateComplete;
+    const rows = this.shadowRoot?.querySelectorAll<HTMLElement>(".visit") ?? [];
+    [...rows].find((row) => row.dataset.event === eventId)?.scrollIntoView({ block: "nearest" });
+  }
+
   private _toggleCalendar(): void {
     this._month = monthOf(this._date!);
     this._calendarOpen = !this._calendarOpen;
@@ -483,9 +500,8 @@ export class SiiPetVisitsCard extends LitElement {
       <ha-card style="--tile-color: var(--state-icon-color)">
         ${cats && !cats.available ? this._renderNotice(cats) : nothing}
         ${cats && selected === undefined ? noCats : nothing}
-        ${cats && selected !== undefined ? this._renderView(cats, selected) : nothing}
-        ${this._error ? html`<div class="error">${this._error}</div>` : nothing}
-        ${cats && selected !== undefined ? this._renderVisits() : nothing}
+        ${cats && selected !== undefined ? this._renderMain(cats, selected) : nothing}
+        ${!cats && this._error ? html`<div class="error">${this._error}</div>` : nothing}
       </ha-card>
     `;
   }
@@ -496,6 +512,24 @@ export class SiiPetVisitsCard extends LitElement {
       <div class="notice">
         SiiPet is not updating. Last update: ${day} ${timeOf(cats.updated_at)}.
       </div>
+    `;
+  }
+
+  private _renderMain(cats: CatsResult, selected: string): TemplateResult {
+    if (this._editing) {
+      return html`
+        <siipet-visit-editor
+          .hass=${this.hass}
+          .visit=${this._editing}
+          .cats=${cats.cats}
+          @siipet-close=${(ev: CustomEvent<CloseDetail>) => this._closeEditor(ev.detail.changed)}
+        ></siipet-visit-editor>
+      `;
+    }
+    return html`
+      ${this._renderView(cats, selected)}
+      ${this._error ? html`<div class="error">${this._error}</div>` : nothing}
+      ${this._renderVisits()}
     `;
   }
 
@@ -543,9 +577,12 @@ export class SiiPetVisitsCard extends LitElement {
   }
 
   private _renderVisits() {
+    const open = (visit: Visit) => {
+      this._editing = visit;
+    };
     return this._isQueue()
-      ? renderTimeline(this._queue?.visits, true)
-      : renderTimeline(this._day?.visits, false);
+      ? renderTimeline(this._queue?.visits, true, open)
+      : renderTimeline(this._day?.visits, false, open);
   }
 }
 
