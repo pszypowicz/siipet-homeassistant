@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
+from collections.abc import AsyncIterator
 from dataclasses import replace
 from datetime import date
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -16,6 +19,7 @@ from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
+    AiohttpClientMockResponse,
 )
 
 from custom_components.siipet.api import DayVisits, Visit
@@ -115,6 +119,34 @@ def mock_s3(aioclient_mock: AiohttpClientMocker, **extra: bytes) -> None:
     """Serve MIRROR_FILES and `extra` from the mocked S3 bucket."""
     for key, body in {**MIRROR_FILES, **extra}.items():
         aioclient_mock.get(S3 + key, content=body)
+
+
+class StalledResponse(AiohttpClientMockResponse):
+    """An S3 response that sends its first byte, then waits for `release`."""
+
+    def __init__(
+        self,
+        method: str,
+        url: Any,
+        body: bytes,
+        started: asyncio.Event,
+        release: asyncio.Event,
+    ) -> None:
+        """Create the response. `started` is set once the first byte is out."""
+        super().__init__(method, url, response=body)
+        self._started = started
+        self._release = release
+
+    @property
+    def content(self) -> Any:
+        """Return a body that stalls after its first byte."""
+        return SimpleNamespace(iter_chunked=lambda size: self._chunks())
+
+    async def _chunks(self) -> AsyncIterator[bytes]:
+        yield self.response[:1]
+        self._started.set()
+        await self._release.wait()
+        yield self.response[1:]
 
 
 def s3_gets(aioclient_mock: AiohttpClientMocker, key: str) -> int:

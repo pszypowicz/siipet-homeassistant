@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, date, datetime
 import hashlib
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -160,6 +161,64 @@ async def test_write_dropped_when_keep_turns_false(
     assert list((tmp_path / ".siipet").rglob("*.*")) == []
 
 
+async def test_write_dropped_when_keep_turns_false_during_the_rename(
+    hass: HomeAssistant, tmp_path: Path
+) -> None:
+    """A delete during the rename leaves no file and no index entry."""
+    store = await _store(hass, tmp_path)
+    answers = iter([True, False])
+    written = await store.async_write(
+        MediaFile.RECORDING,
+        "ev-1",
+        DAY,
+        _chunks(b"abcd"),
+        size=4,
+        md5=_md5(b"abcd"),
+        keep=lambda: next(answers),
+    )
+    assert written is False
+    assert store.path(MediaFile.RECORDING, "ev-1") is None
+    assert list((tmp_path / ".siipet").rglob("*.*")) == []
+
+
+async def test_delete_visit_does_not_wait_for_a_write(
+    hass: HomeAssistant, tmp_path: Path
+) -> None:
+    """A visit delete finishes while a download of another visit holds the lock."""
+    store = await _store(hass, tmp_path)
+    await _write(store, MediaFile.COVER, "ev-1", b"cover")
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def stalled_chunks() -> AsyncIterator[bytes]:
+        yield b"ab"
+        started.set()
+        await release.wait()
+        yield b"cd"
+
+    task = hass.async_create_task(
+        store.async_write(
+            MediaFile.RECORDING,
+            "ev-2",
+            DAY,
+            stalled_chunks(),
+            size=4,
+            md5=None,
+            keep=lambda: True,
+        )
+    )
+    await started.wait()
+    delete = hass.async_create_task(store.async_delete_visit("ev-1"))
+    await asyncio.sleep(0)
+    try:
+        assert store.path(MediaFile.COVER, "ev-1") is None
+        await delete
+        assert not (tmp_path / ".siipet" / "2026-09-26" / "ev-1.cover.jpg").exists()
+    finally:
+        release.set()
+    assert await task is True
+
+
 @pytest.mark.parametrize("event_id", ["../ev-1", "ev 1", "", "ev/1"])
 async def test_write_rejects_an_unsafe_id(
     hass: HomeAssistant, tmp_path: Path, event_id: str
@@ -231,6 +290,31 @@ async def test_delete_visit(hass: HomeAssistant, tmp_path: Path) -> None:
     assert store.path(MediaFile.COVER, "ev-1") is None
     assert not (tmp_path / ".siipet" / "2026-09-26" / "ev-1.mp4").exists()
     assert store.path(MediaFile.COVER, "ev-2") is not None
+
+
+async def test_failed_delete_is_logged_once(
+    hass: HomeAssistant, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A file that cannot be deleted gives one warning with the error type only."""
+    store = await _store(hass, tmp_path)
+    await _write(store, MediaFile.COVER, "ev-1", b"cover")
+    await _write(store, MediaFile.COVER, "ev-2", b"cover")
+    with (
+        caplog.at_level(logging.DEBUG, logger="custom_components.siipet"),
+        patch.object(Path, "unlink", side_effect=PermissionError("denied")),
+    ):
+        await store.async_delete_visit("ev-1")
+        await store.async_delete_visit("ev-2")
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "custom_components.siipet.media_store"
+    ]
+    assert [record.levelno for record in records] == [logging.WARNING, logging.DEBUG]
+    for record in records:
+        assert "PermissionError" in record.getMessage()
+        assert "ev-" not in record.getMessage()
+        assert str(tmp_path) not in record.getMessage()
 
 
 async def test_delete_before(hass: HomeAssistant, tmp_path: Path) -> None:

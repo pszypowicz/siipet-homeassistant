@@ -151,7 +151,9 @@ class SiiPetMirror:
         self._stopped = False
         self._disk_full = False
         self._active: _JobKey | None = None
-        self._forgotten: set[str] = set()
+        # Deleted visits, with the day of the delete. S3 keeps the files after
+        # a delete, so a day read that started before it can return the visit.
+        self._deleted: dict[str, date] = {}
 
     async def async_start(self) -> None:
         """Clean up, queue the missing media, and start the downloads."""
@@ -176,9 +178,9 @@ class SiiPetMirror:
         self._stopped = True
         self._pending.clear()
 
-    @callback
-    def async_forget(self, event_id: str) -> None:
-        """Drop the waiting downloads of a visit, and delete its files."""
+    async def async_forget(self, event_id: str) -> None:
+        """Delete the files of a visit, and keep it out of the copy from now on."""
+        self._deleted[event_id] = dt_util.now().date()
         for job_key in [job_key for job_key in self._pending if job_key[0] == event_id]:
             del self._pending[job_key]
         self._failures = {
@@ -186,13 +188,7 @@ class SiiPetMirror:
             for job_key, failure in self._failures.items()
             if job_key[0] != event_id
         }
-        if self._active is not None and self._active[0] == event_id:
-            # The active download commits after this method returns, so make
-            # its `keep` callback drop the file instead of storing it.
-            self._forgotten.add(event_id)
-        self.entry.async_create_background_task(
-            self.hass, self.store.async_delete_visit(event_id), "siipet media delete"
-        )
+        await self.store.async_delete_visit(event_id)
 
     def stats(self) -> dict[str, int]:
         """Return the numbers of waiting and failing downloads."""
@@ -266,7 +262,12 @@ class SiiPetMirror:
         return self.store.path(job.kind, job.item_id) is not None
 
     def _add(self, job: _Job) -> None:
-        if self._stopped or not safe_id(job.item_id) or job.job_key == self._active:
+        if (
+            self._stopped
+            or not safe_id(job.item_id)
+            or job.job_key == self._active
+            or (job.kind is not None and job.item_id in self._deleted)
+        ):
             return
         failure = self._failures.get(job.job_key)
         if failure is not None:
@@ -307,7 +308,6 @@ class SiiPetMirror:
                 await self._async_download(job)
             finally:
                 self._active = None
-                self._forgotten.discard(job.item_id)
 
     async def _async_has_room(self, job: _Job) -> bool:
         try:
@@ -347,7 +347,7 @@ class SiiPetMirror:
                         size=job.size,
                         md5=job.md5,
                         keep=lambda: (
-                            self._in_window(day) and job.item_id not in self._forgotten
+                            self._in_window(day) and job.item_id not in self._deleted
                         ),
                     )
         except MediaStoreError as err:
@@ -367,8 +367,8 @@ class SiiPetMirror:
             self._failures.pop(job.job_key, None)
 
     def _record_failure(self, job: _Job) -> None:
-        if job.item_id in self._forgotten:
-            # The visit is gone; its files must not come back through a retry.
+        if job.kind is not None and job.item_id in self._deleted:
+            # The visit is gone, so a retry must not bring its files back.
             return
         failure = self._failures.get(job.job_key)
         attempts = failure.attempts + 1 if failure else 1
@@ -432,4 +432,11 @@ class SiiPetMirror:
             job_key: job
             for job_key, job in self._pending.items()
             if job.day is None or job.day >= cutoff
+        }
+        # A visit is never later than the day of its delete, so a delete
+        # before the window has no visit left to keep out.
+        self._deleted = {
+            event_id: deleted_on
+            for event_id, deleted_on in self._deleted.items()
+            if deleted_on >= cutoff
         }

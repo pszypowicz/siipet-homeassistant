@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from datetime import timedelta
 import json
@@ -34,9 +35,12 @@ from custom_components.siipet.api import (
 from custom_components.siipet.const import DOMAIN
 
 from .common import (
+    S3,
     TODAY,
+    StalledResponse,
     day_folder,
     load_data,
+    md5_hex,
     mirror_visit,
     mock_s3,
     serve_days,
@@ -593,6 +597,48 @@ async def test_delete_visit_removes_the_local_copy(
     await _delete(hass, event_id="ev-1")
     await hass.async_block_till_done(wait_background_tasks=True)
     assert list(day_folder(media_dir).iterdir()) == []
+
+
+async def test_delete_visit_does_not_wait_for_a_running_download(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+) -> None:
+    """The files of a deleted visit are gone when the action returns."""
+    other_video = b"video-ev-2"
+    other = mirror_visit(
+        event_id="ev-2",
+        start=mirror_visit().start - timedelta(hours=1),
+        cover_key=None,
+        stool_key=None,
+        video_key="events/ev-2/video.mp4",
+        video_size=len(other_video),
+        video_md5=md5_hex(other_video),
+    )
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def respond(method: str, url: Any, data: Any) -> StalledResponse:
+        return StalledResponse(method, url, other_video, started, release)
+
+    serve_days(mock_client, {TODAY: (mirror_visit(), other)})
+    aioclient_mock.get(S3 + "events/ev-2/video.mp4", side_effect=respond)
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7, wait_for_downloads=False)
+    await asyncio.wait_for(started.wait(), timeout=1)
+
+    mock_client.get_visit.side_effect = [_detail()]
+    serve_days(mock_client, {TODAY: (other,)})
+    await _delete(hass, event_id="ev-1")
+    assert sorted(path.name for path in day_folder(media_dir).iterdir()) == [
+        "ev-2.mp4.part"
+    ]
+
+    release.set()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert (day_folder(media_dir) / "ev-2.mp4").read_bytes() == other_video
 
 
 async def test_failed_delete_keeps_the_local_copy(

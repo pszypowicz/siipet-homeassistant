@@ -389,7 +389,7 @@ async def test_forget_deletes_the_files_of_a_visit(
     await setup_mirror(hass, config_entry, 7)
     mirror = config_entry.runtime_data.mirror
     assert mirror is not None
-    mirror.async_forget("ev-1")
+    await mirror.async_forget("ev-1")
     await hass.async_block_till_done(wait_background_tasks=True)
     assert list(day_folder(media_dir).iterdir()) == []
 
@@ -618,7 +618,7 @@ async def test_forget_during_a_download_stores_nothing(
 
     mirror = config_entry.runtime_data.mirror
     assert mirror is not None
-    mirror.async_forget("ev-1")
+    await mirror.async_forget("ev-1")
     release.set()
     await hass.async_block_till_done(wait_background_tasks=True)
 
@@ -709,7 +709,7 @@ async def test_forget_during_a_failing_download_is_not_retried(
 
     mirror = config_entry.runtime_data.mirror
     assert mirror is not None
-    mirror.async_forget("ev-1")
+    await mirror.async_forget("ev-1")
     release.set()
     await hass.async_block_till_done(wait_background_tasks=True)
 
@@ -777,3 +777,69 @@ async def test_a_changed_recording_is_not_blocked_by_the_old_hashs_backoff(
     frozen_time.tick(timedelta(minutes=1))
     await _refresh(hass, config_entry)
     assert (day_folder(media_dir) / "ev-1.mp4").read_bytes() == new_video
+
+
+async def test_a_deleted_visit_does_not_come_back_from_a_backfill_read(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+) -> None:
+    """A day read that started before a delete does not store the deleted visit."""
+    old_day = TODAY - timedelta(days=9)
+    old = mirror_visit(start=mirror_visit().start - timedelta(days=9))
+    waiting = asyncio.Event()
+    release = asyncio.Event()
+
+    async def get_day(requested: Any, **_: Any) -> Any:
+        if requested == old_day:
+            waiting.set()
+            await release.wait()
+            return replace(fixture_day(), visits=(old,))
+        return replace(fixture_day(), visits=())
+
+    mock_client.get_day.side_effect = get_day
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 10, wait_for_downloads=False)
+    await asyncio.wait_for(waiting.wait(), timeout=1)
+
+    mirror = config_entry.runtime_data.mirror
+    assert mirror is not None
+    await mirror.async_forget("ev-1")
+    release.set()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    for key in ("events/ev-1/video.mp4", "events/ev-1/cover.jpg"):
+        assert s3_gets(aioclient_mock, key) == 0
+    assert not day_folder(media_dir, old_day).exists()
+    assert mirror.stats() == {"queued": 0, "failing": 0}
+
+
+async def test_forget_drops_a_failed_job_of_an_unpolled_day(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    frozen_time: FrozenDateTimeFactory,
+    media_dir: Path,
+) -> None:
+    """A forgotten visit of a day that is not polled gets no later retry."""
+    old_day = TODAY - timedelta(days=9)
+    old = mirror_visit(
+        start=mirror_visit().start - timedelta(days=9), cover_key=None, stool_key=None
+    )
+    serve_days(mock_client, {old_day: (old,)})
+    aioclient_mock.get(S3 + "events/ev-1/video.mp4", status=500)
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 10)
+    mirror = config_entry.runtime_data.mirror
+    assert mirror is not None
+    assert mirror.stats() == {"queued": 0, "failing": 1}
+
+    await mirror.async_forget("ev-1")
+    assert mirror.stats() == {"queued": 0, "failing": 0}
+    frozen_time.tick(timedelta(minutes=6))
+    await _refresh(hass, config_entry)
+    assert s3_gets(aioclient_mock, "events/ev-1/video.mp4") == 1
+    assert not day_folder(media_dir, old_day).exists()

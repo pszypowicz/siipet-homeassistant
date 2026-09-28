@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterable, Callable, Mapping
-import contextlib
 from datetime import date
 from enum import StrEnum
 from functools import partial
 import hashlib
+import logging
 from pathlib import Path
 import re
 import shutil
@@ -19,6 +19,8 @@ from homeassistant.util import dt as dt_util
 
 from .api import Visit
 from .const import MEDIA_FOLDER
+
+_LOGGER = logging.getLogger(__name__)
 
 AVATAR_FOLDER = "avatars"
 PART_SUFFIX = ".part"
@@ -93,7 +95,8 @@ class MediaStore:
     """Keep verified media files in day folders, and index them by id.
 
     One lock covers each write from the first byte to the rename, and each
-    delete, so a cleanup never runs while a file is half written.
+    cleanup, so a cleanup never runs while a file is half written. The delete
+    of a visit does not take the lock.
     """
 
     def __init__(self, hass: HomeAssistant, root: Path) -> None:
@@ -103,6 +106,7 @@ class MediaStore:
         self._files: dict[str, dict[MediaFile, _Entry]] = {}
         self._avatars: dict[str, tuple[str, Path, int]] = {}
         self._lock = asyncio.Lock()
+        self._unlink_warned = False
 
     async def async_load(self) -> None:
         """Create the folder, delete partial files, and index the complete ones."""
@@ -144,7 +148,8 @@ class MediaStore:
     ) -> bool:
         """Store a visit file from its download.
 
-        Return False when `keep` is False just before the rename.
+        Return False, with nothing stored, when `keep` is False just before or
+        just after the rename.
         """
         if not safe_id(event_id):
             raise MediaStoreError("The visit id cannot be a file name")
@@ -155,6 +160,11 @@ class MediaStore:
                 await self._async_unlink(_part(target))
                 return False
             await self._async_commit(target)
+            if not keep():
+                # A delete of the visit does not wait for the lock, so it can
+                # come during the rename.
+                await self._async_unlink(target)
+                return False
             self._files.setdefault(event_id, {})[kind] = (target, written)
         return True
 
@@ -180,10 +190,13 @@ class MediaStore:
                 await self._async_unlink(old[1])
 
     async def async_delete_visit(self, event_id: str) -> None:
-        """Delete the files of a visit."""
-        async with self._lock:
-            for path, _ in self._files.pop(event_id, {}).values():
-                await self._async_unlink(path)
+        """Delete the files of a visit, without waiting for a running download.
+
+        The index drops the files at once, and the caller keeps a running
+        download of the same visit from storing its file.
+        """
+        for path, _ in self._files.pop(event_id, {}).values():
+            await self._async_unlink(path)
 
     async def async_delete_before(self, day: date) -> None:
         """Delete the day folders before `day`, with their index entries.
@@ -286,9 +299,17 @@ class MediaStore:
             ) from None
 
     async def _async_unlink(self, path: Path) -> None:
-        with contextlib.suppress(OSError):
+        try:
             await self.hass.async_add_executor_job(
                 partial(path.unlink, missing_ok=True)
+            )
+        except OSError as err:
+            level = logging.DEBUG if self._unlink_warned else logging.WARNING
+            self._unlink_warned = True
+            _LOGGER.log(
+                level,
+                "SiiPet could not delete a local media file (%s)",
+                type(err).__name__,
             )
 
     def _scan(
