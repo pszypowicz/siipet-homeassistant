@@ -23,7 +23,7 @@ custom_components/siipet/
     sigv4.py           SigV4 presigned URLs for S3 and the AWS IoT WebSocket
     mqtt.py            MQTT 3.1.1 packets and MqttSession on an aiohttp WebSocket
     shadow_link.py     ShadowLink: one AWS IoT connection for the device shadows
-  __init__.py          setup of the image and recording views, the actions, the card commands, and the card, entry setup that starts the local media copy, unload, entry removal that deletes the copy, device removal
+  __init__.py          setup of the image and recording views, the actions, the card commands, and the card, entry setup that starts the device state and the local media copy, unload, entry removal that deletes the copy, device removal
   config_flow.py       email and code steps, reauth and reconfigure, options step for the days of local media
   const.py             constants: config keys, Unknown cat id, intervals
   coordinator.py       SiiPetCoordinator, SiiPetData, SiiPetRuntime
