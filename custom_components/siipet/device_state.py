@@ -6,7 +6,7 @@ from datetime import datetime
 import logging
 from typing import TYPE_CHECKING
 
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HassJob, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_call_later
@@ -50,6 +50,12 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         self._shadows: dict[str, CameraShadows] = {}
         self._firmware: dict[str, str] = {}
         self._cancel_grace: CALLBACK_TYPE | None = None
+        # Shutdown cancels the timer, like the other Home Assistant timers.
+        self._grace_job = HassJob(
+            self._async_grace_over,
+            f"{DOMAIN} device state grace",
+            cancel_on_shutdown=True,
+        )
 
     @property
     def link_status(self) -> LinkStatus:
@@ -61,6 +67,8 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         """Start the link in the background. Setup does not wait for AWS IoT."""
         entry = self.config_entry
         self._async_cameras_changed()
+        # The link starts without a connection, so the grace runs until it connects.
+        self._async_on_connection(False)
         entry.async_on_unload(
             self._coordinator.async_add_listener(self._async_cameras_changed)
         )
@@ -120,7 +128,7 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
             self._async_cancel_grace()
         elif self._cancel_grace is None:
             self._cancel_grace = async_call_later(
-                self.hass, DEVICE_STATE_GRACE, self._async_grace_over
+                self.hass, DEVICE_STATE_GRACE, self._grace_job
             )
 
     @callback

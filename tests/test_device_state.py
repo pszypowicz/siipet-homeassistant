@@ -134,6 +134,22 @@ async def test_reconnect_stops_the_grace(
     assert config_entry.runtime_data.device_state.last_update_success
 
 
+async def test_grace_starts_before_the_first_connection(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+) -> None:
+    """A link that never connects fails the coordinator after 15 minutes."""
+    await setup_integration(hass, config_entry)
+    device_state = config_entry.runtime_data.device_state
+    await _tick(hass, freezer, timedelta(minutes=14))
+    assert device_state.last_update_success
+    await _tick(hass, freezer, timedelta(minutes=1, seconds=1))
+    assert not device_state.last_update_success
+
+
 async def test_camera_list_change(
     hass: HomeAssistant,
     freezer: FrozenDateTimeFactory,
