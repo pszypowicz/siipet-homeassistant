@@ -27,6 +27,7 @@ from .const import (
     UNKNOWN_CAT_ID,
 )
 from .coordinator import SiiPetConfigEntry, SiiPetCoordinator, SiiPetRuntime
+from .device_state import SiiPetDeviceCoordinator
 from .media import SiiPetMedia
 from .media_mirror import (
     ISSUE_FOLDER,
@@ -86,13 +87,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: SiiPetConfigEntry) -> bo
     media = SiiPetMedia(
         hass, coordinator, client, S3Signer(client.get_media_credentials)
     )
+    device_state = SiiPetDeviceCoordinator(hass, entry, coordinator, client)
     entry.runtime_data = SiiPetRuntime(
         client=client,
         coordinator=coordinator,
         media=media,
         calendar=SiiPetCalendar(client),
+        device_state=device_state,
     )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    device_state.async_start()
     entry.runtime_data.mirror = await _async_start_mirror(hass, entry)
     return True
 

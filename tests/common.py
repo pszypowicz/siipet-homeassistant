@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import replace
-from datetime import date
+from datetime import UTC, date, datetime
 import hashlib
 import json
 from pathlib import Path
@@ -22,13 +22,69 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMockResponse,
 )
 
-from custom_components.siipet.api import DayVisits, Visit
+from custom_components.siipet.api import CameraShadows, DayVisits, DeviceState, Visit
+from custom_components.siipet.api.shadow_link import LinkStatus
 from custom_components.siipet.const import CONF_MEDIA_DAYS, DOMAIN
 
 FIXTURES = Path(__file__).parent / "fixtures"
 NOW = "2026-09-26T12:00:00+00:00"
 TODAY = date(2026, 9, 26)
 EMPTY_DAY = DayVisits((), {}, False)
+SHADOWS = CameraShadows(config="prod_configInfo", system="prod_systemInfo")
+DEVICE_STATE = DeviceState(
+    battery=72,
+    charging=False,
+    privacy=False,
+    fill_light=2,
+    motion_level=3,
+    update_mode=0,
+    cloud_storage=True,
+    online=True,
+    firmware="1.2.3",
+    rssi=-61,
+    reported_at=datetime(2026, 9, 26, 11, 55, tzinfo=UTC),
+)
+
+
+class FakeShadowLink:
+    """A stand-in for ShadowLink. Tests call its callbacks to push data."""
+
+    def __init__(
+        self,
+        websession: Any,
+        fetch_credentials: Callable[[], Any],
+        on_state: Callable[[str, DeviceState], None],
+        on_connection: Callable[[bool], None],
+        label: Callable[[str], str],
+        **_kwargs: Any,
+    ) -> None:
+        """Keep the arguments for the test."""
+        self.fetch_credentials = fetch_credentials
+        self.on_state = on_state
+        self.on_connection = on_connection
+        self.label = label
+        self.cameras: dict[str, CameraShadows] = {}
+        self.running = False
+        self.stopped = False
+        self.status = LinkStatus(
+            connected=True,
+            connected_since=datetime(2026, 9, 26, 11, 0, tzinfo=UTC),
+            last_message=datetime(2026, 9, 26, 11, 59, tzinfo=UTC),
+            cameras_with_state=1,
+            denied_cameras=1,
+        )
+        self._stop = asyncio.Event()
+
+    def set_cameras(self, cameras: Mapping[str, CameraShadows]) -> None:
+        self.cameras = dict(cameras)
+
+    async def run(self) -> None:
+        self.running = True
+        await self._stop.wait()
+
+    async def stop(self) -> None:
+        self.stopped = True
+        self._stop.set()
 
 
 def load_fixture(name: str) -> dict[str, Any]:
