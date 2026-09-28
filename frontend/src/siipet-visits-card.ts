@@ -11,6 +11,7 @@ import {
   fetchQueue,
   fetchVisit,
   isOutsideWindow,
+  isPermanentFailure,
 } from "./api";
 import {
   daySummaryText,
@@ -379,8 +380,12 @@ export class SiiPetVisitsCard extends LitElement {
     this._armTimer();
   }
 
-  /** Arm a retry after a failed read. The last read times stay as they were. */
-  private _scheduleRetry(): void {
+  /** Arm a retry after a failed read, unless the failure is permanent. The last
+   * read times stay as they were. */
+  private _scheduleRetry(err: unknown): void {
+    if (isPermanentFailure(err)) {
+      return;
+    }
     this._dueAt = Date.now() + RETRY_MS;
     this._armTimer();
   }
@@ -537,7 +542,7 @@ export class SiiPetVisitsCard extends LitElement {
       return this._cats;
     } catch (err) {
       this._error = errorMessage(err);
-      this._scheduleRetry();
+      this._scheduleRetry(err);
       return undefined;
     }
   }
@@ -572,7 +577,7 @@ export class SiiPetVisitsCard extends LitElement {
     } catch (err) {
       if (current()) {
         this._error = errorMessage(err);
-        this._scheduleRetry();
+        this._scheduleRetry(err);
       }
     }
   }
@@ -608,7 +613,7 @@ export class SiiPetVisitsCard extends LitElement {
     } catch (err) {
       if (current()) {
         this._error = errorMessage(err);
-        this._scheduleRetry();
+        this._scheduleRetry(err);
       }
     }
   }

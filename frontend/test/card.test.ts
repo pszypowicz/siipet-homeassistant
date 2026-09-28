@@ -777,6 +777,61 @@ describe("refresh", () => {
     },
   );
 
+  it("does not retry after a renewal fails with a permanent validation error", async () => {
+    vi.useFakeTimers();
+    const fake = fakeHass();
+    const mounted = mount(fake);
+    await vi.advanceTimersByTimeAsync(1000);
+    const card = await mounted;
+    // A past day ignores visit events, so only the timer reads it again.
+    find(card, ".prev-day")!.click();
+    await vi.advanceTimersByTimeAsync(0);
+
+    fake.results.fail = {
+      "siipet/day": {
+        code: "service_validation_error",
+        translation_key: "date_out_of_range",
+        message: "That day is out of range.",
+      },
+    };
+    await vi.advanceTimersByTimeAsync(50 * 60 * 1000);
+    expect(text(find(card, ".error"))).toBe("That day is out of range.");
+
+    fake.callWS.mockClear();
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    expect(sent(fake)).toEqual([]);
+  });
+
+  it("retries after a renewal fails with the not_loaded validation error", async () => {
+    vi.useFakeTimers();
+    const fake = fakeHass();
+    const mounted = mount(fake);
+    await vi.advanceTimersByTimeAsync(1000);
+    const card = await mounted;
+    find(card, ".prev-day")!.click();
+    await vi.advanceTimersByTimeAsync(0);
+
+    fake.results.fail = {
+      "siipet/day": {
+        code: "service_validation_error",
+        translation_key: "not_loaded",
+        message: "SiiPet is not loaded. Check the SiiPet integration",
+      },
+    };
+    await vi.advanceTimersByTimeAsync(50 * 60 * 1000);
+    expect(text(find(card, ".error"))).toBe("SiiPet is not loaded. Check the SiiPet integration");
+
+    fake.results.fail = {};
+    fake.callWS.mockClear();
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    expect(sent(fake)).toEqual([
+      { type: "siipet/cats" },
+      { type: "siipet/day", date: "2026-09-26", cat: "dev-luna" },
+      { type: "siipet/calendar", month: "2026-09", cat: "dev-luna" },
+    ]);
+    expect(find(card, ".error")).toBeNull();
+  });
+
   it("tries again 5 minutes after a failed first read", async () => {
     vi.useFakeTimers();
     const fake = fakeHass({ fail: { "siipet/cats": { message: "SiiPet is not loaded" } } });

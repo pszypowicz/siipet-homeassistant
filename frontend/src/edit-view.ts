@@ -142,9 +142,6 @@ export class SiiPetVisitEditor extends LitElement {
 
   private _disarm?: ReturnType<typeof setTimeout>;
   private _resolveSeq = 0;
-  // Set after a playback error. A browser that cannot play H.265 fails again on
-  // a renewed URL, so the renewal is skipped and the note stays.
-  private _playbackFailed = false;
 
   constructor() {
     super();
@@ -182,7 +179,6 @@ export class SiiPetVisitEditor extends LitElement {
     this._form = initialForm(this.visit);
     this._video = undefined;
     this._videoNote = this.visit.has_video ? undefined : "Recording is on the camera only.";
-    this._playbackFailed = false;
     this._error = undefined;
     this._partialEdit = false;
     if (this.visit.has_video) {
@@ -203,9 +199,6 @@ export class SiiPetVisitEditor extends LitElement {
   }
 
   private async _resolveVideo(eventId: string): Promise<void> {
-    if (this._playbackFailed) {
-      return;
-    }
     const seq = ++this._resolveSeq;
     // A resolve that finds a URL already in place is a background renewal: its
     // failure must keep the working player, not replace it with an error note.
@@ -216,7 +209,7 @@ export class SiiPetVisitEditor extends LitElement {
       if (this.visit?.event_id !== eventId || seq !== this._resolveSeq) {
         return;
       }
-      if (this._isVideoActive() || this._playbackFailed) {
+      if (this._isVideoActive()) {
         return;
       }
       this._video = url;
@@ -431,7 +424,6 @@ export class SiiPetVisitEditor extends LitElement {
         poster=${cover ?? nothing}
         src=${this._video ?? nothing}
         @error=${() => {
-          this._playbackFailed = true;
           this._videoNote =
             "This browser cannot play the recording. Safari and the Home Assistant app can.";
         }}

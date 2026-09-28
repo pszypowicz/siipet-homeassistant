@@ -91,26 +91,34 @@ describe("edit view", () => {
     );
   });
 
-  it("keeps the playback note through a renewal", async () => {
+  it("renews the recording after a playback error", async () => {
     const fake = fakeHass();
     const card = await mount(fake);
     const editor = await openVisit(card);
     inEditor(editor, "video")!.dispatchEvent(new Event("error"));
     await settle();
-    fake.callWS.mockClear();
+    expect(inEditor(editor, "video")).toBeNull();
 
+    const original = fake.callWS.getMockImplementation() as (
+      message: Record<string, unknown>,
+    ) => Promise<unknown>;
+    fake.callWS.mockImplementation(async (message: Record<string, unknown>) => {
+      if (message.type === "media_source/resolve_media") {
+        return { url: "https://video.example/ev-1-renewed.mp4", mime_type: "video/mp4" };
+      }
+      return original(message);
+    });
+    // A new visit object with the same event id, as a refreshed day read gives it.
     fake.results.day = { ...fake.results.day, visits: [{ ...POOP }, LINGERING] };
     fake.listeners.get("ready")!();
     await settle(card);
 
-    expect(inEditor(editor, "video")).toBeNull();
-    expect(text(inEditor(editor, ".video-note"))).toBe(
-      "This browser cannot play the recording. Safari and the Home Assistant app can.",
-    );
-    expect(sent(fake).map((message) => message.type)).not.toContain("media_source/resolve_media");
+    const video = inEditor(editor, "video") as unknown as HTMLVideoElement;
+    expect(video).not.toBeNull();
+    expect(video.getAttribute("src")).toBe("https://video.example/ev-1-renewed.mp4");
   });
 
-  it("keeps the playback note when a pending renewal answers", async () => {
+  it("recovers a renewal that was already pending when the playback error happened", async () => {
     const fake = fakeHass();
     const original = fake.callWS.getMockImplementation() as (
       message: Record<string, unknown>,
@@ -138,13 +146,14 @@ describe("edit view", () => {
 
     inEditor(editor, "video")!.dispatchEvent(new Event("error"));
     await settle();
+    expect(inEditor(editor, "video")).toBeNull();
+
     releaseRenewal();
     await settle(card);
 
-    expect(inEditor(editor, "video")).toBeNull();
-    expect(text(inEditor(editor, ".video-note"))).toBe(
-      "This browser cannot play the recording. Safari and the Home Assistant app can.",
-    );
+    const video = inEditor(editor, "video") as unknown as HTMLVideoElement;
+    expect(video).not.toBeNull();
+    expect(video.getAttribute("src")).toBe("https://video.example/ev-1-b.mp4");
   });
 
   it("does not ask for a recording that is on the camera only", async () => {

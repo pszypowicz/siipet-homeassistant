@@ -9,6 +9,7 @@ import {
   fetchQueue,
   fetchVisit,
   isOutsideWindow,
+  isPermanentFailure,
   resolveVideo,
   updateVisit,
 } from "../src/api";
@@ -73,5 +74,22 @@ describe("api", () => {
       isOutsideWindow({ code: "service_validation_error", translation_key: "not_loaded" }),
     ).toBe(false);
     expect(isOutsideWindow(new Error("down"))).toBe(false);
+  });
+
+  it("tells a permanent validation error from one a retry can still clear", () => {
+    expect(
+      isPermanentFailure({
+        code: "service_validation_error",
+        translation_key: "date_out_of_range",
+      }),
+    ).toBe(true);
+    expect(
+      isPermanentFailure({ code: "service_validation_error", translation_key: "invalid_cat" }),
+    ).toBe(true);
+    expect(
+      isPermanentFailure({ code: "service_validation_error", translation_key: "not_loaded" }),
+    ).toBe(false);
+    expect(isPermanentFailure({ code: "home_assistant_error", message: "boom" })).toBe(false);
+    expect(isPermanentFailure(new Error("down"))).toBe(false);
   });
 });

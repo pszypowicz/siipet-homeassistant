@@ -67,6 +67,23 @@ function translationKeyOf(value: unknown): string | undefined {
   return undefined;
 }
 
+function codeOf(value: unknown): string | undefined {
+  if (typeof value === "object" && value !== null && "code" in value) {
+    const { code } = value as { code: unknown };
+    return typeof code === "string" ? code : undefined;
+  }
+  return undefined;
+}
+
+/** Return the code of a rejected call, also when it is nested under `error`. */
+function errorCode(err: unknown): string | undefined {
+  const nested =
+    typeof err === "object" && err !== null && "error" in err
+      ? codeOf((err as { error: unknown }).error)
+      : undefined;
+  return codeOf(err) ?? nested;
+}
+
 /** Return the text of a rejected call. A call that fails mid-reconnect nests it under `error`. */
 export function errorMessage(err: unknown): string {
   const nested =
@@ -95,4 +112,11 @@ export function isPartialEdit(err: unknown): boolean {
 // `siipet/visit` fails with this key for an event id that the 7-day window does not hold.
 export function isOutsideWindow(err: unknown): boolean {
   return errorTranslationKey(err) === "visit_not_in_window";
+}
+
+// A validation error stays the same on every retry, for example a day out of range
+// or a cat the account no longer has, so a retry never recovers from it. `not_loaded`
+// is the exception: the entry is still starting up and clears it once it loads.
+export function isPermanentFailure(err: unknown): boolean {
+  return errorCode(err) === "service_validation_error" && errorTranslationKey(err) !== "not_loaded";
 }
