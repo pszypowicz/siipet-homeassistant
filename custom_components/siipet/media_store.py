@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import AsyncIterable, Callable, Iterable, Mapping
 from datetime import date
 from enum import StrEnum
+import errno
 from functools import partial
 import hashlib
 import logging
@@ -24,6 +25,9 @@ _LOGGER = logging.getLogger(__name__)
 
 AVATAR_FOLDER = "avatars"
 PART_SUFFIX = ".part"
+# A download without a known size counts as this many bytes in the free-space
+# check, and stops once it grows past them.
+UNKNOWN_SIZE_ALLOWANCE = 256 * 1024**2
 _SAFE_ID = re.compile(r"[A-Za-z0-9_-]+")
 
 
@@ -44,6 +48,10 @@ SUFFIXES = {
 
 class MediaStoreError(Exception):
     """The media folder cannot be read or written. Messages name no path."""
+
+
+class MediaDiskFull(MediaStoreError):
+    """The disk of the media folder is full."""
 
 
 class MediaCheckFailed(Exception):
@@ -287,12 +295,15 @@ class MediaStore:
         part = _part(target)
         digest = hashlib.md5()
         written = 0
+        limit = UNKNOWN_SIZE_ALLOWANCE if size is None else size
         try:
             handle = await self._async_file_op(_open_part, part)
             try:
                 async for chunk in chunks:
-                    digest.update(chunk)
                     written += len(chunk)
+                    if written > limit:
+                        raise MediaCheckFailed("The download is larger than expected")
+                    digest.update(chunk)
                     await self._async_file_op(handle.write, chunk)
             finally:
                 await self._async_file_op(handle.close)
@@ -315,18 +326,14 @@ class MediaStore:
             await self.hass.async_add_executor_job(part.replace, target)
         except OSError as err:
             await self._async_unlink(part)
-            raise MediaStoreError(
-                f"Cannot store a media file ({type(err).__name__})"
-            ) from None
+            raise _file_error(err, "Cannot store a media file") from None
 
     async def _async_file_op[T](self, func: Callable[..., T], *args: Any) -> T:
         """Run a file operation in the executor. A file error becomes MediaStoreError."""
         try:
             return await self.hass.async_add_executor_job(func, *args)
         except OSError as err:
-            raise MediaStoreError(
-                f"Cannot write a media file ({type(err).__name__})"
-            ) from None
+            raise _file_error(err, "Cannot write a media file") from None
 
     async def _async_unlink(self, path: Path) -> None:
         try:
@@ -384,3 +391,10 @@ class MediaStore:
 
 def _part(target: Path) -> Path:
     return target.with_name(target.name + PART_SUFFIX)
+
+
+def _file_error(err: OSError, message: str) -> MediaStoreError:
+    """Return the store error for a failed write, MediaDiskFull for a full disk."""
+    if err.errno == errno.ENOSPC:
+        return MediaDiskFull("The disk is full")
+    return MediaStoreError(f"{message} ({type(err).__name__})")

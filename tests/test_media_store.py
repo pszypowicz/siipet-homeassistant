@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, date, datetime
+import errno
 import hashlib
 import logging
 from pathlib import Path
@@ -17,6 +18,7 @@ import pytest
 from custom_components.siipet.api import Visit
 from custom_components.siipet.media_store import (
     MediaCheckFailed,
+    MediaDiskFull,
     MediaFile,
     MediaStore,
     MediaStoreError,
@@ -486,4 +488,75 @@ async def test_write_cancelled_leaves_no_partial_file(
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+    assert list((tmp_path / ".siipet").rglob("*.*")) == []
+
+
+async def test_write_stops_as_soon_as_the_download_is_too_long(
+    hass: HomeAssistant, tmp_path: Path
+) -> None:
+    """A download stops at the first chunk past its expected size."""
+    store = await _store(hass, tmp_path)
+    pulled: list[bytes] = []
+
+    async def chunks() -> AsyncIterator[bytes]:
+        for part in (b"ab", b"cd", b"ef"):
+            pulled.append(part)
+            yield part
+
+    with pytest.raises(MediaCheckFailed):
+        await store.async_write(
+            MediaFile.RECORDING,
+            "ev-1",
+            DAY,
+            chunks(),
+            size=3,
+            md5=None,
+            keep=lambda: True,
+        )
+    assert pulled == [b"ab", b"cd"]
+    assert list((tmp_path / ".siipet").rglob("*.*")) == []
+
+
+async def test_write_without_a_size_stops_at_the_allowance(
+    hass: HomeAssistant, tmp_path: Path
+) -> None:
+    """A download without an expected size stops once it passes the allowance."""
+    store = await _store(hass, tmp_path)
+    with (
+        patch(
+            "custom_components.siipet.media_store.UNKNOWN_SIZE_ALLOWANCE",
+            4,
+            create=True,
+        ),
+        pytest.raises(MediaCheckFailed),
+    ):
+        await store.async_write_avatar(
+            "pet-luna", "cats/luna.jpg", _chunks(b"abc", b"de"), size=None
+        )
+    assert store.avatar_path("pet-luna", "cats/luna.jpg") is None
+    assert list((tmp_path / ".siipet").rglob("*.*")) == []
+
+
+async def test_full_disk_during_a_write(hass: HomeAssistant, tmp_path: Path) -> None:
+    """A write on a full disk raises MediaDiskFull and leaves no partial file."""
+    store = await _store(hass, tmp_path)
+
+    class FullDisk:
+        def write(self, data: bytes) -> int:
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+        def close(self) -> None:
+            pass
+
+    def open_part(part: Path) -> FullDisk:
+        part.parent.mkdir(parents=True, exist_ok=True)
+        part.touch()
+        return FullDisk()
+
+    with (
+        patch("custom_components.siipet.media_store._open_part", side_effect=open_part),
+        pytest.raises(MediaDiskFull),
+    ):
+        await _write(store, MediaFile.RECORDING, "ev-1", b"abcd")
+    assert store.path(MediaFile.RECORDING, "ev-1") is None
     assert list((tmp_path / ".siipet").rglob("*.*")) == []

@@ -17,9 +17,11 @@ from homeassistant.util import dt as dt_util
 from .api import Visit
 from .const import DOMAIN
 from .coordinator import SiiPetConfigEntry, SiiPetCoordinator, SiiPetData
-from .media import MediaError, SiiPetMedia
+from .media import MediaCredentialsError, MediaError, SiiPetMedia
 from .media_store import (
+    UNKNOWN_SIZE_ALLOWANCE,
     MediaCheckFailed,
+    MediaDiskFull,
     MediaFile,
     MediaStore,
     MediaStoreError,
@@ -150,6 +152,9 @@ class SiiPetMirror:
         self._worker: asyncio.Task[None] | None = None
         self._stopped = False
         self._disk_full = False
+        # Set when the disk is full or the credentials fail. The queue then
+        # waits for the next update.
+        self._paused = False
         self._active: _JobKey | None = None
         # Deleted visits, with the day of the delete. S3 keeps the files after
         # a delete, so a day read that started before it can return the visit.
@@ -213,6 +218,7 @@ class SiiPetMirror:
         """Delete the stored files that changed, and queue the missing ones."""
         data = self.coordinator.data
         await self._async_delete_changed(data)
+        self._paused = False
         self._queue_data(data)
 
     async def _async_delete_changed(self, data: SiiPetData) -> None:
@@ -319,7 +325,7 @@ class SiiPetMirror:
 
     @callback
     def _kick(self) -> None:
-        if self._stopped or not self._pending:
+        if self._stopped or self._paused or not self._pending:
             return
         if self._worker is None or self._worker.done():
             self._worker = self.entry.async_create_background_task(
@@ -339,12 +345,15 @@ class SiiPetMirror:
     async def _async_run(self) -> None:
         while (job := self._next_job()) is not None:
             try:
-                if not await self._async_has_room(job):
-                    self._pending.clear()
-                    return
-                await self._async_download(job)
+                ready = await self._async_has_room(job)
+                done = ready and await self._async_download(job)
             finally:
                 self._active = None
+            if not done:
+                # The job waits with the rest of the queue for the next update.
+                self._add(job)
+                self._paused = True
+                return
 
     async def _async_has_room(self, job: _Job) -> bool:
         try:
@@ -352,18 +361,23 @@ class SiiPetMirror:
         except MediaStoreError as err:
             self._stop(err)
             return False
-        if free - (job.size or 0) < MIN_FREE_BYTES:
-            if not self._disk_full:
-                _LOGGER.warning("SiiPet paused the local media copy: the disk is full")
-                self._disk_full = True
-            async_raise_issue(self.hass, ISSUE_DISK_FULL)
+        size = UNKNOWN_SIZE_ALLOWANCE if job.size is None else job.size
+        if free - size < MIN_FREE_BYTES:
+            self._pause_disk_full()
             return False
         if self._disk_full:
             self._disk_full = False
             ir.async_delete_issue(self.hass, DOMAIN, ISSUE_DISK_FULL)
         return True
 
-    async def _async_download(self, job: _Job) -> None:
+    def _pause_disk_full(self) -> None:
+        if not self._disk_full:
+            _LOGGER.warning("SiiPet paused the local media copy: the disk is full")
+            self._disk_full = True
+        async_raise_issue(self.hass, ISSUE_DISK_FULL)
+
+    async def _async_download(self, job: _Job) -> bool:
+        """Download one file. Return False when the run has to stop."""
         try:
             async with self.media.async_open(
                 job.key, job.label, DOWNLOAD_TIMEOUT
@@ -387,8 +401,16 @@ class SiiPetMirror:
                             self._in_window(day) and job.item_id not in self._deleted
                         ),
                     )
+        except MediaDiskFull:
+            self._pause_disk_full()
+            return False
         except MediaStoreError as err:
             self._stop(err)
+            return False
+        except MediaCredentialsError as err:
+            # The coordinator starts a reauth when the sign-in has ended.
+            _LOGGER.debug("SiiPet paused the local media copy: %s", err)
+            return False
         except (MediaError, MediaCheckFailed) as err:
             self._fail(job, err)
         except Exception as err:
@@ -402,6 +424,7 @@ class SiiPetMirror:
             _LOGGER.debug("Unexpected SiiPet media download error", exc_info=True)
         else:
             self._failures.pop(job.job_key, None)
+        return True
 
     def _record_failure(self, job: _Job) -> None:
         if job.kind is not None and job.item_id in self._deleted:

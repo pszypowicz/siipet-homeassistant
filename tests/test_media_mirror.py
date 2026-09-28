@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 from datetime import datetime, timedelta
+import errno
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -31,7 +32,11 @@ from custom_components.siipet.media_mirror import (
     ISSUE_FOLDER,
     MIN_FREE_BYTES,
 )
-from custom_components.siipet.media_store import MediaStoreError, key_hash
+from custom_components.siipet.media_store import (
+    UNKNOWN_SIZE_ALLOWANCE,
+    MediaStoreError,
+    key_hash,
+)
 
 from .common import (
     COVER,
@@ -926,3 +931,155 @@ async def test_a_visit_that_left_its_polled_day(
     await _refresh(hass, config_entry)
     assert (day_folder(media_dir) / "ev-1.mp4").exists() is kept
     assert (day_folder(media_dir) / "ev-1.cover.jpg").exists() is kept
+
+
+def _no_avatars(mock_client: AsyncMock) -> None:
+    mock_client.get_cats.return_value = {
+        pet_id: replace(cat, avatar_key=None)
+        for pet_id, cat in mock_client.get_cats.return_value.items()
+    }
+
+
+async def test_free_space_counts_the_size_of_each_file(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+) -> None:
+    """With room for the images but not for the recording, only the images download."""
+    _no_avatars(mock_client)
+    serve_days(mock_client, {TODAY: (mirror_visit(video_size=100 * 1024**2),)})
+    mock_s3(aioclient_mock)
+    with patch(
+        "custom_components.siipet.media_store.shutil.disk_usage",
+        return_value=SimpleNamespace(free=MIN_FREE_BYTES + 50 * 1024**2),
+    ):
+        await setup_mirror(hass, config_entry, 7)
+    assert (day_folder(media_dir) / "ev-1.cover.jpg").exists()
+    assert (day_folder(media_dir) / "ev-1.stool.jpg").exists()
+    assert s3_gets(aioclient_mock, "events/ev-1/video.mp4") == 0
+    assert _issue(hass, ISSUE_DISK_FULL) is not None
+
+
+async def test_free_space_counts_a_file_without_a_size_as_the_allowance(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+) -> None:
+    """A file without a known size needs room for the allowance."""
+    _no_avatars(mock_client)
+    serve_days(mock_client, {TODAY: (mirror_visit(cover_size=None),)})
+    mock_s3(aioclient_mock)
+    with patch(
+        "custom_components.siipet.media_store.shutil.disk_usage",
+        return_value=SimpleNamespace(free=MIN_FREE_BYTES + UNKNOWN_SIZE_ALLOWANCE - 1),
+    ):
+        await setup_mirror(hass, config_entry, 7)
+    assert s3_gets(aioclient_mock, "events/ev-1/cover.jpg") == 0
+    assert _issue(hass, ISSUE_DISK_FULL) is not None
+
+
+async def test_low_disk_space_keeps_the_queue(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+) -> None:
+    """A day that is not polled downloads on the next update after space returns."""
+    old_day = TODAY - timedelta(days=9)
+    old = mirror_visit(start=mirror_visit().start - timedelta(days=9))
+    serve_days(mock_client, {old_day: (old,)})
+    mock_s3(aioclient_mock)
+    with patch(
+        "custom_components.siipet.media_store.shutil.disk_usage",
+        return_value=SimpleNamespace(free=MIN_FREE_BYTES - 1),
+    ):
+        await setup_mirror(hass, config_entry, 10)
+    assert aioclient_mock.call_count == 0
+    mirror = config_entry.runtime_data.mirror
+    assert mirror is not None
+    assert mirror.stats()["queued"] == 5
+
+    await _refresh(hass, config_entry)
+    assert (day_folder(media_dir, old_day) / "ev-1.mp4").read_bytes() == VIDEO
+    assert _issue(hass, ISSUE_DISK_FULL) is None
+
+
+async def test_full_disk_during_a_write_pauses_the_copy(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+) -> None:
+    """A write that finds the disk full pauses the copy until a later update."""
+    _no_avatars(mock_client)
+    serve_days(mock_client, {TODAY: (mirror_visit(),)})
+    mock_s3(aioclient_mock)
+
+    class FullDisk:
+        def write(self, data: bytes) -> int:
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+        def close(self) -> None:
+            pass
+
+    def open_part(part: Path) -> FullDisk:
+        part.parent.mkdir(parents=True, exist_ok=True)
+        return FullDisk()
+
+    with patch(
+        "custom_components.siipet.media_store._open_part", side_effect=open_part
+    ):
+        await setup_mirror(hass, config_entry, 7)
+    mirror = config_entry.runtime_data.mirror
+    assert mirror is not None
+    assert mirror.running
+    assert _issue(hass, ISSUE_DISK_FULL) is not None
+    assert _issue(hass, ISSUE_FOLDER) is None
+    assert s3_gets(aioclient_mock, "events/ev-1/cover.jpg") == 1
+    assert mirror.stats() == {"queued": 3, "failing": 0}
+
+    await _refresh(hass, config_entry)
+    assert (day_folder(media_dir) / "ev-1.cover.jpg").read_bytes() == COVER
+    assert (day_folder(media_dir) / "ev-1.mp4").read_bytes() == VIDEO
+    assert _issue(hass, ISSUE_DISK_FULL) is None
+
+
+async def test_a_credentials_failure_waits_for_the_next_update(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+) -> None:
+    """Without media credentials, the copy asks once and records no failures."""
+    credentials = mock_client.get_media_credentials.return_value
+    mock_client.get_media_credentials.side_effect = SiiPetConnectionError("down")
+    old_day = TODAY - timedelta(days=9)
+    old = mirror_visit(event_id="ev-9", start=mirror_visit().start - timedelta(days=9))
+
+    async def get_day(requested: Any, **_: Any) -> Any:
+        # Each read of a day that is not polled lets the downloads run.
+        await asyncio.sleep(0)
+        visits = {TODAY: (mirror_visit(),), old_day: (old,)}.get(requested, ())
+        return replace(fixture_day(), visits=visits)
+
+    mock_client.get_day.side_effect = get_day
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 10)
+    mirror = config_entry.runtime_data.mirror
+    assert mirror is not None
+    assert mock_client.get_media_credentials.await_count == 1
+    assert mirror.stats()["failing"] == 0
+    assert aioclient_mock.call_count == 0
+
+    mock_client.get_media_credentials.side_effect = None
+    mock_client.get_media_credentials.return_value = credentials
+    await _refresh(hass, config_entry)
+    assert (day_folder(media_dir) / "ev-1.mp4").read_bytes() == VIDEO
+    assert (day_folder(media_dir, old_day) / "ev-9.mp4").read_bytes() == VIDEO
+    assert mirror.stats() == {"queued": 0, "failing": 0}

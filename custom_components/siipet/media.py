@@ -50,6 +50,10 @@ class MediaUnavailable(MediaError):
     """The SiiPet API or S3 failed."""
 
 
+class MediaCredentialsError(MediaUnavailable):
+    """The SiiPet API gave no media credentials."""
+
+
 class SiiPetMedia:
     """Find media keys, sign recording URLs, and fetch images."""
 
@@ -204,7 +208,7 @@ class SiiPetMedia:
         try:
             return await self.signer.async_presign(key, lifetime)
         except SiiPetError as err:
-            raise MediaUnavailable("Could not get the media credentials") from err
+            raise MediaCredentialsError("Could not get the media credentials") from err
 
     async def _async_older_day(self, day: date) -> tuple[Visit, ...]:
         now = dt_util.utcnow()
