@@ -13,6 +13,13 @@
       "SessionToken": "FwoGZXIvYXdzEXAMPLE/token+part==",
       "ExpireTime": 1790460000000,
       "UploadPath": "upload/0001"
+    },
+    "IotCore": {
+      "Endpoint": "https://example-ats.iot.us-east-1.amazonaws.com",
+      "AccessKeyId": "AKIDEXAMPLE",
+      "ExpireTime": 1790460000000,
+      "SecretAccessKey": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+      "SessionToken": "FwoGZXIvYXdzEXANPLE/token+part=="
     }
   }
 }

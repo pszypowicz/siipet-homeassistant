@@ -30,6 +30,7 @@ from .api.edits import Annotate, EditCall, EditNotPossible, plan_edit
 from .const import DOMAIN, UNKNOWN_CAT_ID, UNKNOWN_CAT_NAME
 from .coordinator import SiiPetConfigEntry, SiiPetRuntime
 from .visit_data import (
+    HISTORY_DAYS,
     async_read_day,
     cat_id,
     check_history_day,
@@ -120,9 +121,14 @@ async def _async_list_visits(call: ServiceCall) -> ServiceResponse:
     cat_filter = None
     if ATTR_CAT in call.data:
         cat_filter = cat_id(hass, entry, call.data[ATTR_CAT], allow_unknown=True)
+    first = data.today - timedelta(days=HISTORY_DAYS)
     visits: list[Visit] = []
     for offset in range(call.data[ATTR_DAYS]):
-        visits.extend(await async_read_day(hass, entry, last - timedelta(days=offset)))
+        day = last - timedelta(days=offset)
+        if day < first:
+            # The server keeps no older visits, so the read would be empty.
+            break
+        visits.extend(await async_read_day(hass, entry, day))
     if cat_filter is not None:
         visits = [visit for visit in visits if cat_filter in data.cat_ids(visit)]
     devices = device_ids(hass, entry)
@@ -244,11 +250,14 @@ async def _async_update_visit(call: ServiceCall) -> None:
             raise _request_failed(hass, entry, err, "request_failed", event_id) from err
         # A timeout or an HTTP error does not prove that SiiPet skipped the
         # call. A retry without the type can plan from a half-changed visit,
-        # so the error names the type to ask for.
-        requested = visit_type if visit_type is not None else visit.type
-        error = _request_failed(
-            hass, entry, err, "edit_partial", event_id, type=requested.key
-        )
+        # so the error names the type to ask for. A memo edit has no type.
+        if any(isinstance(edit, Annotate) for edit in edits):
+            requested = visit_type if visit_type is not None else visit.type
+            error = _request_failed(
+                hass, entry, err, "edit_partial", event_id, type=requested.key
+            )
+        else:
+            error = _request_failed(hass, entry, err, "edit_partial_note", event_id)
         await _async_after_change(runtime, visit)
         raise error from err
     try:

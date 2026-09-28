@@ -401,10 +401,14 @@ Android `AWSShadowManager.getShadowData` requests the shadow through the same MQ
 Use the returned shadow name for `<shadow name>`.
 The `configInfo` field holds a shadow name rather than a complete MQTT topic.
 The tested subscriptions and requests use QoS 1, which requests delivery at least once.
+A later check also granted QoS 0 for subscriptions and reads.
+The integration uses QoS 0.
 Publishing to `/get` reads stored state without changing the camera configuration.
 See the [AWS shadow read procedure](https://docs.aws.amazon.com/iot/latest/developerguide/device-shadow-data-flow.html).
 
 Take the server hostname from `Data.IotCore.Endpoint`.
+That field holds an `https://` URL, so use its host part.
+`Data.IotCore` also holds `AccessKeyId`, `SecretAccessKey`, `SessionToken`, and `ExpireTime` in milliseconds.
 Android `AWSManager.getS3Client` creates shared credentials from `Data.S3.AccessKeyId`, `SecretAccessKey`, and `SessionToken`.
 Its MQTT connection uses those credentials too, and the direct MQTT test follows that path.
 The tested response supplies identical credential values under `Data.IotCore`.
@@ -435,11 +439,12 @@ The observed subscription window contains no battery change messages.
 Live samples from unplugged cameras report `charging: false`.
 The inspected battery object contains `SOC` and `charging` without a separate external power field.
 The inspected Android battery model also contains only those two values.
-The app treats `charging: true` as charging, but a live sample with that value remains untested.
+The app treats `charging: true` as charging.
+A live sample from a camera on external power reported `charging: true` at 99% battery.
 
 Do not interpret `charging: false` as proof that the power cable is disconnected.
 Behavior with a full battery on external power remains untested.
-Expose the value as charging status until a plugged-in test establishes its power connection behavior.
+Expose the value as charging status. It does not establish whether the camera is on external power.
 If a battery field is missing or null, treat that value as unknown.
 
 Shadow values describe the last reported state.
@@ -890,6 +895,19 @@ The integration shows the recordings in the Home Assistant media browser:
 The download and decoding tests establish access to cloud media.
 Access to recordings stored only on the device remains untested.
 
+### Home Assistant device state
+
+The integration reads the device state as described in "Read the battery shadow":
+
+- It keeps one MQTT connection open over secure WebSockets, with QoS 0 for subscriptions and reads.
+- It subscribes to `get/accepted`, `get/rejected`, and `update/documents` for both shadows of each camera. Then it reads both shadows.
+- It reads both shadows of each camera again every 5 minutes, because the rate of update messages is not known.
+- It connects again with new credentials 10 minutes before the credentials expire.
+- It ignores a document with a lower `version` than the last one of the same shadow.
+- A camera is skipped for one hour when AWS IoT refuses its subscription, or when its start fails twice in a row. Its entities become unavailable, and the other cameras keep working.
+- If the connection stays down for 15 minutes, the device state entities become unavailable.
+- It never publishes to `update`, so it never changes a camera setting.
+
 ## Findings from the Android app
 
 These findings come from static inspection of the Android app version 2.1.1.
@@ -1037,10 +1055,19 @@ These results come from tests against a real account.
   - The integration sent operation 3 with `{"Type": 3}`. The server returned `Code` 0.
   - The detail read of the owner account then showed the visit as pee, with `FecesError` true.
   - The Android app blocks the same edit for that account. See "Invited accounts".
+- An independent AWS IoT Device SDK client subscribed at QoS 0 against the owner account and an invited account, for 4 cameras over the same 900-second window.
+  - Each account saw 24 of 24 subscriptions granted and 8 of 8 gets accepted, with every field the integration reads present.
+  - The invited account read the owner's shadows.
+  - Three of the eight shadows sent 2 update documents in the window, and the other five sent none. Both accounts saw the same counts, because they watched the same cameras.
+  - Neither connection saw an interruption.
+  - `battery.SOC` was an integer on three cameras and a fraction on one.
+  - `Data.IotCore.Endpoint` uses an `https://` scheme.
+- The integration's own MQTT connection ran for 120 seconds against the owner account. It connected and reported a state for all 4 cameras. Its log held no serial number, shadow name, identity, or signed URL.
+- After the deploy of the device state, the invited-account instance created the device state entities of all 4 cameras. The owner instance showed battery values for all 4 cameras, all online, privacy mode off, and update mode manual. One camera on external power reported `charging: true` at 99% battery, the first live sample with that value.
 
 ## Open questions
 
-- Charging transitions, including a full battery connected to external power.
+- Charging transitions, and behavior when a full battery is on external power.
 - Battery reporting intervals and observed changes through MQTT `/update/documents`.
 - Privacy and recording transitions, illumination code meanings, and configuration field units.
 - Whether the iPhone uses the Android renewal condition.

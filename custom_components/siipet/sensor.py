@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
+import logging
 from statistics import fmean
 from typing import Any
 
@@ -14,24 +15,38 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
+from homeassistant.const import (
+    PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    EntityCategory,
+    UnitOfTime,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.typing import StateType
 from homeassistant.util import dt as dt_util
 
-from .api import Visit, VisitType
+from .api import DeviceState, Visit, VisitType
 from .const import UNKNOWN_CAT_ID
 from .coordinator import SiiPetConfigEntry, SiiPetCoordinator, SiiPetData
 from .entity import (
     SiiPetCameraEntity,
+    SiiPetCameraStateEntity,
     SiiPetCatEntity,
     async_add_camera_entities,
+    async_add_camera_state_entities,
     async_add_cat_entities,
     visit_attributes,
 )
 
+_LOGGER = logging.getLogger(__name__)
+
 PARALLEL_UPDATES = 0
+
+# The codes that the Android app names. Other codes give an unknown state.
+FILL_LIGHT_LEVELS: dict[int, str] = {1: "low", 2: "medium", 3: "high"}
+MOTION_LEVELS: dict[int, str] = {2: "medium", 3: "high"}
+UPDATE_MODES: dict[int, str] = {0: "automatic", 1: "manual"}
 
 
 def _today(data: SiiPetData, cat_id: str) -> list[Visit]:
@@ -165,6 +180,63 @@ SUBSCRIPTION_SENSOR = SensorEntityDescription(
 )
 
 
+@dataclass(frozen=True, kw_only=True)
+class SiiPetCameraStateSensorDescription(SensorEntityDescription):
+    """A sensor of the device state of a camera.
+
+    With `codes`, the sensor is an enum, and `value_fn` returns the code.
+    """
+
+    value_fn: Callable[[DeviceState], StateType | datetime]
+    codes: Mapping[int, str] | None = None
+
+
+def _enum(
+    key: str, codes: Mapping[int, str], value_fn: Callable[[DeviceState], int | None]
+) -> SiiPetCameraStateSensorDescription:
+    return SiiPetCameraStateSensorDescription(
+        key=key,
+        translation_key=key,
+        device_class=SensorDeviceClass.ENUM,
+        options=list(codes.values()),
+        entity_category=EntityCategory.DIAGNOSTIC,
+        codes=codes,
+        value_fn=value_fn,
+    )
+
+
+CAMERA_STATE_SENSORS: tuple[SiiPetCameraStateSensorDescription, ...] = (
+    SiiPetCameraStateSensorDescription(
+        key="battery",
+        translation_key="battery",
+        device_class=SensorDeviceClass.BATTERY,
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda state: state.battery,
+    ),
+    SiiPetCameraStateSensorDescription(
+        key="last_report",
+        translation_key="last_report",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda state: state.reported_at,
+    ),
+    SiiPetCameraStateSensorDescription(
+        key="wifi_signal",
+        translation_key="wifi_signal",
+        device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+        native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda state: state.rssi,
+    ),
+    _enum("fill_light", FILL_LIGHT_LEVELS, lambda state: state.fill_light),
+    _enum("motion_sensitivity", MOTION_LEVELS, lambda state: state.motion_level),
+    _enum("update_mode", UPDATE_MODES, lambda state: state.update_mode),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: SiiPetConfigEntry,
@@ -186,8 +258,15 @@ async def async_setup_entry(
     ) -> list[SiiPetSubscriptionSensor]:
         return [SiiPetSubscriptionSensor(coordinator, sn)]
 
+    def build_camera_state(sn: str) -> list[SiiPetCameraStateSensor]:
+        return [
+            SiiPetCameraStateSensor(entry, sn, description)
+            for description in CAMERA_STATE_SENSORS
+        ]
+
     async_add_cat_entities(entry, async_add_entities, build_cat)
     async_add_camera_entities(entry, async_add_entities, build_camera)
+    async_add_camera_state_entities(entry, async_add_entities, build_camera_state)
 
 
 class SiiPetCatSensor(SiiPetCatEntity, SensorEntity):
@@ -236,3 +315,33 @@ class SiiPetSubscriptionSensor(SiiPetCameraEntity, SensorEntity):
     def native_value(self) -> datetime | None:
         """The expiry time, or None without a subscription."""
         return self.coordinator.data.cameras[self.sn].subscription_expires
+
+
+class SiiPetCameraStateSensor(SiiPetCameraStateEntity, SensorEntity):
+    """A sensor of the device state of a camera."""
+
+    entity_description: SiiPetCameraStateSensorDescription
+
+    def __init__(
+        self,
+        entry: SiiPetConfigEntry,
+        sn: str,
+        description: SiiPetCameraStateSensorDescription,
+    ) -> None:
+        """Create the sensor."""
+        super().__init__(entry, sn, description.key)
+        self.entity_description = description
+        self._logged_codes: set[int] = set()
+
+    @property
+    def native_value(self) -> StateType | datetime:
+        """The value, or the option name of an enum code."""
+        value = self.entity_description.value_fn(self.state_data)
+        codes = self.entity_description.codes
+        if codes is None or not isinstance(value, int):
+            return value
+        option = codes.get(value)
+        if option is None and value not in self._logged_codes:
+            self._logged_codes.add(value)
+            _LOGGER.debug("%s has the unknown code %s", self.entity_id, value)
+        return option

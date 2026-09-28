@@ -1,0 +1,34 @@
+{
+  "entity": {
+    "binary_sensor": {
+      "privacy_mode": {
+        "default": "mdi:eye",
+        "state": {
+          "on": "mdi:eye-off"
+        }
+      },
+      "cloud_storage": {
+        "default": "mdi:cloud-off-outline",
+        "state": {
+          "on": "mdi:cloud-check-outline"
+        }
+      }
+    },
+    "sensor": {
+      "fill_light": {
+        "default": "mdi:lightbulb-on-outline",
+        "state": {
+          "low": "mdi:lightbulb-on-10",
+          "medium": "mdi:lightbulb-on-50",
+          "high": "mdi:lightbulb-on-90"
+        }
+      },
+      "motion_sensitivity": {
+        "default": "mdi:motion-sensor"
+      },
+      "update_mode": {
+        "default": "mdi:update"
+      }
+    }
+  }
+}
