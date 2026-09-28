@@ -10,6 +10,7 @@ import errno
 from functools import partial
 import hashlib
 import logging
+import os
 from pathlib import Path
 import re
 import shutil
@@ -94,6 +95,11 @@ def _parse_day(name: str) -> date | None:
 def _open_part(part: Path) -> BinaryIO:
     part.parent.mkdir(parents=True, exist_ok=True)
     return part.open("wb")
+
+
+def _sync(handle: BinaryIO) -> None:
+    handle.flush()
+    os.fsync(handle.fileno())
 
 
 type _Entry = tuple[Path, int]
@@ -305,6 +311,9 @@ class MediaStore:
                         raise MediaCheckFailed("The download is larger than expected")
                     digest.update(chunk)
                     await self._async_file_op(handle.write, chunk)
+                # Without this, a power loss can leave a short file under its
+                # final name, and the next scan indexes it.
+                await self._async_file_op(_sync, handle)
             finally:
                 await self._async_file_op(handle.close)
         except BaseException:

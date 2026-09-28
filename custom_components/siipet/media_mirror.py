@@ -414,14 +414,14 @@ class SiiPetMirror:
         except (MediaError, MediaCheckFailed) as err:
             self._fail(job, err)
         except Exception as err:
-            # A download error of an unknown shape must not end the worker,
-            # and its message can hold anything, so only its type is logged.
+            # A download error of an unknown shape must not end the worker.
+            # Its message and its traceback can hold a signed URL or a media
+            # key, so the log names only its type.
             self._record_failure(job)
             _LOGGER.error(
                 "The local media copy hit an unexpected error (%s)",
                 type(err).__name__,
             )
-            _LOGGER.debug("Unexpected SiiPet media download error", exc_info=True)
         else:
             self._failures.pop(job.job_key, None)
         return True

@@ -6,6 +6,7 @@ import asyncio
 from dataclasses import replace
 from datetime import datetime, timedelta
 import errno
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -639,16 +640,31 @@ async def test_an_unexpected_download_error_is_recorded_as_a_failure(
     aioclient_mock: AiohttpClientMocker,
     frozen_time: FrozenDateTimeFactory,
     media_dir: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """An unexpected error during a download does not stop the worker."""
+    """An unexpected error during a download does not stop the worker.
+
+    The log names only the type of the error, with no message or traceback.
+    """
     serve_days(mock_client, {TODAY: (mirror_visit(),)})
 
     async def respond(method: str, url: Any, data: Any) -> AiohttpClientMockResponse:
-        raise RuntimeError("boom")
+        raise RuntimeError("events/ev-1/cover.jpg")
 
     aioclient_mock.get(S3 + "events/ev-1/cover.jpg", side_effect=respond)
     mock_s3(aioclient_mock)
-    await setup_mirror(hass, config_entry, 7)
+    with caplog.at_level(logging.DEBUG, logger="custom_components.siipet"):
+        await setup_mirror(hass, config_entry, 7)
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "custom_components.siipet.media_mirror"
+    ]
+    assert [record.getMessage() for record in records] == [
+        "The local media copy hit an unexpected error (RuntimeError)"
+    ]
+    assert records[0].exc_info is None
+    assert "events/ev-1" not in caplog.text
     assert not (day_folder(media_dir) / "ev-1.cover.jpg").exists()
     assert (day_folder(media_dir) / "ev-1.stool.jpg").exists()
     assert (day_folder(media_dir) / "ev-1.mp4").exists()

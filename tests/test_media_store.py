@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime
 import errno
 import hashlib
 import logging
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -83,6 +84,26 @@ async def test_write_indexes_a_verified_file(
     assert path.read_bytes() == b"abcd"
     assert list(path.parent.glob("*.part")) == []
     assert store.stats() == (1, 4)
+
+
+async def test_write_syncs_the_file_before_the_rename(
+    hass: HomeAssistant, tmp_path: Path
+) -> None:
+    """The partial file is on the disk with all its bytes before it gets its name."""
+    store = await _store(hass, tmp_path)
+    folder = tmp_path / ".siipet" / "2026-09-26"
+    synced: list[bytes] = []
+    real_fsync = os.fsync
+
+    def fsync(fd: int) -> None:
+        assert not (folder / "ev-1.mp4").exists()
+        synced.append((folder / "ev-1.mp4.part").read_bytes())
+        real_fsync(fd)
+
+    with patch("os.fsync", side_effect=fsync):
+        await _write(store, MediaFile.RECORDING, "ev-1", b"abcd")
+    assert synced == [b"abcd"]
+    assert (folder / "ev-1.mp4").read_bytes() == b"abcd"
 
 
 async def test_write_names_the_image_files(hass: HomeAssistant, tmp_path: Path) -> None:
