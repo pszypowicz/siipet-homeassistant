@@ -462,9 +462,9 @@ describe("refresh", () => {
     releaseCats(fake.results.cats);
     await settle(card);
 
-    // Any queued call is sent only once the first answer is released, never before.
+    // The queued ready run reads the cats once more, after the first answer.
     const afterRelease = sent(fake).filter((message) => message.type === "siipet/cats");
-    expect(afterRelease.length).toBeGreaterThanOrEqual(1);
+    expect(afterRelease).toHaveLength(2);
   });
 
   it("recovers after a failed first read when the connection comes back", async () => {
@@ -621,6 +621,35 @@ describe("refresh", () => {
       cat: "dev-milo",
     });
     expect(text(find(card, '.header [slot="primary"]'))).toBe("Milo");
+  });
+
+  it("keeps the configured cat when the config changes during the cats read of a refresh", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    fake.callWS.mockClear();
+
+    let releaseCats!: (value: unknown) => void;
+    fake.callWS.mockImplementationOnce(() => new Promise((resolve) => (releaseCats = resolve)));
+
+    fake.listeners.get("ready")!();
+    await settle(card);
+    card.setConfig({ type: "custom:siipet-visits-card", cat: "dev-milo" });
+    await settle(card);
+    expect(sent(fake)).toEqual([{ type: "siipet/cats" }]);
+
+    releaseCats(fake.results.cats);
+    await settle(card);
+
+    expect(sent(fake)).toEqual([
+      { type: "siipet/cats" },
+      { type: "siipet/day", date: "2026-09-27", cat: "dev-milo" },
+      { type: "siipet/calendar", month: "2026-09", cat: "dev-milo" },
+      { type: "siipet/cats" },
+      { type: "siipet/day", date: "2026-09-27", cat: "dev-milo" },
+      { type: "siipet/calendar", month: "2026-09", cat: "dev-milo" },
+    ]);
+    expect(text(find(card, '.header [slot="primary"]'))).toBe("Milo");
+    expect(find(card, "ha-control-select.cats")?.value).toBe("dev-milo");
   });
 
   it("queues a refresh for a visit that arrives during an active refresh", async () => {

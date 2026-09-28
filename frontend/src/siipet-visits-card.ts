@@ -194,9 +194,10 @@ export class SiiPetVisitsCard extends LitElement {
 
   /** Run one start or refresh at a time, and queue at most one more behind it.
    * A trigger that arrives while a run is active marks the queued run instead of
-   * starting a second one next to it. The queued run is always a refresh, which
-   * already reads the cats again when a restart or a failed start cleared them,
-   * so it picks up a config change or a new visit that arrived mid-run. */
+   * starting a second one next to it. The queued run is always a refresh, so a
+   * visit that arrived mid-run is read after the active run ends. A config change
+   * clears the cat, and the first cats answer after it, in the active run or the
+   * queued one, selects the configured cat. */
   private _run(action: () => Promise<void>): Promise<void> {
     if (this._active) {
       this._trailing = true;
@@ -286,9 +287,13 @@ export class SiiPetVisitsCard extends LitElement {
   /** Read the cats and pick the initial cat and day, as a fresh start does. */
   private async _readCatsAndInit(): Promise<void> {
     const cats = await this._readCats();
-    if (!cats) {
-      return;
+    if (cats) {
+      await this._init(cats);
     }
+  }
+
+  /** Select the configured cat, or the fallback, on the server's day and read it. */
+  private async _init(cats: CatsResult): Promise<void> {
     this._date = cats.today;
     this._month = monthOf(cats.today);
     this._cat = this._startCat(cats);
@@ -409,10 +414,9 @@ export class SiiPetVisitsCard extends LitElement {
       this._month = monthOf(cats.today);
     }
     if (this._cat === undefined) {
-      const next = this._fallbackCat(cats);
-      if (next !== undefined) {
-        this._selectCat(next);
-      }
+      // A config change during the cats read cleared the cat, or the account had
+      // no cat before. The config decides the cat here as it does on a start.
+      await this._init(cats);
       return;
     }
     if (this._isQueue() && cats.unknown.waiting === 0) {
