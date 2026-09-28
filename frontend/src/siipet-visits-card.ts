@@ -181,7 +181,7 @@ export class SiiPetVisitsCard extends LitElement {
   connectedCallback(): void {
     super.connectedCallback();
     document.addEventListener("visibilitychange", this._onVisibilityChange);
-    window.addEventListener("location-changed", this._onLocationChange);
+    window.addEventListener("location-changed", this._onNavigate);
     window.addEventListener("popstate", this._onLocationChange);
     this._listen();
     // A view switch attaches the card after the navigation event, so a link
@@ -204,7 +204,7 @@ export class SiiPetVisitsCard extends LitElement {
   disconnectedCallback(): void {
     super.disconnectedCallback();
     document.removeEventListener("visibilitychange", this._onVisibilityChange);
-    window.removeEventListener("location-changed", this._onLocationChange);
+    window.removeEventListener("location-changed", this._onNavigate);
     window.removeEventListener("popstate", this._onLocationChange);
     this._connection?.removeEventListener("ready", this._onReady);
     this._connection = undefined;
@@ -247,7 +247,15 @@ export class SiiPetVisitsCard extends LitElement {
     void this._run(() => this._refresh());
   };
 
-  // Home Assistant fires `location-changed` on `window` when it navigates.
+  // Home Assistant fires `location-changed` on `window` for each navigation,
+  // also for a new tap of the same notification. A navigation reads the link
+  // again, so a link that failed or that another card owned gets a fresh read.
+  // Back and forward (`popstate`) keep the link as read.
+  private _onNavigate = (): void => {
+    this._linkEvent = undefined;
+    this._onLocationChange();
+  };
+
   // Before the first cats, the start reads the link. During a run, `_run`
   // queues a refresh, and a refresh reads the link at its end.
   private _onLocationChange = (): void => {

@@ -1013,18 +1013,18 @@ describe("open a visit from a link", () => {
     expect(location.search).toBe("");
   });
 
-  it("reads a link once while the address keeps it", async () => {
+  it("reads a link that the address keeps again only on the next navigation", async () => {
     history.replaceState(null, "", "/dash?siipet_visit=ev-1");
     const fake = fakeHass();
     const card = await mount(fake, { cat: "dev-milo", hide_cat_picker: true });
     expect(visitReads(fake)).toBe(1);
 
-    window.dispatchEvent(new Event("location-changed"));
+    window.dispatchEvent(new Event("popstate"));
     fake.listeners.get("ready")!();
     await settle(card);
     expect(visitReads(fake)).toBe(1);
 
-    navigate("/dash");
+    // A new tap of the same notification navigates to the same address.
     navigate("/dash?siipet_visit=ev-1");
     await settle(card);
     expect(visitReads(fake)).toBe(2);
@@ -1248,6 +1248,40 @@ describe("open a visit from a link", () => {
     fake.listeners.get("ready")!();
     await settle(card);
     expect(visitReads(fake)).toBe(1);
+  });
+
+  describe("after a visit_not_in_window failure", () => {
+    const error = {
+      code: "service_validation_error",
+      translation_key: "visit_not_in_window",
+      message: "SiiPet has no visit ev-1 in the last 7 days",
+    };
+
+    it("reads the link again on the next navigation", async () => {
+      history.replaceState(null, "", "/dash?siipet_visit=ev-1");
+      const fake = fakeHass({ fail: { "siipet/visit": error } });
+      const card = await mount(fake);
+      expect(visitReads(fake)).toBe(1);
+
+      fake.results.fail = {};
+      window.dispatchEvent(new Event("location-changed"));
+      await settle(card);
+      expect(visitReads(fake)).toBe(2);
+      expect(editing(card)?.event_id).toBe("ev-1");
+    });
+
+    it("does not read the link again on popstate", async () => {
+      history.replaceState(null, "", "/dash?siipet_visit=ev-1");
+      const fake = fakeHass({ fail: { "siipet/visit": error } });
+      const card = await mount(fake);
+      expect(visitReads(fake)).toBe(1);
+
+      fake.results.fail = {};
+      window.dispatchEvent(new Event("popstate"));
+      await settle(card);
+      expect(visitReads(fake)).toBe(1);
+      expect(editing(card)).toBeUndefined();
+    });
   });
 
   it("reads a link outside the window again when a card detached during the read", async () => {
