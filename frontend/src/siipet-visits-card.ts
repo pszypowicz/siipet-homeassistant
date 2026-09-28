@@ -82,6 +82,7 @@ export class SiiPetVisitsCard extends LitElement {
   private _connection?: HassConnection;
   private _renewTimer?: ReturnType<typeof setTimeout>;
   private _active?: Promise<void>;
+  private _trailing = false;
 
   constructor() {
     super();
@@ -138,7 +139,7 @@ export class SiiPetVisitsCard extends LitElement {
     if (this._lastRead !== undefined) {
       const elapsed = Date.now() - this._lastRead;
       if (elapsed > STALE_MS) {
-        void this._exclusive(() => this._refresh());
+        void this._run(() => this._refresh());
       } else {
         // Not stale yet: pick up the renewal schedule where it left off, instead
         // of renewing early or not at all for the rest of the original wait.
@@ -164,13 +165,13 @@ export class SiiPetVisitsCard extends LitElement {
     }
     if (!this._started) {
       this._started = true;
-      void this._exclusive(() => this._start());
+      void this._run(() => this._start());
     }
     if (changed.has("hass")) {
       this._listen();
       const signature = eventSignature(this.hass);
       if (this._signature !== undefined && signature !== this._signature && this._showsLatest()) {
-        void this._exclusive(() => this._refresh());
+        void this._run(() => this._refresh());
       }
       this._signature = signature;
     }
@@ -182,29 +183,39 @@ export class SiiPetVisitsCard extends LitElement {
       this._lastRead !== undefined &&
       Date.now() - this._lastRead > STALE_MS
     ) {
-      void this._exclusive(() => this._refresh());
+      void this._run(() => this._refresh());
     }
   };
 
   // A Home Assistant restart makes every signed path invalid, so a new connection reads again.
   private _onReady = (): void => {
-    void this._exclusive(() => this._refresh());
+    void this._run(() => this._refresh());
   };
 
-  /** Run one start or refresh at a time. A trigger that arrives while one is
-   * already running shares its outcome instead of starting a second one next to it. */
-  private _exclusive(action: () => Promise<void>): Promise<void> {
+  /** Run one start or refresh at a time, and queue at most one more behind it.
+   * A trigger that arrives while a run is active marks the queued run instead of
+   * starting a second one next to it. The queued run is always a refresh, which
+   * already reads the cats again when a restart or a failed start cleared them,
+   * so it picks up a config change or a new visit that arrived mid-run. */
+  private _run(action: () => Promise<void>): Promise<void> {
     if (this._active) {
+      this._trailing = true;
       return this._active;
     }
-    const run = action();
-    this._active = run;
-    void run.finally(() => {
-      if (this._active === run) {
-        this._active = undefined;
+    this._active = this._execute(action);
+    return this._active;
+  }
+
+  private async _execute(action: () => Promise<void>): Promise<void> {
+    try {
+      await action();
+    } finally {
+      this._active = undefined;
+      if (this._trailing) {
+        this._trailing = false;
+        void this._run(() => this._refresh());
       }
-    });
-    return run;
+    }
   }
 
   private _scheduleRenew(delay = RENEW_MS): void {
@@ -220,7 +231,7 @@ export class SiiPetVisitsCard extends LitElement {
     this._renewTimer = setTimeout(
       () => {
         if (this.isConnected && document.visibilityState === "visible") {
-          void this._exclusive(() => this._refresh());
+          void this._run(() => this._refresh());
         }
       },
       Math.max(delay, 0),

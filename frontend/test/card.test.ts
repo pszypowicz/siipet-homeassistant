@@ -455,11 +455,16 @@ describe("refresh", () => {
     fake.listeners.get("ready")!();
     await settle(card);
 
+    // No second siipet/cats call is in flight while the first answer is held:
+    // the ready trigger is queued behind it instead of starting one next to it.
+    expect(sent(fake).filter((message) => message.type === "siipet/cats")).toHaveLength(1);
+
     releaseCats(fake.results.cats);
     await settle(card);
 
-    const catsCalls = sent(fake).filter((message) => message.type === "siipet/cats");
-    expect(catsCalls).toHaveLength(1);
+    // Any queued call is sent only once the first answer is released, never before.
+    const afterRelease = sent(fake).filter((message) => message.type === "siipet/cats");
+    expect(afterRelease.length).toBeGreaterThanOrEqual(1);
   });
 
   it("recovers after a failed first read when the connection comes back", async () => {
@@ -584,6 +589,75 @@ describe("refresh", () => {
       "siipet/cats",
       "siipet/day",
       "siipet/calendar",
+    ]);
+  });
+
+  it("continues a config change that arrived during the first day read", async () => {
+    const fake = fakeHass();
+    let releaseDay!: (value: unknown) => void;
+    const heldDay = new Promise((resolve) => {
+      releaseDay = resolve;
+    });
+    const original = fake.callWS.getMockImplementation() as (
+      message: Record<string, unknown>,
+    ) => Promise<unknown>;
+    fake.callWS.mockImplementation(async (message: Record<string, unknown>) => {
+      if (message.type === "siipet/day" && message.cat === "dev-luna") {
+        return heldDay;
+      }
+      return original(message);
+    });
+
+    const card = await mount(fake);
+    card.setConfig({ type: "custom:siipet-visits-card", cat: "dev-milo" });
+    await settle(card);
+
+    releaseDay(fake.results.day);
+    await settle(card);
+
+    expect(sent(fake)).toContainEqual({
+      type: "siipet/day",
+      date: "2026-09-27",
+      cat: "dev-milo",
+    });
+    expect(text(find(card, '.header [slot="primary"]'))).toBe("Milo");
+  });
+
+  it("queues a refresh for a visit that arrives during an active refresh", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    fake.callWS.mockClear();
+
+    let releaseCalendar!: (value: unknown) => void;
+    const heldCalendar = new Promise((resolve) => {
+      releaseCalendar = resolve;
+    });
+    const original = fake.callWS.getMockImplementation() as (
+      message: Record<string, unknown>,
+    ) => Promise<unknown>;
+    fake.callWS.mockImplementation(async (message: Record<string, unknown>) => {
+      if (message.type === "siipet/calendar") {
+        return heldCalendar;
+      }
+      return original(message);
+    });
+
+    card.hass = withState(fake.hass, "event.luna_visit", "2026-09-27T19:00:00.000+00:00");
+    await settle(card);
+
+    card.hass = withState(fake.hass, "event.luna_visit", "2026-09-27T19:05:00.000+00:00");
+    await settle(card);
+
+    releaseCalendar(fake.results.calendar);
+    await settle(card);
+
+    expect(sent(fake)).toEqual([
+      { type: "siipet/cats" },
+      { type: "siipet/day", date: "2026-09-27", cat: "dev-luna" },
+      { type: "siipet/calendar", month: "2026-09", cat: "dev-luna" },
+      { type: "siipet/cats" },
+      { type: "siipet/day", date: "2026-09-27", cat: "dev-luna" },
+      { type: "siipet/calendar", month: "2026-09", cat: "dev-luna" },
     ]);
   });
 });
