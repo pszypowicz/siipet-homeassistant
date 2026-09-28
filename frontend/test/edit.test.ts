@@ -187,18 +187,23 @@ describe("edit view", () => {
     expect(cssText).not.toMatch(/\.stool-dialog\s*\{[^}]*display:\s*flex/);
   });
 
-  it("gives the video a 9:16 box that fits without side bars, sized before it loads", () => {
+  it("gives the video a full-width 9:16 box up to 70vh that crops instead of side bars", () => {
     const cssText = (SiiPetVisitEditor.styles as { cssText?: string }[])
       .map((style) => style.cssText ?? "")
       .join("\n");
     const videoRule = cssText.match(/video\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(videoRule).toMatch(/(^|[^-])width:\s*100%/);
     expect(videoRule).toMatch(/aspect-ratio:\s*9 \/ 16/);
     expect(videoRule).toMatch(/max-height:\s*70vh/);
-    expect(videoRule).toMatch(/max-width:\s*100%/);
-    expect(videoRule).toMatch(/width:\s*auto/);
-    expect(videoRule).toMatch(/height:\s*auto/);
-    expect(videoRule).toMatch(/margin:\s*0 auto/);
-    expect(videoRule).toMatch(/align-self:\s*center/);
+    expect(videoRule).toMatch(/object-fit:\s*cover/);
+    expect(videoRule).not.toMatch(/align-self:\s*center/);
+  });
+
+  it("shows the whole recording in full screen", () => {
+    const cssText = (SiiPetVisitEditor.styles as { cssText?: string }[])
+      .map((style) => style.cssText ?? "")
+      .join("\n");
+    expect(cssText).toMatch(/video:fullscreen\s*\{[^}]*object-fit:\s*contain/);
   });
 
   it("renders no stool dialog for a visit without a stool photo", async () => {

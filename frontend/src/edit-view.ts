@@ -74,20 +74,22 @@ export class SiiPetVisitEditor extends LitElement {
         gap: 12px;
         padding: 0 12px 12px;
       }
-      /* The box comes from the aspect ratio and the max height alone, so it holds
-         its size before the recording loads (preload="none" leaves no intrinsic
-         size to lay out from). */
+      /* The box takes the full width, the same as the timeline poster, and its
+         height comes from the aspect ratio and the max height. So it holds its
+         size before the recording loads (preload="none" leaves no intrinsic size
+         to lay out from). Where the max height wins, object-fit crops the top
+         and bottom of the recording. */
       video {
         display: block;
-        width: auto;
-        height: auto;
-        max-width: 100%;
+        width: 100%;
         max-height: 70vh;
         aspect-ratio: 9 / 16;
-        margin: 0 auto;
-        align-self: center;
+        object-fit: cover;
         border-radius: var(--ha-border-radius-lg, 12px);
         background-color: black;
+      }
+      video:fullscreen {
+        object-fit: contain;
       }
       .video-note,
       .hint,
