@@ -1,8 +1,17 @@
 // The SiiPet visits card: the visits of one cat on one day, or the Unknown queue.
 
 import { html, LitElement, nothing, type PropertyValues, type TemplateResult } from "lit";
+import { keyed } from "lit/directives/keyed.js";
 
-import { errorMessage, fetchCalendar, fetchCats, fetchDay, fetchQueue, fetchVisit } from "./api";
+import {
+  errorMessage,
+  fetchCalendar,
+  fetchCats,
+  fetchDay,
+  fetchQueue,
+  fetchVisit,
+  isOutsideWindow,
+} from "./api";
 import {
   daySummaryText,
   queueSummaryText,
@@ -531,12 +540,15 @@ export class SiiPetVisitsCard extends LitElement {
     try {
       result = await fetchVisit(this.hass!, eventId);
     } catch (err) {
-      // The next run reads the link again, as the failure can pass, for
-      // example while Home Assistant starts.
+      this._linkFailed(eventId, err);
+      return;
+    }
+    // Home Assistant fires `location-changed` before it swaps the view, so the
+    // card of the view that the user leaves can get the answer after it is
+    // detached. The link then stays for the card of the new view, and a
+    // re-attach reads it again.
+    if (!this.isConnected) {
       this._linkEvent = undefined;
-      if (linkedEventId() === eventId) {
-        this._error = errorMessage(err);
-      }
       return;
     }
     // A config change clears the cats, and a navigation can replace the link,
@@ -553,16 +565,31 @@ export class SiiPetVisitsCard extends LitElement {
     this._openLinked(cat, result);
   }
 
-  /** Return the cat that shows a linked visit in this card, or undefined when the card does not own it. */
+  /** Show the error of a failed link read, and decide whether the next run reads the link again. */
+  private _linkFailed(eventId: string, err: unknown): void {
+    // Another read of a visit outside the window gives the same error, so that
+    // link stays read and its error shows once. Other failures can pass, for
+    // example while Home Assistant starts. A detached card leaves the link for
+    // the card of the shown view.
+    if (!this.isConnected || !isOutsideWindow(err)) {
+      this._linkEvent = undefined;
+    }
+    if (linkedEventId() === eventId) {
+      this._error = errorMessage(err);
+    }
+  }
+
+  /** Return the cat that shows a linked visit in this card: the shown cat when it
+   * owns the visit, else the first owner. A fixed card owns only visits of its cat. */
   private _linkedCat(cats: CatsResult, visit: Visit): string | undefined {
     const owners =
       visit.cats.length > 0
         ? visit.cats.flatMap((cat) => (cat.device_id !== null ? [cat.device_id] : []))
         : [cats.unknown.device_id];
-    if (this._fixed()) {
-      return this._cat !== undefined && owners.includes(this._cat) ? this._cat : undefined;
+    if (this._cat !== undefined && owners.includes(this._cat)) {
+      return this._cat;
     }
-    return owners[0];
+    return this._fixed() ? undefined : owners[0];
   }
 
   /** Select the cat and the day of a linked visit, then open it in the editor. */
@@ -673,14 +700,20 @@ export class SiiPetVisitsCard extends LitElement {
 
   private _renderMain(cats: CatsResult, selected: string): TemplateResult {
     if (this._editing) {
-      return html`
-        <siipet-visit-editor
-          .hass=${this.hass}
-          .visit=${this._editing}
-          .cats=${cats.cats}
-          @siipet-close=${(ev: CustomEvent<CloseDetail>) => this._closeEditor(ev.detail)}
-        ></siipet-visit-editor>
-      `;
+      // Another visit gets a new editor, so an armed Delete or a pending save
+      // of the last visit does not act on the new one. The old editor still
+      // sends its close, which `_closeEditor` tells apart by the event id.
+      return html`${keyed(
+        this._editing.event_id,
+        html`
+          <siipet-visit-editor
+            .hass=${this.hass}
+            .visit=${this._editing}
+            .cats=${cats.cats}
+            @siipet-close=${(ev: CustomEvent<CloseDetail>) => this._closeEditor(ev.detail)}
+          ></siipet-visit-editor>
+        `,
+      )}`;
     }
     return html`
       ${this._renderView(cats, selected)}

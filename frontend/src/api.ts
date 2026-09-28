@@ -76,13 +76,23 @@ export function errorMessage(err: unknown): string {
   return messageOf(err) ?? nested ?? "The request failed.";
 }
 
-// A pee visit reassign runs an operation that assumes poop, then one that
-// reverts it. If the revert fails, `update_visit` fails with this key and the
-// server keeps the assumed type, so a retry must send the type explicitly.
-export function isPartialEdit(err: unknown): boolean {
+/** Return the translation key of a rejected call, also when it is nested under `error`. */
+function errorTranslationKey(err: unknown): string | undefined {
   const nested =
     typeof err === "object" && err !== null && "error" in err
       ? translationKeyOf((err as { error: unknown }).error)
       : undefined;
-  return (translationKeyOf(err) ?? nested) === "edit_partial";
+  return translationKeyOf(err) ?? nested;
+}
+
+// A pee visit reassign runs an operation that assumes poop, then one that
+// reverts it. If the revert fails, `update_visit` fails with this key and the
+// server keeps the assumed type, so a retry must send the type explicitly.
+export function isPartialEdit(err: unknown): boolean {
+  return errorTranslationKey(err) === "edit_partial";
+}
+
+// `siipet/visit` fails with this key for an event id that the 7-day window does not hold.
+export function isOutsideWindow(err: unknown): boolean {
+  return errorTranslationKey(err) === "visit_not_in_window";
 }

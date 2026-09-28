@@ -8,6 +8,7 @@ import {
   fetchDay,
   fetchQueue,
   fetchVisit,
+  isOutsideWindow,
   resolveVideo,
   updateVisit,
 } from "../src/api";
@@ -62,5 +63,15 @@ describe("api", () => {
     expect(errorMessage({ error: { code: "x", message: "nested" } })).toBe("nested");
     expect(errorMessage(new Error("plain"))).toBe("plain");
     expect(errorMessage(undefined)).toBe("The request failed.");
+  });
+
+  it("tells a visit outside the window from other failures", () => {
+    const outside = { code: "service_validation_error", translation_key: "visit_not_in_window" };
+    expect(isOutsideWindow(outside)).toBe(true);
+    expect(isOutsideWindow({ error: outside })).toBe(true);
+    expect(
+      isOutsideWindow({ code: "service_validation_error", translation_key: "not_loaded" }),
+    ).toBe(false);
+    expect(isOutsideWindow(new Error("down"))).toBe(false);
   });
 });
