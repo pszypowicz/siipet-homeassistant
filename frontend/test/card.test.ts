@@ -619,6 +619,138 @@ describe("refresh", () => {
     expect(find(card, ".error")).toBeNull();
   });
 
+  it("starts when a SiiPet entity changes after a failed first read", async () => {
+    const fake = fakeHass({ fail: { "siipet/cats": { message: "SiiPet is not loaded" } } });
+    const card = await mount(fake);
+    expect(text(find(card, ".error"))).toBe("SiiPet is not loaded");
+
+    // The entry loads, and its event entity gets a state.
+    fake.results.fail = {};
+    fake.callWS.mockClear();
+    card.hass = withState(fake.hass, "event.luna_visit", "unknown");
+    await settle(card);
+
+    expect(sent(fake)).toEqual([
+      { type: "siipet/cats" },
+      { type: "siipet/day", date: "2026-09-27", cat: "dev-luna" },
+      { type: "siipet/calendar", month: "2026-09", cat: "dev-luna" },
+    ]);
+    expect(find(card, ".error")).toBeNull();
+  });
+
+  it.each(["siipet/cats", "siipet/day"])(
+    "tries again 5 minutes after the %s read of a renewal fails",
+    async (failing) => {
+      vi.useFakeTimers();
+      const fake = fakeHass();
+      const mounted = mount(fake);
+      await vi.advanceTimersByTimeAsync(1000);
+      const card = await mounted;
+      // A past day ignores visit events, so only the timer reads it again.
+      find(card, ".prev-day")!.click();
+      await vi.advanceTimersByTimeAsync(0);
+
+      fake.results.fail = { [failing]: { message: "boom" } };
+      await vi.advanceTimersByTimeAsync(50 * 60 * 1000);
+      expect(text(find(card, ".error"))).toBe("boom");
+
+      fake.results.fail = {};
+      fake.callWS.mockClear();
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      expect(sent(fake)).toEqual([
+        { type: "siipet/cats" },
+        { type: "siipet/day", date: "2026-09-26", cat: "dev-luna" },
+        { type: "siipet/calendar", month: "2026-09", cat: "dev-luna" },
+      ]);
+      expect(find(card, ".error")).toBeNull();
+    },
+  );
+
+  it("tries again 5 minutes after a failed first read", async () => {
+    vi.useFakeTimers();
+    const fake = fakeHass({ fail: { "siipet/cats": { message: "SiiPet is not loaded" } } });
+    const mounted = mount(fake);
+    await vi.advanceTimersByTimeAsync(1000);
+    const card = await mounted;
+    expect(text(find(card, ".error"))).toBe("SiiPet is not loaded");
+
+    fake.results.fail = {};
+    fake.callWS.mockClear();
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    expect(sent(fake).map((message) => message.type)).toEqual([
+      "siipet/cats",
+      "siipet/day",
+      "siipet/calendar",
+    ]);
+  });
+
+  it("tries again when the page shows after the retry time passed while it was hidden", async () => {
+    vi.useFakeTimers();
+    const fake = fakeHass({ fail: { "siipet/cats": { message: "SiiPet is not loaded" } } });
+    const mounted = mount(fake);
+    await vi.advanceTimersByTimeAsync(1000);
+    const card = await mounted;
+    fake.results.fail = {};
+    fake.callWS.mockClear();
+
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    await vi.advanceTimersByTimeAsync(6 * 60 * 1000);
+    expect(sent(fake)).toEqual([]);
+
+    visibility.mockReturnValue("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sent(fake).map((message) => message.type)).toEqual([
+      "siipet/cats",
+      "siipet/day",
+      "siipet/calendar",
+    ]);
+    expect(text(find(card, '.header [slot="primary"]'))).toBe("Luna");
+  });
+
+  it("keeps the retry of a failed read across a reattach", async () => {
+    vi.useFakeTimers();
+    const fake = fakeHass({ fail: { "siipet/cats": { message: "SiiPet is not loaded" } } });
+    const mounted = mount(fake);
+    await vi.advanceTimersByTimeAsync(1000);
+    const card = await mounted;
+    fake.results.fail = {};
+    fake.callWS.mockClear();
+
+    card.remove();
+    await vi.advanceTimersByTimeAsync(6 * 60 * 1000);
+    expect(sent(fake)).toEqual([]);
+
+    document.body.append(card);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sent(fake).map((message) => message.type)).toEqual([
+      "siipet/cats",
+      "siipet/day",
+      "siipet/calendar",
+    ]);
+  });
+
+  it("renews 50 minutes after the older of the cats read and the day read", async () => {
+    vi.useFakeTimers();
+    const fake = fakeHass();
+    const mounted = mount(fake);
+    await vi.advanceTimersByTimeAsync(1000);
+    const card = await mounted;
+
+    // A day read 20 minutes later does not renew the avatar paths of the cats read.
+    await vi.advanceTimersByTimeAsync(20 * 60 * 1000);
+    find(card, ".prev-day")!.click();
+    await vi.advanceTimersByTimeAsync(0);
+    fake.callWS.mockClear();
+
+    await vi.advanceTimersByTimeAsync(30 * 60 * 1000);
+    expect(sent(fake).map((message) => message.type)).toEqual([
+      "siipet/cats",
+      "siipet/day",
+      "siipet/calendar",
+    ]);
+  });
+
   it("keeps the day picked during a refresh instead of jumping to today", async () => {
     const fake = fakeHass();
     const card = await mount(fake);
@@ -821,6 +953,99 @@ describe("refresh", () => {
       { type: "siipet/day", date: "2026-09-27", cat: "dev-luna" },
       { type: "siipet/calendar", month: "2026-09", cat: "dev-luna" },
     ]);
+  });
+});
+
+describe("a change in another card", () => {
+  function reads(fake: FakeHass): Record<string, unknown>[] {
+    return sent(fake).filter((message) => String(message.type).startsWith("siipet/"));
+  }
+
+  function inEditor(editor: HTMLElement, selector: string): Part | null {
+    return editor.shadowRoot!.querySelector(selector) as Part | null;
+  }
+
+  async function openFirstVisit(card: TestCard): Promise<HTMLElement> {
+    findAll(card, ".visit")[0].dispatchEvent(
+      new CustomEvent("action", { detail: { action: "tap" } }),
+    );
+    await settle(card);
+    return find(card, "siipet-visit-editor")!;
+  }
+
+  async function change(card: TestCard, action: "save" | "delete"): Promise<void> {
+    const editor = await openFirstVisit(card);
+    if (action === "save") {
+      inEditor(editor, "ha-control-select.type")!.dispatchEvent(
+        new CustomEvent("value-changed", { detail: { value: "pee" } }),
+      );
+      await settle(card);
+      inEditor(editor, ".save")!.click();
+    } else {
+      inEditor(editor, ".delete")!.click();
+      await settle(card);
+      inEditor(editor, ".delete")!.click();
+    }
+  }
+
+  it.each(["save", "delete"] as const)(
+    "reads again in the other cards after a %s",
+    async (action) => {
+      const fake = fakeHass();
+      const luna = await mount(fake);
+      const milo = await mount(fake, { cat: "dev-milo", hide_cat_picker: true });
+      fake.callWS.mockClear();
+
+      await change(luna, action);
+      await settle(luna);
+      await settle(milo);
+
+      const all = reads(fake);
+      expect(all.filter((message) => message.type === "siipet/cats")).toHaveLength(2);
+      expect(all).toContainEqual({ type: "siipet/day", date: "2026-09-27", cat: "dev-milo" });
+      expect(all).toContainEqual({ type: "siipet/day", date: "2026-09-27", cat: "dev-luna" });
+    },
+  );
+
+  it("reads again when a card that was away during a save shows again", async () => {
+    const fake = fakeHass();
+    let releaseSave!: (value?: unknown) => void;
+    fake.callService.mockImplementationOnce(
+      () => new Promise((resolve) => (releaseSave = resolve)),
+    );
+    const luna = await mount(fake);
+    const milo = await mount(fake, { cat: "dev-milo", hide_cat_picker: true });
+
+    await change(luna, "save");
+    await settle(luna);
+    milo.remove();
+    releaseSave();
+    await settle(luna);
+    await settle(milo);
+    fake.callWS.mockClear();
+
+    document.body.append(milo);
+    await settle(milo);
+    expect(reads(fake)).toEqual([
+      { type: "siipet/cats" },
+      { type: "siipet/day", date: "2026-09-27", cat: "dev-milo" },
+      { type: "siipet/calendar", month: "2026-09", cat: "dev-milo" },
+    ]);
+  });
+
+  it("does not read again on a reattach after a change it already read", async () => {
+    const fake = fakeHass();
+    const luna = await mount(fake);
+    const milo = await mount(fake, { cat: "dev-milo", hide_cat_picker: true });
+    await change(luna, "save");
+    await settle(luna);
+    await settle(milo);
+    fake.callWS.mockClear();
+
+    milo.remove();
+    document.body.append(milo);
+    await settle(milo);
+    expect(reads(fake)).toEqual([]);
   });
 });
 

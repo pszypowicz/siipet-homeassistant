@@ -42,13 +42,26 @@ import type {
 // Signed image paths last 1 hour, so this margin also covers a card that a
 // dashboard view switch detaches and reattaches while it is stale.
 const STALE_MS = 30 * 60 * 1000;
-// A successful day or queue read schedules another one after this long, so a
-// card left open on screen renews its image paths before they expire.
+// A successful day or queue read schedules another one this long after the last
+// read, so a card left open on screen renews its image paths before they expire.
 const RENEW_MS = 50 * 60 * 1000;
+// A failed cats, day, or queue read tries again after this long. Past days
+// ignore visit events, so without it a failed renewal would leave the card stale.
+const RETRY_MS = 5 * 60 * 1000;
 // The calendar command accepts the current month and the 12 months before it.
 const CALENDAR_MONTHS = 12;
 // A link such as a notification tap opens one visit with `?siipet_visit=<event_id>`.
 const LINK_PARAM = "siipet_visit";
+// A save or a delete in one card fires this on `window`, so the other cards read again.
+const CHANGED_EVENT = "siipet-visits-changed";
+
+interface ChangedDetail {
+  source: SiiPetVisitsCard;
+}
+
+// The number of saves and deletes on this page. A card that was detached when
+// one happened reads again when it is attached.
+let changeCount = 0;
 
 function linkedEventId(): string | undefined {
   return new URLSearchParams(window.location.search).get(LINK_PARAM) || undefined;
@@ -106,9 +119,17 @@ export class SiiPetVisitsCard extends LitElement {
 
   private _started = false;
   private _signature?: string;
-  private _lastRead?: number;
+  // The times of the last successful cats read and day or queue read. The
+  // avatar paths come from the first and the other image paths from the second.
+  private _catsRead?: number;
+  private _dataRead?: number;
+  // When the next renewal or retry is due. It outlives a detach and a hidden
+  // page, so the card can catch up when it shows again.
+  private _dueAt?: number;
+  private _timer?: ReturnType<typeof setTimeout>;
+  // The value of `changeCount` when the last cats read started.
+  private _changesSeen?: number;
   private _connection?: HassConnection;
-  private _renewTimer?: ReturnType<typeof setTimeout>;
   private _active?: Promise<void>;
   private _trailing = false;
   // The linked event id this card has read while the address still holds it.
@@ -183,21 +204,21 @@ export class SiiPetVisitsCard extends LitElement {
     document.addEventListener("visibilitychange", this._onVisibilityChange);
     window.addEventListener("location-changed", this._onNavigate);
     window.addEventListener("popstate", this._onLocationChange);
+    window.addEventListener(CHANGED_EVENT, this._onVisitsChanged);
     this._listen();
     // A view switch attaches the card after the navigation event, so a link
     // that came with the switch is read here.
     this._onLocationChange();
     // A dashboard view switch detaches and reattaches the card, which can leave it
-    // stale for longer than a visibility change would ever let it go unnoticed.
-    if (this._lastRead !== undefined) {
-      const elapsed = Date.now() - this._lastRead;
-      if (elapsed > STALE_MS) {
-        void this._run(() => this._refresh());
-      } else {
-        // Not stale yet: pick up the renewal schedule where it left off, instead
-        // of renewing early or not at all for the rest of the original wait.
-        this._scheduleRenew(RENEW_MS - elapsed);
-      }
+    // stale for longer than a visibility change would ever let it go unnoticed,
+    // or miss a save in a card of another view.
+    const missedChange = this._changesSeen !== undefined && this._changesSeen !== changeCount;
+    if (this._due() || missedChange) {
+      void this._run(() => this._refresh());
+    } else {
+      // Pick up the renewal or retry where it left off, instead of reading
+      // early or not at all for the rest of the original wait.
+      this._armTimer();
     }
   }
 
@@ -206,12 +227,10 @@ export class SiiPetVisitsCard extends LitElement {
     document.removeEventListener("visibilitychange", this._onVisibilityChange);
     window.removeEventListener("location-changed", this._onNavigate);
     window.removeEventListener("popstate", this._onLocationChange);
+    window.removeEventListener(CHANGED_EVENT, this._onVisitsChanged);
     this._connection?.removeEventListener("ready", this._onReady);
     this._connection = undefined;
-    if (this._renewTimer !== undefined) {
-      clearTimeout(this._renewTimer);
-      this._renewTimer = undefined;
-    }
+    this._clearTimer();
   }
 
   protected willUpdate(changed: PropertyValues<this>): void {
@@ -233,11 +252,7 @@ export class SiiPetVisitsCard extends LitElement {
   }
 
   private _onVisibilityChange = (): void => {
-    if (
-      document.visibilityState === "visible" &&
-      this._lastRead !== undefined &&
-      Date.now() - this._lastRead > STALE_MS
-    ) {
+    if (document.visibilityState === "visible" && this._due()) {
       void this._run(() => this._refresh());
     }
   };
@@ -245,6 +260,13 @@ export class SiiPetVisitsCard extends LitElement {
   // A Home Assistant restart makes every signed path invalid, so a new connection reads again.
   private _onReady = (): void => {
     void this._run(() => this._refresh());
+  };
+
+  // The card that saved reads again from `_closeEditor`, so it skips its own event.
+  private _onVisitsChanged = (ev: Event): void => {
+    if (this._started && (ev as CustomEvent<ChangedDetail>).detail?.source !== this) {
+      void this._run(() => this._refresh());
+    }
   };
 
   // Home Assistant fires `location-changed` on `window` for each navigation,
@@ -291,23 +313,57 @@ export class SiiPetVisitsCard extends LitElement {
     }
   }
 
-  private _scheduleRenew(delay = RENEW_MS): void {
-    if (this._renewTimer !== undefined) {
-      clearTimeout(this._renewTimer);
-      this._renewTimer = undefined;
+  /** The older of the last cats read and the last day or queue read. */
+  private _lastRead(): number | undefined {
+    const times = [this._catsRead, this._dataRead].filter((time) => time !== undefined);
+    return times.length > 0 ? Math.min(...times) : undefined;
+  }
+
+  /** Whether the card is stale, or a renewal or retry is due. */
+  private _due(): boolean {
+    const now = Date.now();
+    const lastRead = this._lastRead();
+    return (
+      (lastRead !== undefined && now - lastRead > STALE_MS) ||
+      (this._dueAt !== undefined && now >= this._dueAt)
+    );
+  }
+
+  /** Arm the renewal after a successful day or queue read. */
+  private _scheduleRenew(): void {
+    this._dueAt = this._lastRead()! + RENEW_MS;
+    this._armTimer();
+  }
+
+  /** Arm a retry after a failed read. The last read times stay as they were. */
+  private _scheduleRetry(): void {
+    this._dueAt = Date.now() + RETRY_MS;
+    this._armTimer();
+  }
+
+  private _clearTimer(): void {
+    if (this._timer !== undefined) {
+      clearTimeout(this._timer);
+      this._timer = undefined;
     }
+  }
+
+  private _armTimer(): void {
+    this._clearTimer();
     // A read that lands after the card is removed must not arm a timer that no
-    // disconnectedCallback will ever clear.
-    if (!this.isConnected) {
+    // disconnectedCallback will ever clear. `connectedCallback` arms it again.
+    if (!this.isConnected || this._dueAt === undefined) {
       return;
     }
-    this._renewTimer = setTimeout(
+    this._timer = setTimeout(
       () => {
+        this._timer = undefined;
+        // On a hidden page, `_dueAt` stays in the past, so the visibility change reads.
         if (this.isConnected && document.visibilityState === "visible") {
           void this._run(() => this._refresh());
         }
       },
-      Math.max(delay, 0),
+      Math.max(this._dueAt - Date.now(), 0),
     );
   }
 
@@ -342,8 +398,13 @@ export class SiiPetVisitsCard extends LitElement {
     return this._config?.hide_cat_picker === true;
   }
 
+  // A card without cats has not started yet, for example while the entry waits
+  // to set up. The state change of a SiiPet entity when the entry loads starts it.
   private _showsLatest(): boolean {
-    return this._isQueue() || (this._date !== undefined && this._date === this._cats?.today);
+    if (!this._cats) {
+      return true;
+    }
+    return this._isQueue() || (this._date !== undefined && this._date === this._cats.today);
   }
 
   private _firstCat(cats: CatsResult): string | undefined {
@@ -391,11 +452,14 @@ export class SiiPetVisitsCard extends LitElement {
   }
 
   private async _readCats(): Promise<CatsResult | undefined> {
+    this._changesSeen = changeCount;
     try {
       this._cats = await fetchCats(this.hass!);
+      this._catsRead = Date.now();
       return this._cats;
     } catch (err) {
       this._error = errorMessage(err);
+      this._scheduleRetry();
       return undefined;
     }
   }
@@ -422,13 +486,14 @@ export class SiiPetVisitsCard extends LitElement {
       const day = await fetchDay(this.hass!, date, cat);
       if (current()) {
         this._day = day;
-        this._lastRead = Date.now();
+        this._dataRead = Date.now();
         this._scheduleRenew();
         this._refreshEditing(day.visits);
       }
     } catch (err) {
       if (current()) {
         this._error = errorMessage(err);
+        this._scheduleRetry();
       }
     }
   }
@@ -440,7 +505,7 @@ export class SiiPetVisitsCard extends LitElement {
       if (cat !== this._cat) {
         return;
       }
-      this._lastRead = Date.now();
+      this._dataRead = Date.now();
       this._scheduleRenew();
       // The queue and the waiting count on the cat strip name the same visits,
       // so a read that finds fewer or more of them updates the strip too.
@@ -462,6 +527,7 @@ export class SiiPetVisitsCard extends LitElement {
     } catch (err) {
       if (cat === this._cat) {
         this._error = errorMessage(err);
+        this._scheduleRetry();
       }
     }
   }
@@ -490,6 +556,10 @@ export class SiiPetVisitsCard extends LitElement {
   /** Read the cats and the shown data again. A card on today moves on to a new day. */
   private async _readAgain(): Promise<void> {
     this._error = undefined;
+    // The reads below arm the next renewal or retry. A read that shows nothing,
+    // such as the cats of an account without cats, leaves none due.
+    this._dueAt = undefined;
+    this._clearTimer();
     if (this._missing?.length) {
       return;
     }
@@ -650,14 +720,17 @@ export class SiiPetVisitsCard extends LitElement {
   /** Return to the day view for the visit this close is about. After an edit, read
    * again either way: a save or a delete for a visit that is no longer the one
    * shown (a stale close from a detached editor) still changed the server's data.
-   * Close and scroll only when the ids match, so that stale close does not drop
-   * the visit the card has moved on to. */
+   * The other cards on the page read again too. Close and scroll only when the
+   * ids match, so that stale close does not drop the visit the card has moved on to. */
   private async _closeEditor({ changed, eventId }: CloseDetail): Promise<void> {
     const matches = this._editing?.event_id === eventId;
     if (matches) {
       this._editing = undefined;
     }
     if (changed) {
+      changeCount += 1;
+      const detail: ChangedDetail = { source: this };
+      window.dispatchEvent(new CustomEvent<ChangedDetail>(CHANGED_EVENT, { detail }));
       await this._run(() => this._refresh());
     }
     if (!matches) {
