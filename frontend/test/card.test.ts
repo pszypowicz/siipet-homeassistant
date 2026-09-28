@@ -1,0 +1,398 @@
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+import {
+  catsResult,
+  fakeHass,
+  find,
+  findAll,
+  mount,
+  POOP,
+  sent,
+  settle,
+  stubTileParts,
+  text,
+  withState,
+} from "./helpers";
+
+beforeAll(async () => {
+  stubTileParts();
+  await import("../src/siipet-visits-card");
+});
+
+afterEach(() => {
+  document.body.replaceChildren();
+  vi.restoreAllMocks();
+});
+
+interface CardClass {
+  new (): HTMLElement & { getGridOptions(): unknown; getCardSize(): number };
+  getConfigForm(): {
+    schema: unknown[];
+    computeLabel(schema: { name: string }): string | undefined;
+    computeHelper(schema: { name: string }): string | undefined;
+  };
+}
+
+function cardClass(): CardClass {
+  return customElements.get("siipet-visits-card") as unknown as CardClass;
+}
+
+describe("registration", () => {
+  it("adds the card to the card picker, with a form and grid sizes", () => {
+    const entries = (window as { customCards?: { type: string; name: string }[] }).customCards;
+    expect(entries?.find((entry) => entry.type === "siipet-visits-card")?.name).toBe(
+      "SiiPet visits",
+    );
+    const form = cardClass().getConfigForm();
+    expect(form.schema).toEqual([
+      { name: "cat", selector: { device: { filter: { integration: "siipet", model: "Cat" } } } },
+    ]);
+    expect(form.computeLabel({ name: "cat" })).toBe("Cat");
+    expect(form.computeHelper({ name: "cat" })).toBe(
+      "Optional. Without a cat, the card starts with the first cat.",
+    );
+    expect(new (cardClass())().getGridOptions()).toEqual({
+      columns: 12,
+      min_columns: 6,
+      rows: "auto",
+    });
+  });
+
+  it("rejects a cat that is not a device id", () => {
+    const card = document.createElement("siipet-visits-card") as HTMLElement & {
+      setConfig(config: unknown): void;
+    };
+    expect(() => card.setConfig({ type: "custom:siipet-visits-card", cat: 3 })).toThrow(
+      "The cat option must be a device ID.",
+    );
+  });
+});
+
+describe("day view", () => {
+  it("starts with the first cat on the day of the server", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    expect(sent(fake)).toEqual([
+      { type: "siipet/cats" },
+      { type: "siipet/day", date: "2026-09-27", cat: "dev-luna" },
+      { type: "siipet/calendar", month: "2026-09", cat: "dev-luna" },
+    ]);
+    expect(find(card, ".header ha-tile-icon")?.imageUrl).toBe(
+      "/api/siipet/image/avatar/p1?authSig=c",
+    );
+    expect(text(find(card, '.header [slot="primary"]'))).toBe("Luna");
+    expect(text(find(card, '.header [slot="secondary"]'))).toBe(
+      "Sun 27 Sep · 1 visit · 1 poop · 1 abnormal",
+    );
+  });
+
+  it("starts with the cat from the config", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake, { cat: "dev-milo" });
+    expect(sent(fake)[1]).toEqual({ type: "siipet/day", date: "2026-09-27", cat: "dev-milo" });
+    expect(find(card, ".header ha-tile-icon")?.icon).toBe("mdi:cat");
+    expect(find(card, "ha-control-select.cats")?.value).toBe("dev-milo");
+  });
+
+  it("starts again when the editor changes the cat", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    fake.callWS.mockClear();
+
+    card.setConfig({ type: "custom:siipet-visits-card", cat: "dev-milo" });
+    await settle(card);
+    expect(sent(fake)).toEqual([
+      { type: "siipet/cats" },
+      { type: "siipet/day", date: "2026-09-27", cat: "dev-milo" },
+      { type: "siipet/calendar", month: "2026-09", cat: "dev-milo" },
+    ]);
+  });
+
+  it("shows a tile row with a poster for each visit", async () => {
+    const card = await mount(fakeHass());
+    const rows = findAll(card, ".visit");
+    expect(rows).toHaveLength(2);
+
+    const [poop, lingering] = rows;
+    expect(text(poop.querySelector('[slot="primary"]'))).toBe("20:11");
+    expect(text(poop.querySelector('[slot="secondary"]'))).toBe("Poop · 57 s");
+    const icon = poop.querySelector("ha-tile-icon") as HTMLElement & { icon: string };
+    expect(icon.icon).toBe("mdi:emoticon-poop");
+    expect(icon.style.getPropertyValue("--tile-icon-color")).toBe("var(--brown-color)");
+    expect(text(poop.querySelector(".chip"))).toBe("Soft stool");
+    expect(poop.querySelector(".cover")?.getAttribute("src")).toBe(POOP.cover);
+    expect(poop.querySelector(".stool")?.getAttribute("src")).toBe(POOP.stool);
+    expect(poop.querySelector(".camera-only")).toBeNull();
+
+    expect(lingering.classList.contains("lingering")).toBe(true);
+    expect(text(lingering.querySelector('[slot="secondary"]'))).toBe("Lingering · 25 s");
+    expect(lingering.querySelector(".memo")).not.toBeNull();
+    expect(lingering.querySelector(".chip")).toBeNull();
+    expect(lingering.querySelector(".cover")).toBeNull();
+  });
+
+  it("marks a visit that has no cloud recording", async () => {
+    const day = { summary: { visits: 1, pee: 0, poop: 1, abnormal: 0 } };
+    const card = await mount(
+      fakeHass({ day: { ...day, visits: [{ ...POOP, has_video: false }] } }),
+    );
+    expect(text(find(card, ".visit .camera-only"))).toBe("On camera only");
+  });
+
+  it("shows a day with no visits", async () => {
+    const summary = { visits: 0, pee: 0, poop: 0, abnormal: 0 };
+    const card = await mount(fakeHass({ day: { summary, visits: [] } }));
+    expect(text(find(card, ".empty"))).toBe("No visits on this day.");
+    expect(text(find(card, '.header [slot="secondary"]'))).toBe("Sun 27 Sep · 0 visits");
+  });
+
+  it("goes back a day and reads the calendar only for a new month", async () => {
+    const fake = fakeHass({ cats: catsResult({ today: "2026-10-01" }) });
+    const card = await mount(fake);
+    expect(find(card, ".next-day")?.disabled).toBe(true);
+    fake.callWS.mockClear();
+
+    find(card, ".prev-day")!.click();
+    await settle(card);
+    expect(sent(fake)).toEqual([
+      { type: "siipet/day", date: "2026-09-30", cat: "dev-luna" },
+      { type: "siipet/calendar", month: "2026-09", cat: "dev-luna" },
+    ]);
+    expect(find(card, ".next-day")?.disabled).toBe(false);
+    fake.callWS.mockClear();
+
+    find(card, ".prev-day")!.click();
+    await settle(card);
+    expect(sent(fake)).toEqual([{ type: "siipet/day", date: "2026-09-29", cat: "dev-luna" }]);
+    expect(text(find(card, ".date"))).toBe("Tue 29 Sep");
+  });
+
+  it("stops going back at the first day that can open", async () => {
+    const fake = fakeHass({ cats: catsResult({ today: "2026-08-29" }) });
+    const card = await mount(fake);
+    expect(find(card, ".prev-day")?.disabled).toBe(false);
+    find(card, ".prev-day")!.click();
+    await settle(card);
+    expect(text(find(card, ".date"))).toBe("Fri 28 Aug");
+    expect(find(card, ".prev-day")?.disabled).toBe(true);
+  });
+
+  it("shows a dot on the date of a marked day", async () => {
+    const card = await mount(fakeHass({ cats: catsResult({ today: "2026-09-24" }) }));
+    expect(find(card, ".date .dot")).not.toBeNull();
+  });
+
+  it("opens the calendar and opens a day from it", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    expect(find(card, ".calendar")).toBeNull();
+    expect(find(card, ".date .dot")).toBeNull();
+
+    find(card, ".date")!.click();
+    await settle(card);
+    expect(text(find(card, ".month-name"))).toBe("September 2026");
+    expect(findAll(card, ".cell")).toHaveLength(30);
+    expect(findAll(card, ".blank")).toHaveLength(1);
+    expect(find(card, '.cell[data-date="2026-09-24"] .dot')).not.toBeNull();
+    expect(find(card, '.cell[data-date="2026-09-27"]')?.classList.contains("selected")).toBe(true);
+    expect(find(card, '.cell[data-date="2026-09-28"]')?.disabled).toBe(true);
+    fake.callWS.mockClear();
+
+    find(card, '.cell[data-date="2026-09-24"]')!.click();
+    await settle(card);
+    expect(sent(fake)).toEqual([{ type: "siipet/day", date: "2026-09-24", cat: "dev-luna" }]);
+    expect(find(card, ".calendar")).toBeNull();
+    expect(text(find(card, ".date"))).toBe("Thu 24 Sep");
+  });
+
+  it("moves the calendar month within the last 12 months", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    find(card, ".date")!.click();
+    await settle(card);
+    expect(find(card, ".next-month")?.disabled).toBe(true);
+    fake.callWS.mockClear();
+
+    find(card, ".prev-month")!.click();
+    await settle(card);
+    expect(sent(fake)).toEqual([{ type: "siipet/calendar", month: "2026-08", cat: "dev-luna" }]);
+    expect(text(find(card, ".month-name"))).toBe("August 2026");
+
+    for (let step = 0; step < 11; step++) {
+      find(card, ".prev-month")!.click();
+      await settle(card);
+    }
+    expect(text(find(card, ".month-name"))).toBe("September 2025");
+    expect(find(card, ".prev-month")?.disabled).toBe(true);
+  });
+
+  it("switches the cat from the cat strip", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    fake.callWS.mockClear();
+
+    find(card, "ha-control-select.cats")!.dispatchEvent(
+      new CustomEvent("value-changed", { detail: { value: "dev-milo" } }),
+    );
+    await settle(card);
+    expect(sent(fake)).toEqual([
+      { type: "siipet/day", date: "2026-09-27", cat: "dev-milo" },
+      { type: "siipet/calendar", month: "2026-09", cat: "dev-milo" },
+    ]);
+    expect(text(find(card, '.header [slot="primary"]'))).toBe("Milo");
+  });
+
+  it("says so when the account has no cats", async () => {
+    const fake = fakeHass({ cats: catsResult({ cats: [] }) });
+    const card = await mount(fake);
+    expect(text(find(card, ".message"))).toBe("The SiiPet account has no cats.");
+    expect(sent(fake)).toEqual([{ type: "siipet/cats" }]);
+  });
+
+  it("shows the message of a failed read", async () => {
+    const error = { code: "home_assistant_error", message: "SiiPet could not read the visits" };
+    const card = await mount(fakeHass({ fail: { "siipet/day": error } }));
+    expect(text(find(card, ".error"))).toBe("SiiPet could not read the visits");
+  });
+
+  it("shows a notice while SiiPet is not updating", async () => {
+    const card = await mount(fakeHass({ cats: catsResult({ available: false }) }));
+    expect(text(find(card, ".notice"))).toBe(
+      "SiiPet is not updating. Last update: Sun 27 Sep 20:15.",
+    );
+  });
+});
+
+describe("unknown queue", () => {
+  const waiting = () => catsResult({ unknown: { device_id: "dev-unknown", waiting: 1 } });
+
+  it("offers the Unknown cat only while visits wait", async () => {
+    const quiet = await mount(fakeHass());
+    const quietOptions = find(quiet, "ha-control-select.cats")?.options as { value: string }[];
+    expect(quietOptions.map((option) => option.value)).toEqual(["dev-luna", "dev-milo"]);
+
+    const busy = await mount(fakeHass({ cats: waiting() }));
+    const options = find(busy, "ha-control-select.cats")?.options as {
+      value: string;
+      label: string;
+    }[];
+    expect(options[2]).toMatchObject({ value: "dev-unknown", label: "Unknown (1)" });
+  });
+
+  it("shows the visits without a cat, with the day on each row", async () => {
+    const fake = fakeHass({ cats: waiting() });
+    const card = await mount(fake);
+    fake.callWS.mockClear();
+
+    find(card, "ha-control-select.cats")!.dispatchEvent(
+      new CustomEvent("value-changed", { detail: { value: "dev-unknown" } }),
+    );
+    await settle(card);
+    expect(sent(fake)).toEqual([{ type: "siipet/queue" }]);
+    expect(find(card, ".date-bar")).toBeNull();
+    expect(text(find(card, '.header [slot="primary"]'))).toBe("Unknown");
+    expect(text(find(card, '.header [slot="secondary"]'))).toBe("1 visit waiting");
+    expect(text(find(card, '.visit [slot="primary"]'))).toBe("Fri 25 Sep 03:12");
+  });
+
+  it("starts with the queue for the Unknown cat in the config", async () => {
+    const fake = fakeHass({ cats: waiting() });
+    await mount(fake, { cat: "dev-unknown" });
+    expect(sent(fake)).toEqual([{ type: "siipet/cats" }, { type: "siipet/queue" }]);
+  });
+
+  it("goes to the first cat when the queue is empty", async () => {
+    const fake = fakeHass({ cats: waiting(), queue: { visits: [] } });
+    const card = await mount(fake, { cat: "dev-unknown" });
+    expect(sent(fake).slice(2)).toEqual([
+      { type: "siipet/day", date: "2026-09-27", cat: "dev-luna" },
+      { type: "siipet/calendar", month: "2026-09", cat: "dev-luna" },
+    ]);
+    expect(find(card, "ha-control-select.cats")?.value).toBe("dev-luna");
+  });
+});
+
+describe("refresh", () => {
+  it("reads again when a visit arrives while the card shows today", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    fake.callWS.mockClear();
+
+    card.hass = withState(fake.hass, "sensor.outside", "13");
+    await settle(card);
+    expect(sent(fake)).toEqual([]);
+
+    card.hass = withState(fake.hass, "event.luna_visit", "2026-09-27T19:00:00.000+00:00");
+    await settle(card);
+    expect(sent(fake)).toEqual([
+      { type: "siipet/cats" },
+      { type: "siipet/day", date: "2026-09-27", cat: "dev-luna" },
+      { type: "siipet/calendar", month: "2026-09", cat: "dev-luna" },
+    ]);
+  });
+
+  it("does not read again for a visit while the card shows another day", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    find(card, ".prev-day")!.click();
+    await settle(card);
+    fake.callWS.mockClear();
+
+    card.hass = withState(fake.hass, "event.luna_visit", "2026-09-27T19:00:00.000+00:00");
+    await settle(card);
+    expect(sent(fake)).toEqual([]);
+  });
+
+  it("follows the day of the server after midnight", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    fake.results.cats = catsResult({ today: "2026-09-28" });
+    fake.callWS.mockClear();
+
+    card.hass = withState(fake.hass, "event.luna_visit", "2026-09-27T22:05:00.000+00:00");
+    await settle(card);
+    expect(sent(fake).slice(1)).toEqual([
+      { type: "siipet/day", date: "2026-09-28", cat: "dev-luna" },
+      { type: "siipet/calendar", month: "2026-09", cat: "dev-luna" },
+    ]);
+  });
+
+  it("reads again when the page shows more than 30 minutes after the last read", async () => {
+    const fake = fakeHass();
+    const start = Date.now();
+    const card = await mount(fake);
+    fake.callWS.mockClear();
+    const now = vi.spyOn(Date, "now");
+
+    now.mockReturnValue(start + 10 * 60 * 1000);
+    document.dispatchEvent(new Event("visibilitychange"));
+    await settle(card);
+    expect(sent(fake)).toEqual([]);
+
+    now.mockReturnValue(start + 31 * 60 * 1000);
+    document.dispatchEvent(new Event("visibilitychange"));
+    await settle(card);
+    expect(sent(fake).map((message) => message.type)).toEqual([
+      "siipet/cats",
+      "siipet/day",
+      "siipet/calendar",
+    ]);
+  });
+
+  it("reads again when the connection comes back, and stops listening when removed", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    fake.callWS.mockClear();
+
+    fake.listeners.get("ready")!();
+    await settle(card);
+    expect(sent(fake).map((message) => message.type)).toEqual([
+      "siipet/cats",
+      "siipet/day",
+      "siipet/calendar",
+    ]);
+
+    card.remove();
+    expect(fake.listeners.has("ready")).toBe(false);
+  });
+});
