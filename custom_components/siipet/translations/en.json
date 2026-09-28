@@ -52,7 +52,7 @@
   "issues": {
     "media_disk_full": {
       "title": "SiiPet paused the local media copy",
-      "description": "The disk of the media folder has less than 1 GB free, so SiiPet stopped copying recordings and images. Playback uses the SiiPet cloud until space is free again. Free some space, or set fewer days in the SiiPet options."
+      "description": "The disk of the media folder has less than 1 GB free, so SiiPet stopped copying recordings and images. Recordings and images that are not copied yet play from the SiiPet cloud until space is free again. Free some space, or set fewer days in the SiiPet options."
     },
     "media_folder_unavailable": {
       "title": "SiiPet cannot use the media folder",

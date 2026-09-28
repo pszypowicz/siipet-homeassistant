@@ -1,4 +1,4 @@
-"""Authenticated image proxy for SiiPet covers, stool images, and avatars."""
+"""Authenticated views for SiiPet images and for recordings of the local media copy."""
 
 from __future__ import annotations
 

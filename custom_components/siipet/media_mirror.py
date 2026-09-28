@@ -277,8 +277,8 @@ class SiiPetMirror:
     def _retry_failures(self) -> None:
         """Add again the failed jobs of an unpolled day whose wait is over.
 
-        A polled day's current data decides what to queue, so a failure of
-        that day, or of an avatar, is not retried from its own record.
+        The current data decides what to queue for a polled day and for the
+        avatars, so their failures are not retried from their own records.
         """
         now = dt_util.utcnow()
         polled_days = self.coordinator.data.days

@@ -69,7 +69,8 @@ class SiiPetMedia:
         self.coordinator = coordinator
         self.client = client
         self.signer = signer
-        # Set while the local copy runs.
+        # Set when the setup loads the local copy. It stays set after the copy
+        # stops, so stored files still play.
         self.store: MediaStore | None = None
         self._older_days: dict[date, tuple[datetime, tuple[Visit, ...]]] = {}
 

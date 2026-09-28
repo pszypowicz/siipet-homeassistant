@@ -20,8 +20,8 @@ custom_components/siipet/
     edits.py           plan_edit: the annotate and memo calls for one visit edit
     errors.py          SiiPetError and its subclasses
     s3.py              SigV4 presigned GET URLs, credential cache
-  __init__.py          setup of the image view, the actions, the card commands, and the card, entry setup and unload, device removal
-  config_flow.py       email and code steps, reauth and reconfigure
+  __init__.py          setup of the image and recording views, the actions, the card commands, and the card, entry setup that starts the local media copy, unload, entry removal that deletes the copy, device removal
+  config_flow.py       email and code steps, reauth and reconfigure, options step for the days of local media
   const.py             constants: config keys, Unknown cat id, intervals
   coordinator.py       SiiPetCoordinator, SiiPetData, SiiPetRuntime
   entity.py            cat and camera entity bases
@@ -57,8 +57,9 @@ frontend/              source of the dashboard card: TypeScript, Lit, esbuild, v
 - `SiiPetData.cat_ids(visit)` decides which cats own a visit.
   A visit with no known cat belongs to the virtual Unknown cat (`UNKNOWN_CAT_ID`).
 - `api/edits.py` has no I/O. `plan_edit` returns the calls, and `services.py` sends them.
-- After an edit or a delete, `services.py` drops the day from the media cache and its month from the calendar cache,
-  then calls `async_refresh_day`.
+- After a delete, `services.py` awaits `mirror.async_forget`, which deletes the local files of the visit.
+- After an edit or a delete, `services.py` drops the day from the older-day cache of `SiiPetMedia`
+  and its month from the calendar cache, then calls `async_refresh_day`.
 - S3 credentials stay inside `api/`. Other modules get signed URLs from `S3Signer`.
 - Only `media_store.py` writes to the media folder. It keeps the local copy in `.siipet`,
   and a file name holds an id only if the id matches `[A-Za-z0-9_-]+`.

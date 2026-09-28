@@ -47,7 +47,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Register the image view, the actions, the card commands, and the card."""
+    """Register the image and recording views, the actions, the card commands, and the card."""
     hass.http.register_view(SiiPetImageView(hass))
     hass.http.register_view(SiiPetRecordingView(hass))
     async_setup_services(hass)
