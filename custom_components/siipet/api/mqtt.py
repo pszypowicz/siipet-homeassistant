@@ -244,8 +244,8 @@ class MqttSession:
         future: asyncio.Future[Packet] = asyncio.get_running_loop().create_future()
         self._waiters[key] = future
         try:
-            await self._send(data)
             async with asyncio.timeout(limit):
+                await self._send(data)
                 return await future
         except TimeoutError as err:
             raise MqttError("The broker did not answer in time") from err

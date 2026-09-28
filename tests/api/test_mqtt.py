@@ -194,6 +194,18 @@ async def test_session_ping_timeout(websession: aiohttp.ClientSession) -> None:
         await session.close()
 
 
+async def test_session_stalled_write_times_out() -> None:
+    """A write that never finishes still ends the request at its deadline."""
+
+    class StalledSocket:
+        async def send_bytes(self, _data: bytes) -> None:
+            await asyncio.Event().wait()
+
+    session = MqttSession(StalledSocket(), lambda _topic, _payload: None)  # type: ignore[arg-type]
+    with pytest.raises(MqttError, match="in time"):
+        await session.ping(0.05)
+
+
 async def test_session_close_by_broker(websession: aiohttp.ClientSession) -> None:
     """A close by the broker ends the session and fails later requests."""
     broker = FakeBroker(answer_ping=False)
