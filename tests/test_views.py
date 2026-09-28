@@ -203,6 +203,7 @@ async def test_recording_entry_not_loaded(
     ("path", "body", "key"),
     [
         ("/api/siipet/image/cover/ev-1", COVER, "events/ev-1/cover.jpg"),
+        ("/api/siipet/image/stool/ev-1", STOOL, "events/ev-1/stool.jpg"),
         ("/api/siipet/image/avatar/pet-luna", b"luna", "resources/luna.jpg"),
     ],
 )

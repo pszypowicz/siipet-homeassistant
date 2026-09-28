@@ -1099,3 +1099,37 @@ async def test_a_credentials_failure_waits_for_the_next_update(
     assert (day_folder(media_dir) / "ev-1.mp4").read_bytes() == VIDEO
     assert (day_folder(media_dir, old_day) / "ev-9.mp4").read_bytes() == VIDEO
     assert mirror.stats() == {"queued": 0, "failing": 0}
+
+
+async def test_failed_downloads_wait_longer_each_time(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    frozen_time: FrozenDateTimeFactory,
+) -> None:
+    """A file that keeps failing waits 5 minutes, 30 minutes, 2 hours, then 24 hours."""
+    mock_client.get_media_credentials.return_value = replace(
+        mock_client.get_media_credentials.return_value,
+        expires=datetime.fromisoformat("2026-10-01T00:00:00+00:00"),
+    )
+    serve_days(mock_client, {TODAY: (mirror_visit(video_md5=md5_hex(b"other")),)})
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7)
+    gets = 1
+    assert s3_gets(aioclient_mock, "events/ev-1/video.mp4") == gets
+
+    for delay in (
+        timedelta(minutes=5),
+        timedelta(minutes=30),
+        timedelta(hours=2),
+        timedelta(hours=24),
+        timedelta(hours=24),
+    ):
+        frozen_time.tick(delay - timedelta(minutes=1))
+        await _refresh(hass, config_entry)
+        assert s3_gets(aioclient_mock, "events/ev-1/video.mp4") == gets
+        frozen_time.tick(timedelta(minutes=1))
+        await _refresh(hass, config_entry)
+        gets += 1
+        assert s3_gets(aioclient_mock, "events/ev-1/video.mp4") == gets
