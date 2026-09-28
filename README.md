@@ -37,6 +37,9 @@ If you added SiiPet 0.0.1 before, remove that entry and add the integration agai
 
 The session renews automatically. If SiiPet ends the session, Home Assistant asks you to sign in again with an email code.
 
+To sign in again at any other time, open the SiiPet entry in **Settings > Devices & Services** and choose **Reconfigure**.
+Use the same SiiPet account. The devices, entities, and dashboards stay as they are.
+
 SiiPet limits how many sign-in codes it sends per day. If it refuses, try again the next day.
 
 ## Devices and entities

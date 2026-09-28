@@ -39,10 +39,12 @@ PHONE_DEVICE = "phone-device-0001"
 
 
 @pytest.fixture(autouse=True)
-def skip_setup() -> Generator[None]:
-    """Do not set up the entry that a flow creates."""
-    with patch("custom_components.siipet.async_setup_entry", return_value=True):
-        yield
+def mock_setup_entry() -> Generator[AsyncMock]:
+    """Do not set up the entry that a flow creates or reloads."""
+    with patch(
+        "custom_components.siipet.async_setup_entry", return_value=True
+    ) as setup_entry:
+        yield setup_entry
 
 
 def _suggested(result: dict[str, Any], field: str) -> Any:
@@ -69,6 +71,26 @@ async def _start_reauth(hass: HomeAssistant, entry: MockConfigEntry) -> dict[str
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "email"
     return result
+
+
+async def _start_reconfigure(
+    hass: HomeAssistant, entry: MockConfigEntry
+) -> dict[str, Any]:
+    """Start reconfigure, which opens the email form."""
+    result = await entry.start_reconfigure_flow(hass)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "email"
+    return result
+
+
+async def _sign_in(hass: HomeAssistant, flow_id: str) -> dict[str, Any]:
+    """Submit the email and the code of an open email form."""
+    await hass.config_entries.flow.async_configure(
+        flow_id, {CONF_EMAIL: "cat@example.com"}
+    )
+    return await hass.config_entries.flow.async_configure(
+        flow_id, {CONF_CODE: "012345"}
+    )
 
 
 async def test_user_flow(hass: HomeAssistant, mock_client: AsyncMock) -> None:
@@ -300,3 +322,58 @@ async def test_reauth_token_entry(
     assert token_entry.data[CONF_TOKEN] == NEW_TOKEN
     assert token_entry.data[CONF_CLIENT_ID] != PHONE_DEVICE
     assert uuid.UUID(token_entry.data[CONF_CLIENT_ID])
+
+
+async def test_reconfigure_email_entry(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    mock_setup_entry: AsyncMock,
+    config_entry: MockConfigEntry,
+) -> None:
+    """Reconfigure stores the new session, keeps the client id, and reloads."""
+    mock_client.login.return_value = Session(NEW_TOKEN, 1_800_000_000_000)
+    result = await _start_reconfigure(hass, config_entry)
+    assert _suggested(result, CONF_EMAIL) == "cat@example.com"
+
+    result = await _sign_in(hass, result["flow_id"])
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert config_entry.data == {
+        CONF_AUTH_METHOD: AUTH_EMAIL,
+        CONF_EMAIL: "cat@example.com",
+        CONF_TOKEN: NEW_TOKEN,
+        CONF_EXPIRE_AT: 1_800_000_000_000,
+        CONF_CLIENT_ID: "client-uuid-0001",
+    }
+    await hass.async_block_till_done()
+    mock_setup_entry.assert_awaited_once()
+
+
+async def test_reconfigure_token_entry(
+    hass: HomeAssistant, mock_client: AsyncMock, token_entry: MockConfigEntry
+) -> None:
+    """Reconfigure of a token entry signs in with email and a new client id."""
+    mock_client.login.return_value = Session(NEW_TOKEN, 1_800_000_000_000)
+    result = await _start_reconfigure(hass, token_entry)
+    assert _suggested(result, CONF_EMAIL) in (None, "")
+
+    result = await _sign_in(hass, result["flow_id"])
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert token_entry.data[CONF_AUTH_METHOD] == AUTH_EMAIL
+    assert token_entry.data[CONF_EMAIL] == "cat@example.com"
+    assert token_entry.data[CONF_TOKEN] == NEW_TOKEN
+    assert token_entry.data[CONF_CLIENT_ID] != PHONE_DEVICE
+    assert uuid.UUID(token_entry.data[CONF_CLIENT_ID])
+
+
+async def test_reconfigure_wrong_account(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """Reconfigure with another account aborts and keeps the old session."""
+    mock_client.login.return_value = Session(make_token("user-9999"), 1_800_000_000_000)
+    result = await _start_reconfigure(hass, config_entry)
+    result = await _sign_in(hass, result["flow_id"])
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "wrong_account"
+    assert config_entry.data[CONF_TOKEN] == LOGIN["Token"]

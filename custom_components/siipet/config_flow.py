@@ -7,7 +7,12 @@ import logging
 from typing import Any
 import uuid
 
-from homeassistant.config_entries import SOURCE_REAUTH, ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    SOURCE_REAUTH,
+    SOURCE_RECONFIGURE,
+    ConfigFlow,
+    ConfigFlowResult,
+)
 from homeassistant.const import CONF_EMAIL
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
@@ -132,7 +137,19 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reauth(
         self, entry_data: Mapping[str, Any]
     ) -> ConfigFlowResult:
-        """Sign in again with an email code."""
+        """Sign in again after SiiPet ended the session."""
+        return await self._async_sign_in_again(entry_data)
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Sign in again on request."""
+        return await self._async_sign_in_again(self._get_reconfigure_entry().data)
+
+    async def _async_sign_in_again(
+        self, entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
+        """Start the email step with the address and client id of the entry."""
         self._email = entry_data.get(CONF_EMAIL, "")
         # A token entry stores the phone's identifier. An email sign-in uses
         # a new identifier, so that it does not act as the phone.
@@ -173,7 +190,7 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
         return {}
 
     async def _async_finish(self, session: Session, user_id: str) -> ConfigFlowResult:
-        """Create the entry, or update it during reauth."""
+        """Create the entry, or update it during reauth or reconfigure."""
         await self.async_set_unique_id(user_id)
         data = {
             CONF_AUTH_METHOD: AUTH_EMAIL,
@@ -183,12 +200,14 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
             CONF_CLIENT_ID: self._client_id,
         }
         if self.source == SOURCE_REAUTH:
-            self._abort_if_unique_id_mismatch(reason="wrong_account")
-            return self.async_update_reload_and_abort(
-                self._get_reauth_entry(), data_updates=data
-            )
-        self._abort_if_unique_id_configured()
-        return self.async_create_entry(title="SiiPet", data=data)
+            entry = self._get_reauth_entry()
+        elif self.source == SOURCE_RECONFIGURE:
+            entry = self._get_reconfigure_entry()
+        else:
+            self._abort_if_unique_id_configured()
+            return self.async_create_entry(title="SiiPet", data=data)
+        self._abort_if_unique_id_mismatch(reason="wrong_account")
+        return self.async_update_reload_and_abort(entry, data_updates=data)
 
     def _client(self) -> SiiPetClient:
         return SiiPetClient(
