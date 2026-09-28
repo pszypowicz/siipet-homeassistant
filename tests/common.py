@@ -128,13 +128,19 @@ def day_folder(media_dir: Path, day: date = TODAY) -> Path:
 
 
 async def setup_mirror(
-    hass: HomeAssistant, entry: MockConfigEntry, days: int | None
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    days: int | None,
+    *,
+    wait_for_downloads: bool = True,
 ) -> None:
     """Set up the entry with local media for `days` days, and wait for the downloads.
 
-    None leaves the option out, so the default applies.
+    None leaves the option out, so the default applies. A test that pauses a
+    download mid-flight passes `wait_for_downloads=False` and waits itself.
     """
     options = {} if days is None else {CONF_MEDIA_DAYS: days}
     hass.config_entries.async_update_entry(entry, options=options)
     await setup_integration(hass, entry)
-    await hass.async_block_till_done(wait_background_tasks=True)
+    if wait_for_downloads:
+        await hass.async_block_till_done(wait_background_tasks=True)

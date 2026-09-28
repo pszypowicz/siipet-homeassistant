@@ -41,7 +41,8 @@ RETRY_DELAYS = (
 ISSUE_DISK_FULL = "media_disk_full"
 ISSUE_FOLDER = "media_folder_unavailable"
 AVATAR = "avatar"
-# Small files first, so that the card gets its images before a recording.
+# Orders the files of one visit, small files first, so the card gets its
+# images before the recording.
 _RANK = {MediaFile.COVER: 2, MediaFile.STOOL: 1, MediaFile.RECORDING: 0}
 _EPOCH = datetime.fromtimestamp(0, UTC)
 
@@ -81,9 +82,11 @@ class _Job:
 
 @dataclass(frozen=True, slots=True)
 class _Failure:
+    """A failed job, kept so a later update can try it again."""
+
+    job: _Job
     attempts: int
     retry_at: datetime
-    day: date | None
 
 
 def _visit_jobs(visit: Visit, day: date) -> list[_Job]:
@@ -147,16 +150,19 @@ class SiiPetMirror:
         self._worker: asyncio.Task[None] | None = None
         self._stopped = False
         self._disk_full = False
+        self._active: _JobKey | None = None
+        self._forgotten: set[str] = set()
 
     async def async_start(self) -> None:
         """Clean up, queue the missing media, and start the downloads."""
         await self._async_cleanup()
+        self.entry.async_on_unload(self._async_unload)
         self.entry.async_on_unload(
             self.coordinator.async_add_listener(self._async_on_update)
         )
         self.entry.async_on_unload(
             async_track_time_change(
-                self.hass, self._async_daily, hour=0, minute=5, second=0
+                self.hass, self._async_daily_trigger, hour=0, minute=5, second=0
             )
         )
         self._queue_data(self.coordinator.data)
@@ -165,10 +171,25 @@ class SiiPetMirror:
         )
 
     @callback
+    def _async_unload(self) -> None:
+        """Stop queueing new downloads. The entry cancels the background tasks."""
+        self._stopped = True
+        self._pending.clear()
+
+    @callback
     def async_forget(self, event_id: str) -> None:
         """Drop the waiting downloads of a visit, and delete its files."""
         for job_key in [job_key for job_key in self._pending if job_key[0] == event_id]:
             del self._pending[job_key]
+        self._failures = {
+            job_key: failure
+            for job_key, failure in self._failures.items()
+            if job_key[0] != event_id
+        }
+        if self._active is not None and self._active[0] == event_id:
+            # The active download commits after this method returns, so make
+            # its `keep` callback drop the file instead of storing it.
+            self._forgotten.add(event_id)
         self.entry.async_create_background_task(
             self.hass, self.store.async_delete_visit(event_id), "siipet media delete"
         )
@@ -186,6 +207,7 @@ class SiiPetMirror:
         self._queue_data(self.coordinator.data)
 
     def _queue_data(self, data: SiiPetData) -> None:
+        self._retry_failures()
         for cat in data.cats.values():
             if (
                 cat.avatar_key
@@ -206,8 +228,26 @@ class SiiPetMirror:
                 if self.store.path(job.kind, job.item_id) is None:
                     self._add(job)
 
+    def _retry_failures(self) -> None:
+        """Add again the failed jobs whose wait is over and that are still due."""
+        now = dt_util.utcnow()
+        for failure in list(self._failures.values()):
+            if failure.retry_at <= now and not self._should_skip(failure.job):
+                self._add(failure.job)
+
+    def _should_skip(self, job: _Job) -> bool:
+        """True when a job's file is already stored, or its day left the window."""
+        if job.day is not None and not self._in_window(job.day):
+            return True
+        return self._is_stored(job)
+
+    def _is_stored(self, job: _Job) -> bool:
+        if job.kind is None:
+            return self.store.avatar_path(job.item_id, job.key) is not None
+        return self.store.path(job.kind, job.item_id) is not None
+
     def _add(self, job: _Job) -> None:
-        if not safe_id(job.item_id):
+        if self._stopped or not safe_id(job.item_id) or job.job_key == self._active:
             return
         failure = self._failures.get(job.job_key)
         if failure and failure.retry_at > dt_util.utcnow():
@@ -224,17 +264,25 @@ class SiiPetMirror:
             )
 
     def _next_job(self) -> _Job | None:
-        if not self._pending:
-            return None
-        job = max(self._pending.values(), key=lambda job: job.order)
-        return self._pending.pop(job.job_key)
+        while self._pending:
+            job = max(self._pending.values(), key=lambda job: job.order)
+            del self._pending[job.job_key]
+            if self._should_skip(job):
+                continue
+            self._active = job.job_key
+            return job
+        return None
 
     async def _async_run(self) -> None:
         while (job := self._next_job()) is not None:
-            if not await self._async_has_room(job):
-                self._pending.clear()
-                return
-            await self._async_download(job)
+            try:
+                if not await self._async_has_room(job):
+                    self._pending.clear()
+                    return
+                await self._async_download(job)
+            finally:
+                self._active = None
+                self._forgotten.discard(job.item_id)
 
     async def _async_has_room(self, job: _Job) -> bool:
         try:
@@ -273,22 +321,34 @@ class SiiPetMirror:
                         chunks,
                         size=job.size,
                         md5=job.md5,
-                        keep=lambda: self._in_window(day),
+                        keep=lambda: (
+                            self._in_window(day) and job.item_id not in self._forgotten
+                        ),
                     )
         except MediaStoreError as err:
             self._stop(err)
         except (MediaError, MediaCheckFailed) as err:
             self._fail(job, err)
+        except Exception as err:
+            # A download error of an unknown shape must not end the worker,
+            # and its message can hold anything, so only its type is logged.
+            self._record_failure(job)
+            _LOGGER.error(
+                "The local media copy hit an unexpected error (%s)",
+                type(err).__name__,
+            )
+            _LOGGER.debug("Unexpected SiiPet media download error", exc_info=True)
         else:
             self._failures.pop(job.job_key, None)
 
-    def _fail(self, job: _Job, err: Exception) -> None:
+    def _record_failure(self, job: _Job) -> None:
         failure = self._failures.get(job.job_key)
         attempts = failure.attempts + 1 if failure else 1
         delay = RETRY_DELAYS[min(attempts, len(RETRY_DELAYS)) - 1]
-        self._failures[job.job_key] = _Failure(
-            attempts, dt_util.utcnow() + delay, job.day
-        )
+        self._failures[job.job_key] = _Failure(job, attempts, dt_util.utcnow() + delay)
+
+    def _fail(self, job: _Job, err: Exception) -> None:
+        self._record_failure(job)
         _LOGGER.debug("A SiiPet %s download failed: %s", job.label, err)
 
     def _stop(self, err: MediaStoreError) -> None:
@@ -301,6 +361,8 @@ class SiiPetMirror:
         """Queue the missing media of every day in the window."""
         today = dt_util.now().date()
         for offset in range(self.days):
+            if self._stopped:
+                return
             try:
                 visits = await self.media.async_day_visits(
                     today - timedelta(days=offset)
@@ -311,20 +373,33 @@ class SiiPetMirror:
             self._queue_visits(visits)
             self._kick()
 
-    async def _async_daily(self, now: datetime) -> None:
+    @callback
+    def _async_daily_trigger(self, now: datetime) -> None:
+        self.entry.async_create_background_task(
+            self.hass, self._async_daily(), "siipet media daily"
+        )
+
+    async def _async_daily(self) -> None:
         await self._async_cleanup()
         await self._async_backfill()
 
     async def _async_cleanup(self) -> None:
         cutoff = dt_util.now().date() - timedelta(days=self.days - 1)
-        await self.store.async_delete_before(cutoff)
-        await self.store.async_prune_avatars(
-            {cat.pet_id: cat.avatar_key for cat in self.coordinator.data.cats.values()}
-        )
+        try:
+            await self.store.async_delete_before(cutoff)
+            await self.store.async_prune_avatars(
+                {
+                    cat.pet_id: cat.avatar_key
+                    for cat in self.coordinator.data.cats.values()
+                }
+            )
+        except MediaStoreError as err:
+            self._stop(err)
+            return
         self._failures = {
             job_key: failure
             for job_key, failure in self._failures.items()
-            if failure.day is None or failure.day >= cutoff
+            if failure.job.day is None or failure.job.day >= cutoff
         }
         self._pending = {
             job_key: job

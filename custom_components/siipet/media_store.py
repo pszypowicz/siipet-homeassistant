@@ -188,7 +188,12 @@ class MediaStore:
     async def async_delete_before(self, day: date) -> None:
         """Delete the day folders before `day`, with their index entries."""
         async with self._lock:
-            await self.hass.async_add_executor_job(self._delete_days_before, day)
+            try:
+                await self.hass.async_add_executor_job(self._delete_days_before, day)
+            except OSError as err:
+                raise MediaStoreError(
+                    f"Cannot delete a media folder ({type(err).__name__})"
+                ) from None
             files: dict[str, dict[MediaFile, _Entry]] = {}
             for event_id, entries in self._files.items():
                 kept = {

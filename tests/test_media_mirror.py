@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -22,13 +23,14 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMockResponse,
 )
 
+from custom_components.siipet.api import SiiPetConnectionError
 from custom_components.siipet.const import DOMAIN
 from custom_components.siipet.media_mirror import (
     ISSUE_DISK_FULL,
     ISSUE_FOLDER,
     MIN_FREE_BYTES,
 )
-from custom_components.siipet.media_store import key_hash
+from custom_components.siipet.media_store import MediaStoreError, key_hash
 
 from .common import (
     COVER,
@@ -37,6 +39,7 @@ from .common import (
     TODAY,
     VIDEO,
     day_folder,
+    fixture_day,
     md5_hex,
     mirror_visit,
     mock_s3,
@@ -89,7 +92,7 @@ async def test_default_is_seven_days(
     media_dir: Path,
 ) -> None:
     """An entry without the option keeps 7 days."""
-    old = mirror_visit(start=mirror_visit().start - timedelta(days=7))
+    old = mirror_visit(event_id="ev-8", start=mirror_visit().start - timedelta(days=7))
     week = mirror_visit(event_id="ev-7", start=mirror_visit().start - timedelta(days=6))
     serve_days(
         mock_client,
@@ -420,3 +423,233 @@ async def test_unload_stops_the_copy(
     await setup_mirror(hass, config_entry, 7)
     assert await hass.config_entries.async_unload(config_entry.entry_id)
     assert config_entry.state is ConfigEntryState.NOT_LOADED
+
+
+async def test_a_downloading_job_is_not_queued_again(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+) -> None:
+    """The initial queue and the backfill do not download the same file twice."""
+    cats = {
+        pet_id: replace(cat, avatar_key=None)
+        for pet_id, cat in mock_client.get_cats.return_value.items()
+    }
+    mock_client.get_cats.return_value = cats
+    serve_days(mock_client, {TODAY: (mirror_visit(),)})
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7)
+    assert s3_gets(aioclient_mock, "events/ev-1/cover.jpg") == 1
+    assert s3_gets(aioclient_mock, "events/ev-1/video.mp4") == 1
+
+
+async def test_unload_stops_a_daily_run_in_progress(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    frozen_time: FrozenDateTimeFactory,
+    media_dir: Path,
+) -> None:
+    """Unloading while the daily backfill waits on a day read drops that day."""
+    old_day = TODAY - timedelta(days=9)
+    old = mirror_visit(start=mirror_visit().start - timedelta(days=9))
+    armed = False
+    waiting = asyncio.Event()
+    release = asyncio.Event()
+
+    async def get_day(requested: Any, **_: Any) -> Any:
+        if armed and requested == old_day:
+            waiting.set()
+            await release.wait()
+            return replace(fixture_day(), visits=(old,))
+        return replace(fixture_day(), visits=())
+
+    mock_client.get_day.side_effect = get_day
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 10)
+
+    # More than the 5-minute cache of an older day, so the day read repeats.
+    # The trigger runs directly: a real time change that crosses midnight
+    # also shifts what `_async_backfill` treats as today.
+    armed = True
+    frozen_time.tick(timedelta(minutes=6))
+    mirror = config_entry.runtime_data.mirror
+    assert mirror is not None
+    mirror._async_daily_trigger(datetime.fromisoformat("2026-09-26T12:06:00+00:00"))
+    await asyncio.wait_for(waiting.wait(), timeout=1)
+
+    assert await hass.config_entries.async_unload(config_entry.entry_id)
+    release.set()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert s3_gets(aioclient_mock, "events/ev-1/video.mp4") == 0
+    assert not day_folder(media_dir, old_day).exists()
+
+
+async def test_retry_of_an_older_day_does_not_wait_for_the_daily_run(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    frozen_time: FrozenDateTimeFactory,
+    media_dir: Path,
+) -> None:
+    """A failed download of a day outside the polled window retries on an update."""
+    old_day = TODAY - timedelta(days=9)
+    old = mirror_visit(start=mirror_visit().start - timedelta(days=9))
+    serve_days(mock_client, {old_day: (old,)})
+    statuses = [500, 200]
+
+    async def respond(method: str, url: Any, data: Any) -> AiohttpClientMockResponse:
+        return AiohttpClientMockResponse(
+            method, url, status=statuses.pop(0), response=VIDEO
+        )
+
+    aioclient_mock.get(S3 + "events/ev-1/video.mp4", side_effect=respond)
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 10)
+    assert not (day_folder(media_dir, old_day) / "ev-1.mp4").exists()
+
+    frozen_time.tick(timedelta(minutes=1))
+    await _refresh(hass, config_entry)
+    assert not (day_folder(media_dir, old_day) / "ev-1.mp4").exists()
+
+    frozen_time.tick(timedelta(minutes=5))
+    await _refresh(hass, config_entry)
+    assert (day_folder(media_dir, old_day) / "ev-1.mp4").read_bytes() == VIDEO
+
+
+async def test_a_failed_backfill_day_does_not_stop_the_others(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+) -> None:
+    """A day read that fails during the backfill does not stop the other days."""
+    day8 = TODAY - timedelta(days=8)
+    day9 = TODAY - timedelta(days=9)
+    visit8 = mirror_visit(
+        event_id="ev-8", start=mirror_visit().start - timedelta(days=8)
+    )
+
+    async def get_day(requested: Any, **_: Any) -> Any:
+        if requested == day9:
+            raise SiiPetConnectionError("The connection failed")
+        if requested == day8:
+            return replace(fixture_day(), visits=(visit8,))
+        return replace(fixture_day(), visits=())
+
+    mock_client.get_day.side_effect = get_day
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 10)
+    assert (day_folder(media_dir, day8) / "ev-8.mp4").read_bytes() == VIDEO
+
+
+async def test_a_write_failure_at_runtime_stops_the_copy(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+) -> None:
+    """A MediaStoreError while writing a file stops the copy and raises an issue."""
+    serve_days(mock_client, {TODAY: (mirror_visit(),)})
+    mock_s3(aioclient_mock)
+    with patch(
+        "custom_components.siipet.media_store.MediaStore.async_write",
+        side_effect=MediaStoreError("The store could not write a file"),
+    ):
+        await setup_mirror(hass, config_entry, 7)
+    assert config_entry.state is ConfigEntryState.LOADED
+    assert _issue(hass, ISSUE_FOLDER) is not None
+
+    calls_before = aioclient_mock.call_count
+    await _refresh(hass, config_entry)
+    assert aioclient_mock.call_count == calls_before
+
+
+async def test_cleanup_error_at_setup_stops_the_copy_and_raises_an_issue(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+) -> None:
+    """An OSError while deleting old days leaves the entry loaded, with an issue."""
+    serve_days(mock_client, {TODAY: (mirror_visit(),)})
+    mock_s3(aioclient_mock)
+    with patch(
+        "custom_components.siipet.media_store.MediaStore._delete_days_before",
+        side_effect=OSError,
+    ):
+        await setup_mirror(hass, config_entry, 7)
+    assert config_entry.state is ConfigEntryState.LOADED
+    assert _issue(hass, ISSUE_FOLDER) is not None
+    assert aioclient_mock.call_count == 0
+
+
+async def test_forget_during_a_download_stores_nothing(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+) -> None:
+    """Forgetting a visit while its recording downloads leaves nothing stored."""
+    serve_days(mock_client, {TODAY: (mirror_visit(cover_key=None, stool_key=None),)})
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def respond(method: str, url: Any, data: Any) -> AiohttpClientMockResponse:
+        started.set()
+        await release.wait()
+        return AiohttpClientMockResponse(method, url, response=VIDEO)
+
+    aioclient_mock.get(S3 + "events/ev-1/video.mp4", side_effect=respond)
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7, wait_for_downloads=False)
+    await asyncio.wait_for(started.wait(), timeout=1)
+
+    mirror = config_entry.runtime_data.mirror
+    assert mirror is not None
+    mirror.async_forget("ev-1")
+    release.set()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert not (day_folder(media_dir) / "ev-1.mp4").exists()
+    assert list(day_folder(media_dir).iterdir()) == []
+
+
+async def test_an_unexpected_download_error_is_recorded_as_a_failure(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    frozen_time: FrozenDateTimeFactory,
+    media_dir: Path,
+) -> None:
+    """An unexpected error during a download does not stop the worker."""
+    serve_days(mock_client, {TODAY: (mirror_visit(),)})
+
+    async def respond(method: str, url: Any, data: Any) -> AiohttpClientMockResponse:
+        raise RuntimeError("boom")
+
+    aioclient_mock.get(S3 + "events/ev-1/cover.jpg", side_effect=respond)
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7)
+    assert not (day_folder(media_dir) / "ev-1.cover.jpg").exists()
+    assert (day_folder(media_dir) / "ev-1.stool.jpg").exists()
+    assert (day_folder(media_dir) / "ev-1.mp4").exists()
+    assert s3_gets(aioclient_mock, "events/ev-1/cover.jpg") == 1
+
+    frozen_time.tick(timedelta(minutes=1))
+    await _refresh(hass, config_entry)
+    assert s3_gets(aioclient_mock, "events/ev-1/cover.jpg") == 1
+
+    frozen_time.tick(timedelta(minutes=5))
+    await _refresh(hass, config_entry)
+    assert s3_gets(aioclient_mock, "events/ev-1/cover.jpg") == 2
