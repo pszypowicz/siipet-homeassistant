@@ -66,7 +66,7 @@ The Unknown cat has no baseline entities.
 
 | Entity               | Description                                                   |
 | -------------------- | ------------------------------------------------------------- |
-| Subscription expires | The end of the camera subscription.                           |
+| Subscription expires | Diagnostic. The end of the camera subscription.               |
 | Battery              | The battery charge in percent, rounded like the SiiPet app.   |
 | Charging             | On while the camera reports that it charges.                  |
 | Privacy mode         | On while privacy mode is on.                                  |
