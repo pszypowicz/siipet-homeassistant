@@ -824,6 +824,7 @@ When `FecesImage` exists, `FecesImage.Url` identifies the stool image.
 
 `ToiletVideo.RawInfo` also contains `CreateTime`, `Duration`, `Height`, `Width`, `Md5`, and `Size`.
 The tested video size matches `Size` in bytes.
+`Md5` is the lowercase hexadecimal MD5 of the whole file. A live download of a recording matched both `Md5` and `Size`.
 Both event `Duration` and video `Duration` match the decoded clip length when interpreted as milliseconds.
 
 ### Access media
