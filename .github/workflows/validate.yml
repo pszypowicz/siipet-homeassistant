@@ -20,8 +20,6 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # Remove when the integration ships a brand icon.
-          ignore: brands
 
   hassfest:
     name: Hassfest
@@ -29,3 +27,46 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: home-assistant/actions/hassfest@master
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements_*.txt
+      - run: pip install -r requirements_test.txt
+      - run: pytest
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements_lint.txt
+      - run: ruff check .
+      - run: ruff format --check .
+
+  card:
+    name: Card
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      # The committed bundle must match a new build of the source.
+      - run: git diff --exit-code -- ../custom_components/siipet/frontend/

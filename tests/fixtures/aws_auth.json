@@ -1,0 +1,18 @@
+{
+  "Code": 0,
+  "Msg": "success",
+  "Data": {
+    "ExpireTime": 1790460000000,
+    "IdentityId": "us-east-1:identity-0001",
+    "IdentityPoolId": "us-east-1:pool-0001",
+    "Token": "fake-identity-token",
+    "S3": {
+      "S3Bucket": "media-bucket",
+      "AccessKeyId": "AKIDEXAMPLE",
+      "SecretAccessKey": "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+      "SessionToken": "FwoGZXIvYXdzEXAMPLE/token+part==",
+      "ExpireTime": 1790460000000,
+      "UploadPath": "upload/0001"
+    }
+  }
+}

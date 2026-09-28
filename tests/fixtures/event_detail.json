@@ -1,0 +1,54 @@
+{
+  "Code": 0,
+  "Msg": "success",
+  "Data": {
+    "EventId": "ev-1",
+    "PetId": "pet-luna",
+    "PetIds": [
+      "pet-luna"
+    ],
+    "GroupId": "group-0001",
+    "SN": "SN0001",
+    "EventTimestamp": 1790405280000,
+    "Duration": 80000,
+    "Type": 2,
+    "Note": "",
+    "CloudStorageStatus": true,
+    "LocalStorageStatus": true,
+    "TimestampAccurate": true,
+    "EventAbnormal": 0,
+    "FecesAbnormal": [
+      0,
+      0
+    ],
+    "LabelPetIds": null,
+    "ToiletVideo": {
+      "Cover": {
+        "Url": "events/ev-1/cover.jpg",
+        "Width": 1280,
+        "Height": 720,
+        "Size": 51200
+      },
+      "RawInfo": {
+        "CreateTime": 1790405280000,
+        "Duration": 80000,
+        "Height": 720,
+        "Width": 1280,
+        "Md5": "00000000000000000000000000000000",
+        "Size": 1048576,
+        "Url": "events/ev-1/video.mp4"
+      }
+    },
+    "FecesImage": {
+      "Url": "events/ev-1/stool.jpg",
+      "Width": 1280,
+      "Height": 720,
+      "Size": 40960
+    },
+    "UserAnnotation": {
+      "FecesError": false,
+      "MultiPet": false,
+      "ToiletError": false
+    }
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "Code": 0,
+  "Msg": "success",
+  "Data": {
+    "UserId": "user-0001",
+    "Bucket": "test-media-bucket",
+    "More": false,
+    "Track": "",
+    "List": [
+      {
+        "Id": 1,
+        "PetId": "pet-luna",
+        "GroupId": "group-0001",
+        "Name": "Luna",
+        "PetType": 0,
+        "Type": 1,
+        "Gender": 0,
+        "Birth": 0,
+        "avatar": {
+          "Url": "resources/luna.jpg",
+          "Width": 402,
+          "Height": 402
+        },
+        "CreateTime": 946684800000,
+        "UpdateTime": 946771200000,
+        "Role": 1,
+        "Joy1AnnotationStatus": true
+      },
+      {
+        "Id": 2,
+        "PetId": "pet-milo",
+        "GroupId": "group-0001",
+        "Name": "Milo",
+        "PetType": 0,
+        "Type": 1,
+        "Gender": 0,
+        "Birth": 0,
+        "avatar": {
+          "Url": "resources/milo.jpg",
+          "Width": 402,
+          "Height": 402
+        },
+        "CreateTime": 946684800000,
+        "UpdateTime": 946771200000,
+        "Role": 1,
+        "Joy1AnnotationStatus": true
+      }
+    ]
+  }
+}

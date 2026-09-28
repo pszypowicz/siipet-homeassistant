@@ -1,0 +1,8 @@
+{
+  "Code": 0,
+  "Msg": "success",
+  "Data": {
+    "ClientId": "client-0001",
+    "VerifyCode": "0123456789abcdef0123456789abcdef"
+  }
+}

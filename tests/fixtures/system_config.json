@@ -1,0 +1,53 @@
+{
+  "Code": 0,
+  "Msg": "success",
+  "Data": {
+    "Memory": {
+      "AbnormalToilet": [
+        {
+          "Shape": [
+            {
+              "Type": 101,
+              "Title": "Hard lumpy stool",
+              "Icon": ""
+            },
+            {
+              "Type": 104,
+              "Title": "Watery stool",
+              "Icon": ""
+            },
+            {
+              "Type": 0,
+              "Title": "Well-formed stool (Normal)",
+              "Icon": ""
+            }
+          ],
+          "Color": [
+            {
+              "Type": 202,
+              "Title": "Bright red stool ",
+              "Icon": ""
+            },
+            {
+              "Type": 0,
+              "Title": "Light to dark brown stool (Normal)",
+              "Icon": ""
+            }
+          ],
+          "Event": [
+            {
+              "Type": 301,
+              "Title": "Potty Overtime",
+              "Icon": ""
+            },
+            {
+              "Type": 0,
+              "Title": "",
+              "Icon": ""
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

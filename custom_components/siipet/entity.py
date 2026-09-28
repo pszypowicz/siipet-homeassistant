@@ -1,0 +1,136 @@
+"""Base entities for the SiiPet integration."""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable
+from typing import Any
+
+from homeassistant.core import callback
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+from .api import Visit
+from .const import CAT_MODEL, DOMAIN, MANUFACTURER, UNKNOWN_CAT_ID, UNKNOWN_CAT_NAME
+from .coordinator import SiiPetConfigEntry, SiiPetCoordinator, SiiPetData
+
+
+def visit_attributes(data: SiiPetData, visit: Visit) -> dict[str, Any]:
+    """State attributes of a visit. They hold no serial numbers or account ids."""
+    camera = data.cameras.get(visit.sn)
+    return {
+        "event_id": visit.event_id,
+        "type": visit.type.key,
+        "duration": round(visit.duration_ms / 1000),
+        "camera": camera.name if camera else None,
+        "cats": [
+            data.cats[cat_id].name
+            for cat_id in data.cat_ids(visit)
+            if cat_id in data.cats
+        ],
+        "abnormal": visit.abnormal,
+        "abnormal_reasons": data.labels.reasons(visit),
+    }
+
+
+class SiiPetCatEntity(CoordinatorEntity[SiiPetCoordinator]):
+    """An entity of one cat, or of the virtual Unknown cat."""
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: SiiPetCoordinator, cat_id: str, key: str) -> None:
+        """Bind the entity to a cat device."""
+        super().__init__(coordinator)
+        self.cat_id = cat_id
+        self._attr_translation_key = key
+        self._attr_unique_id = f"{cat_id}_{key}"
+        cat = coordinator.data.cats.get(cat_id)
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, cat_id)},
+            name=cat.name if cat else UNKNOWN_CAT_NAME,
+            manufacturer=MANUFACTURER,
+            model=CAT_MODEL,
+        )
+
+    @property
+    def available(self) -> bool:
+        """A cat that left the account becomes unavailable."""
+        return super().available and (
+            self.cat_id == UNKNOWN_CAT_ID or self.cat_id in self.coordinator.data.cats
+        )
+
+
+class SiiPetCameraEntity(CoordinatorEntity[SiiPetCoordinator]):
+    """An entity of one camera."""
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: SiiPetCoordinator, sn: str, key: str) -> None:
+        """Bind the entity to a camera device."""
+        super().__init__(coordinator)
+        self.sn = sn
+        self._attr_translation_key = key
+        self._attr_unique_id = f"{sn}_{key}"
+        camera = coordinator.data.cameras[sn]
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, sn)},
+            name=camera.name,
+            manufacturer=MANUFACTURER,
+            model=camera.product_id or None,
+        )
+
+    @property
+    def available(self) -> bool:
+        """A camera that left the account becomes unavailable."""
+        return super().available and self.sn in self.coordinator.data.cameras
+
+
+@callback
+def async_add_cat_entities(
+    entry: SiiPetConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+    build: Callable[[SiiPetCoordinator, str], Iterable[Entity]],
+) -> None:
+    """Add entities for each cat and the Unknown cat, and later for new cats."""
+    coordinator = entry.runtime_data.coordinator
+    known: set[str] = set()
+
+    @callback
+    def _async_add_new() -> None:
+        new = [
+            cat_id
+            for cat_id in (UNKNOWN_CAT_ID, *coordinator.data.cats)
+            if cat_id not in known
+        ]
+        if not new:
+            return
+        known.update(new)
+        async_add_entities(
+            [entity for cat_id in new for entity in build(coordinator, cat_id)]
+        )
+
+    _async_add_new()
+    entry.async_on_unload(coordinator.async_add_listener(_async_add_new))
+
+
+@callback
+def async_add_camera_entities(
+    entry: SiiPetConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+    build: Callable[[SiiPetCoordinator, str], Iterable[Entity]],
+) -> None:
+    """Add entities for each camera, and later for new cameras."""
+    coordinator = entry.runtime_data.coordinator
+    known: set[str] = set()
+
+    @callback
+    def _async_add_new() -> None:
+        new = [sn for sn in coordinator.data.cameras if sn not in known]
+        if not new:
+            return
+        known.update(new)
+        async_add_entities([entity for sn in new for entity in build(coordinator, sn)])
+
+    _async_add_new()
+    entry.async_on_unload(coordinator.async_add_listener(_async_add_new))

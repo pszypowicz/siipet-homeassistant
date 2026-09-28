@@ -1,0 +1,238 @@
+"""Sensors for the SiiPet integration."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime
+from statistics import fmean
+from typing import Any
+
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.typing import StateType
+from homeassistant.util import dt as dt_util
+
+from .api import Visit, VisitType
+from .const import UNKNOWN_CAT_ID
+from .coordinator import SiiPetConfigEntry, SiiPetCoordinator, SiiPetData
+from .entity import (
+    SiiPetCameraEntity,
+    SiiPetCatEntity,
+    async_add_camera_entities,
+    async_add_cat_entities,
+    visit_attributes,
+)
+
+PARALLEL_UPDATES = 0
+
+
+def _today(data: SiiPetData, cat_id: str) -> list[Visit]:
+    return data.visits(cat_id, data.today)
+
+
+def _count(data: SiiPetData, cat_id: str, test: Callable[[Visit], bool]) -> int:
+    return sum(1 for visit in _today(data, cat_id) if test(visit))
+
+
+def _average_duration(data: SiiPetData, cat_id: str) -> float | None:
+    durations = [
+        visit.duration_ms / 1000
+        for visit in _today(data, cat_id)
+        if visit.type.is_litter_use
+    ]
+    return round(fmean(durations), 1) if durations else None
+
+
+def _baseline(data: SiiPetData, cat_id: str, field: str, scale: float) -> float | None:
+    summary = data.summaries.get(cat_id)
+    if summary is None:
+        return None
+    return round(getattr(summary, field) / scale, 1)
+
+
+def _baseline_progress(data: SiiPetData, cat_id: str) -> float | None:
+    summary = data.summaries.get(cat_id)
+    if summary is None or summary.needed_days <= 0:
+        return None
+    return round(min(100.0, 100 * summary.current_days / summary.needed_days))
+
+
+def _last_visit(data: SiiPetData, cat_id: str) -> Visit | None:
+    visits = data.visits(cat_id)
+    return max(visits, key=lambda visit: visit.start) if visits else None
+
+
+@dataclass(frozen=True, kw_only=True)
+class SiiPetCatSensorDescription(SensorEntityDescription):
+    """A sensor of a cat."""
+
+    value_fn: Callable[[SiiPetData, str], StateType | datetime]
+    attrs_fn: Callable[[SiiPetData, str], dict[str, Any] | None] = lambda _data, _cat: (
+        None
+    )
+    daily: bool = False
+    real_cat_only: bool = False
+    unknown_cat_only: bool = False
+
+
+def _daily(key: str, test: Callable[[Visit], bool]) -> SiiPetCatSensorDescription:
+    return SiiPetCatSensorDescription(
+        key=key,
+        translation_key=key,
+        state_class=SensorStateClass.TOTAL,
+        daily=True,
+        value_fn=lambda data, cat_id: _count(data, cat_id, test),
+    )
+
+
+CAT_SENSORS: tuple[SiiPetCatSensorDescription, ...] = (
+    _daily("visits_today", lambda visit: visit.type.is_litter_use),
+    _daily("pee_today", lambda visit: visit.type is VisitType.PEE),
+    _daily("poop_today", lambda visit: visit.type is VisitType.POOP),
+    _daily("lingering_today", lambda visit: visit.type is VisitType.LINGERING),
+    _daily("abnormal_visits_today", lambda visit: visit.abnormal),
+    SiiPetCatSensorDescription(
+        key="average_duration_today",
+        translation_key="average_duration_today",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+        value_fn=_average_duration,
+    ),
+    SiiPetCatSensorDescription(
+        key="baseline_visits",
+        translation_key="baseline_visits",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        real_cat_only=True,
+        value_fn=lambda data, cat_id: _baseline(data, cat_id, "baseline_times", 1),
+    ),
+    SiiPetCatSensorDescription(
+        key="baseline_duration",
+        translation_key="baseline_duration",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+        real_cat_only=True,
+        value_fn=lambda data, cat_id: _baseline(data, cat_id, "baseline_avg_ms", 1000),
+    ),
+    SiiPetCatSensorDescription(
+        key="baseline_progress",
+        translation_key="baseline_progress",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        real_cat_only=True,
+        value_fn=_baseline_progress,
+    ),
+    SiiPetCatSensorDescription(
+        key="last_visit",
+        translation_key="last_visit",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda data, cat_id: (
+            visit.start if (visit := _last_visit(data, cat_id)) else None
+        ),
+        attrs_fn=lambda data, cat_id: (
+            visit_attributes(data, visit)
+            if (visit := _last_visit(data, cat_id))
+            else None
+        ),
+    ),
+    SiiPetCatSensorDescription(
+        key="unassigned_visits",
+        translation_key="unassigned_visits",
+        state_class=SensorStateClass.MEASUREMENT,
+        unknown_cat_only=True,
+        value_fn=lambda data, cat_id: len(data.visits(cat_id)),
+    ),
+)
+
+SUBSCRIPTION_SENSOR = SensorEntityDescription(
+    key="subscription_expires",
+    translation_key="subscription_expires",
+    device_class=SensorDeviceClass.TIMESTAMP,
+    entity_category=EntityCategory.DIAGNOSTIC,
+)
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: SiiPetConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+) -> None:
+    """Add cat and camera sensors."""
+
+    def build_cat(coordinator: SiiPetCoordinator, cat_id: str) -> list[SiiPetCatSensor]:
+        unknown = cat_id == UNKNOWN_CAT_ID
+        return [
+            SiiPetCatSensor(coordinator, cat_id, description)
+            for description in CAT_SENSORS
+            if not (unknown and description.real_cat_only)
+            and not (not unknown and description.unknown_cat_only)
+        ]
+
+    def build_camera(
+        coordinator: SiiPetCoordinator, sn: str
+    ) -> list[SiiPetSubscriptionSensor]:
+        return [SiiPetSubscriptionSensor(coordinator, sn)]
+
+    async_add_cat_entities(entry, async_add_entities, build_cat)
+    async_add_camera_entities(entry, async_add_entities, build_camera)
+
+
+class SiiPetCatSensor(SiiPetCatEntity, SensorEntity):
+    """A statistics sensor of a cat."""
+
+    entity_description: SiiPetCatSensorDescription
+
+    def __init__(
+        self,
+        coordinator: SiiPetCoordinator,
+        cat_id: str,
+        description: SiiPetCatSensorDescription,
+    ) -> None:
+        """Create the sensor."""
+        super().__init__(coordinator, cat_id, description.key)
+        self.entity_description = description
+
+    @property
+    def native_value(self) -> StateType | datetime:
+        """The sensor value."""
+        return self.entity_description.value_fn(self.coordinator.data, self.cat_id)
+
+    @property
+    def last_reset(self) -> datetime | None:
+        """Local midnight of the current day, for daily counts."""
+        if not self.entity_description.daily:
+            return None
+        return dt_util.start_of_local_day(self.coordinator.data.today)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Extra attributes of the sensor."""
+        return self.entity_description.attrs_fn(self.coordinator.data, self.cat_id)
+
+
+class SiiPetSubscriptionSensor(SiiPetCameraEntity, SensorEntity):
+    """The subscription expiry of a camera."""
+
+    entity_description = SUBSCRIPTION_SENSOR
+
+    def __init__(self, coordinator: SiiPetCoordinator, sn: str) -> None:
+        """Create the sensor."""
+        super().__init__(coordinator, sn, SUBSCRIPTION_SENSOR.key)
+
+    @property
+    def native_value(self) -> datetime | None:
+        """The expiry time, or None without a subscription."""
+        return self.coordinator.data.cameras[self.sn].subscription_expires

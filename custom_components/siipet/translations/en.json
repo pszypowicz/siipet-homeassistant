@@ -1,13 +1,192 @@
 {
   "config": {
     "step": {
-      "user": {
-        "title": "SiiPet",
-        "description": "This version does not connect to a SiiPet account and does not create entities."
+      "email": {
+        "title": "Sign in with an email code",
+        "description": "Enter the email address of your SiiPet account. SiiPet sends a sign-in code to this address.",
+        "data": {
+          "email": "Email"
+        }
+      },
+      "code": {
+        "title": "Enter the code",
+        "description": "Enter the code that SiiPet sent to {email}.",
+        "data": {
+          "code": "Code"
+        }
       }
     },
+    "error": {
+      "cannot_connect": "Cannot connect to SiiPet. Try again later.",
+      "code_request_failed": "SiiPet did not send a code. Check the email address and try again.",
+      "invalid_code": "The code is not correct or it expired.",
+      "invalid_email": "Enter a valid email address.",
+      "login_failed": "SiiPet rejected the sign-in. Close this form and start again to get a new code.",
+      "session_rejected": "SiiPet accepted the code, but rejected the new session. Close this form and start again to get a new code.",
+      "too_many_requests": "SiiPet allows only a few code requests per day. Try again tomorrow.",
+      "unknown": "An unexpected error occurred. Read the log for details."
+    },
     "abort": {
-      "already_configured": "SiiPet is already configured."
+      "already_configured": "This SiiPet account is already configured.",
+      "entry_outdated": "This SiiPet entry is from an old version. Remove the SiiPet entry and add it again.",
+      "reauth_successful": "You are signed in again.",
+      "reconfigure_successful": "You are signed in again.",
+      "single_instance_allowed": "SiiPet is already configured.",
+      "wrong_account": "Sign in with the same SiiPet account as before."
+    }
+  },
+  "exceptions": {
+    "entry_outdated": {
+      "message": "Remove the SiiPet entry and add it again."
+    },
+    "not_loaded": {
+      "message": "SiiPet is not loaded. Check the SiiPet integration."
+    },
+    "invalid_cat": {
+      "message": "Choose a SiiPet cat device."
+    },
+    "date_out_of_range": {
+      "message": "Choose a date from {first} to {last}."
+    },
+    "request_failed": {
+      "message": "SiiPet could not complete the request: {error}"
+    },
+    "unknown_visit": {
+      "message": "SiiPet has no visit {event_id}."
+    },
+    "visit_not_in_window": {
+      "message": "SiiPet has no visit {event_id} in the last 7 days."
+    },
+    "nothing_to_change": {
+      "message": "The visit already matches the request."
+    },
+    "type_required": {
+      "message": "The visit has an unknown type. Choose a type together with the cats."
+    },
+    "edit_partial": {
+      "message": "SiiPet may not have applied the whole change to visit {event_id}: {error}. Check the visit, then call the action again with type {type}."
+    },
+    "edit_unconfirmed": {
+      "message": "SiiPet accepted the change to visit {event_id}, but the visit could not be read back: {error}. Check the visit in the SiiPet app."
+    },
+    "edit_not_applied": {
+      "message": "SiiPet did not apply the change to visit {event_id}. Check the visit in the SiiPet app."
+    }
+  },
+  "entity": {
+    "event": {
+      "visit": {
+        "name": "Visit",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "unknown": "Unknown",
+              "lingering": "Lingering",
+              "poop": "Poop",
+              "pee": "Pee"
+            }
+          }
+        }
+      }
+    },
+    "sensor": {
+      "visits_today": {
+        "name": "Visits today"
+      },
+      "pee_today": {
+        "name": "Pee today"
+      },
+      "poop_today": {
+        "name": "Poop today"
+      },
+      "lingering_today": {
+        "name": "Lingering today"
+      },
+      "abnormal_visits_today": {
+        "name": "Abnormal visits today"
+      },
+      "average_duration_today": {
+        "name": "Average visit duration today"
+      },
+      "baseline_visits": {
+        "name": "Baseline visits"
+      },
+      "baseline_duration": {
+        "name": "Baseline visit duration"
+      },
+      "baseline_progress": {
+        "name": "Baseline progress"
+      },
+      "last_visit": {
+        "name": "Last visit"
+      },
+      "unassigned_visits": {
+        "name": "Unassigned visits"
+      },
+      "subscription_expires": {
+        "name": "Subscription expires"
+      }
+    }
+  },
+  "services": {
+    "list_visits": {
+      "name": "List visits",
+      "description": "Returns the litter box visits of up to 7 days, newest first. The response holds no links.",
+      "fields": {
+        "date": {
+          "name": "Date",
+          "description": "The last day to list. Today or one of the 30 days before it. Default: today."
+        },
+        "days": {
+          "name": "Days",
+          "description": "How many days to list, ending on the date. 1 to 7. Default: 1."
+        },
+        "cat": {
+          "name": "Cat",
+          "description": "List only the visits of this cat. The Unknown cat lists unrecognized visits."
+        }
+      }
+    },
+    "update_visit": {
+      "name": "Update visit",
+      "description": "Changes the cats, the type, or the memo of a litter box visit.",
+      "fields": {
+        "event_id": {
+          "name": "Event ID",
+          "description": "The event_id of the visit, from the List visits response or a Visit event."
+        },
+        "cats": {
+          "name": "Cats",
+          "description": "The cats that used the box. The Unknown cat is not valid here."
+        },
+        "type": {
+          "name": "Type",
+          "description": "The new type of the visit."
+        },
+        "note": {
+          "name": "Memo",
+          "description": "The new memo, up to 200 characters. An empty memo clears it."
+        }
+      }
+    },
+    "delete_visit": {
+      "name": "Delete visit",
+      "description": "Deletes a litter box visit for good. You cannot undo it.",
+      "fields": {
+        "event_id": {
+          "name": "Event ID",
+          "description": "The event_id of the visit, from the List visits response or a Visit event."
+        }
+      }
+    }
+  },
+  "selector": {
+    "visit_type": {
+      "options": {
+        "pee": "Pee",
+        "poop": "Poop",
+        "lingering": "Lingering"
+      }
     }
   }
 }
