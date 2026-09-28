@@ -22,7 +22,7 @@ import {
   renderTimeline,
 } from "./day-view";
 import "./edit-view";
-import type { CloseDetail } from "./edit-view";
+import type { BusyDetail, CloseDetail } from "./edit-view";
 import { dayLabel, monthOf, shiftDay, shiftMonth, timeOf } from "./format";
 import { cardStyles } from "./styles";
 import { loadTileParts } from "./tile-parts";
@@ -136,6 +136,11 @@ export class SiiPetVisitsCard extends LitElement {
   // A card that does not own the visit leaves the link in the address, so
   // without this it would read the link again on every refresh.
   private _linkEvent?: string;
+  // The editor element whose save or delete runs, from its `siipet-busy` events.
+  private _busyEditor?: EventTarget;
+  // The editor that was busy when a link came. The link waits while that
+  // editor stays open, so a failed save keeps its error and its inputs in view.
+  private _holdingEditor?: EventTarget;
 
   constructor() {
     super();
@@ -188,6 +193,7 @@ export class SiiPetVisitsCard extends LitElement {
       this._error = undefined;
       this._editing = undefined;
       this._linkEvent = undefined;
+      this._holdingEditor = undefined;
     }
   }
 
@@ -271,10 +277,11 @@ export class SiiPetVisitsCard extends LitElement {
 
   // Home Assistant fires `location-changed` on `window` for each navigation,
   // also for a new tap of the same notification. A navigation reads the link
-  // again, so a link that failed or that another card owned gets a fresh read.
-  // Back and forward (`popstate`) keep the link as read.
+  // again, so a link that failed, that another card owned, or that a failed
+  // save held gets a fresh read. Back and forward (`popstate`) keep the link as read.
   private _onNavigate = (): void => {
     this._linkEvent = undefined;
+    this._holdingEditor = undefined;
     this._onLocationChange();
   };
 
@@ -607,10 +614,36 @@ export class SiiPetVisitsCard extends LitElement {
     return eventId !== this._linkEvent ? eventId : undefined;
   }
 
+  private _editorElement(): Element | null {
+    return this.renderRoot.querySelector("siipet-visit-editor");
+  }
+
+  private _onEditorBusy(ev: CustomEvent<BusyDetail>): void {
+    if (ev.detail.busy) {
+      this._busyEditor = ev.target ?? undefined;
+    } else if (this._busyEditor === ev.target) {
+      this._busyEditor = undefined;
+    }
+  }
+
+  /** Whether a link waits for the open editor: it is busy, or it was busy when a
+   * link came and is still open. A link that waits stays in the address, unread. */
+  private _linkWaits(): boolean {
+    const editor = this._editing ? this._editorElement() : null;
+    if (editor === null) {
+      return false;
+    }
+    if (editor === this._busyEditor) {
+      this._holdingEditor = editor;
+      return true;
+    }
+    return editor === this._holdingEditor;
+  }
+
   /** Read the linked visit, and open it when this card owns it. Runs inside `_run`. */
   private async _followLink(): Promise<void> {
     const eventId = this._newLink();
-    if (eventId === undefined || !this._cats) {
+    if (eventId === undefined || !this._cats || this._linkWaits()) {
       return;
     }
     this._linkEvent = eventId;
@@ -632,6 +665,11 @@ export class SiiPetVisitsCard extends LitElement {
     // A config change clears the cats, and a navigation can replace the link,
     // while the read runs.
     if (!this._cats || linkedEventId() !== eventId) {
+      return;
+    }
+    // A save or a delete that started during the read keeps its editor.
+    if (this._linkWaits()) {
+      this._linkEvent = undefined;
       return;
     }
     const cat = this._linkedCat(this._cats, result.visit);
@@ -718,22 +756,27 @@ export class SiiPetVisitsCard extends LitElement {
   }
 
   /** Return to the day view for the visit this close is about. After an edit, read
-   * again either way: a save or a delete for a visit that is no longer the one
-   * shown (a stale close from a detached editor) still changed the server's data.
-   * The other cards on the page read again too. Close and scroll only when the
-   * ids match, so that stale close does not drop the visit the card has moved on to. */
-  private async _closeEditor({ changed, eventId }: CloseDetail): Promise<void> {
-    const matches = this._editing?.event_id === eventId;
-    if (matches) {
+   * again either way: a save or a delete from an editor that is no longer the one
+   * shown still changed the server's data. The other cards on the page read again
+   * too. Close and scroll only for the editor on screen and its visit, so an old
+   * editor, also one of the same visit, does not drop the view the card has moved on to. */
+  private async _closeEditor(ev: CustomEvent<CloseDetail>): Promise<void> {
+    const { changed, eventId } = ev.detail;
+    const closes = ev.target === this._editorElement() && this._editing?.event_id === eventId;
+    if (closes) {
       this._editing = undefined;
+      this._holdingEditor = undefined;
     }
     if (changed) {
       changeCount += 1;
       const detail: ChangedDetail = { source: this };
       window.dispatchEvent(new CustomEvent<ChangedDetail>(CHANGED_EVENT, { detail }));
+      // The refresh reads a link that waited for this editor at its end.
       await this._run(() => this._refresh());
+    } else if (closes) {
+      this._onLocationChange();
     }
-    if (!matches) {
+    if (!closes) {
       return;
     }
     await this.updateComplete;
@@ -783,7 +826,7 @@ export class SiiPetVisitsCard extends LitElement {
     if (this._editing) {
       // Another visit gets a new editor, so an armed Delete or a pending save
       // of the last visit does not act on the new one. The old editor still
-      // sends its close, which `_closeEditor` tells apart by the event id.
+      // sends its close, which `_closeEditor` tells apart by its element.
       return html`${keyed(
         this._editing.event_id,
         html`
@@ -791,7 +834,8 @@ export class SiiPetVisitsCard extends LitElement {
             .hass=${this.hass}
             .visit=${this._editing}
             .cats=${cats.cats}
-            @siipet-close=${(ev: CustomEvent<CloseDetail>) => this._closeEditor(ev.detail)}
+            @siipet-busy=${(ev: CustomEvent<BusyDetail>) => this._onEditorBusy(ev)}
+            @siipet-close=${(ev: CustomEvent<CloseDetail>) => this._closeEditor(ev)}
           ></siipet-visit-editor>
         `,
       )}`;

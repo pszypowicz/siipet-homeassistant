@@ -20,6 +20,11 @@ export interface CloseDetail {
   eventId: string;
 }
 
+/** The detail of `siipet-busy`, which the editor fires when a save or a delete starts and ends. */
+export interface BusyDetail {
+  busy: boolean;
+}
+
 export class SiiPetVisitEditor extends LitElement {
   static properties = {
     hass: { attribute: false },
@@ -221,6 +226,12 @@ export class SiiPetVisitEditor extends LitElement {
     this.dispatchEvent(new CustomEvent<CloseDetail>("siipet-close", { detail }));
   }
 
+  // The card holds a link while a save or a delete runs, so its result stays in view.
+  private _setBusy(busy: boolean): void {
+    this._busy = busy;
+    this.dispatchEvent(new CustomEvent<BusyDetail>("siipet-busy", { detail: { busy } }));
+  }
+
   private _back(): void {
     if (this._busy) {
       return;
@@ -242,7 +253,7 @@ export class SiiPetVisitEditor extends LitElement {
   }
 
   private async _save(data: Record<string, unknown>): Promise<void> {
-    this._busy = true;
+    this._setBusy(true);
     this._error = undefined;
     try {
       await updateVisit(this.hass!, data);
@@ -257,7 +268,7 @@ export class SiiPetVisitEditor extends LitElement {
         this._partialEdit = true;
       }
     } finally {
-      this._busy = false;
+      this._setBusy(false);
     }
   }
 
@@ -271,7 +282,7 @@ export class SiiPetVisitEditor extends LitElement {
     }
     clearTimeout(this._disarm);
     this._armed = false;
-    this._busy = true;
+    this._setBusy(true);
     this._error = undefined;
     try {
       await deleteVisit(this.hass!, this.visit!.event_id);
@@ -279,7 +290,7 @@ export class SiiPetVisitEditor extends LitElement {
     } catch (err) {
       this._error = errorMessage(err);
     } finally {
-      this._busy = false;
+      this._setBusy(false);
     }
   }
 

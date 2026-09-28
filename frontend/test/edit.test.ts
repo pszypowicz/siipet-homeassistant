@@ -386,6 +386,45 @@ describe("edit view", () => {
     expect(text(inEditor(editor, ".delete"))).toBe("Tap again to delete");
   });
 
+  it.each([
+    { action: "save", fails: false },
+    { action: "save", fails: true },
+    { action: "delete", fails: false },
+    { action: "delete", fails: true },
+  ])("tells when a $action starts and ends (fails: $fails)", async ({ action, fails }) => {
+    const fake = fakeHass();
+    if (fails) {
+      fake.callService.mockRejectedValue({ message: "boom" });
+    }
+    const editor = document.createElement("siipet-visit-editor") as HTMLElement &
+      Record<string, unknown>;
+    editor.hass = fake.hass;
+    editor.visit = POOP;
+    editor.cats = catsResult().cats;
+    const events: string[] = [];
+    editor.addEventListener("siipet-busy", (ev) => {
+      events.push(`busy=${(ev as CustomEvent<{ busy: boolean }>).detail.busy}`);
+    });
+    editor.addEventListener("siipet-close", () => events.push("close"));
+    document.body.append(editor);
+    await settle();
+
+    if (action === "save") {
+      pickType(editor, "pee");
+      await settle();
+      inEditor(editor, ".save")!.click();
+    } else {
+      inEditor(editor, ".delete")!.click();
+      await settle();
+      inEditor(editor, ".delete")!.click();
+    }
+    await settle();
+
+    expect(events).toEqual(
+      fails ? ["busy=true", "busy=false"] : ["busy=true", "close", "busy=false"],
+    );
+  });
+
   it("keeps the form when a refresh brings a new visit object for the same event", async () => {
     const fake = fakeHass();
     const card = await mount(fake);

@@ -1429,29 +1429,161 @@ describe("open a visit from a link", () => {
     expect(second).not.toBe(first);
   });
 
-  it("keeps a linked visit open when the save of the last one ends", async () => {
-    const fake = fakeHass({ visit: { date: "2026-09-27", visit: LINGERING } });
-    let releaseSave!: (value?: unknown) => void;
+  /** Open the first visit, pick Pee, and tap Save. The save stays pending until released. */
+  async function holdSave(
+    fake: FakeHass,
+    card: TestCard,
+  ): Promise<{ editor: HTMLElement; release: () => void; reject: (reason: unknown) => void }> {
+    let release!: () => void;
+    let reject!: (reason: unknown) => void;
     fake.callService.mockImplementationOnce(
-      () => new Promise((resolve) => (releaseSave = resolve)),
+      () =>
+        new Promise((resolve, fail) => {
+          release = () => resolve(undefined);
+          reject = fail;
+        }),
     );
-    const card = await mount(fake);
-    const first = await openFirstVisit(card);
-    inEditor(first, "ha-control-select.type")!.dispatchEvent(
+    const editor = await openFirstVisit(card);
+    inEditor(editor, "ha-control-select.type")!.dispatchEvent(
       new CustomEvent("value-changed", { detail: { value: "pee" } }),
     );
     await settle(card);
-    inEditor(first, ".save")!.click();
+    inEditor(editor, ".save")!.click();
     await settle(card);
+    return { editor, release: () => release(), reject: (reason) => reject(reason) };
+  }
+
+  it("opens a link that came during a save after the save ends", async () => {
+    const fake = fakeHass({ visit: { date: "2026-09-27", visit: LINGERING } });
+    const card = await mount(fake);
+    const save = await holdSave(fake, card);
+    fake.callWS.mockClear();
+
+    navigate("/dash?siipet_visit=ev-2");
+    await settle(card);
+    expect(editing(card)?.event_id).toBe("ev-1");
+    expect(find(card, "siipet-visit-editor")).toBe(save.editor);
+    expect(location.search).toBe("?siipet_visit=ev-2");
+    expect(visitReads(fake)).toBe(0);
+
+    save.release();
+    await settle(card);
+    expect(editing(card)?.event_id).toBe("ev-2");
+    expect(location.search).toBe("");
+    expect(reads(fake).map((message) => message.type)).toEqual([
+      "siipet/cats",
+      "siipet/day",
+      "siipet/calendar",
+      "siipet/visit",
+    ]);
+  });
+
+  it("keeps a failed save and its error in view while a link waits", async () => {
+    const fake = fakeHass({ visit: { date: "2026-09-27", visit: LINGERING } });
+    const card = await mount(fake);
+    const save = await holdSave(fake, card);
+
+    navigate("/dash?siipet_visit=ev-2");
+    await settle(card);
+    save.reject({ code: "home_assistant_error", message: "SiiPet could not save the visit" });
+    await settle(card);
+
+    expect(find(card, "siipet-visit-editor")).toBe(save.editor);
+    expect(text(inEditor(save.editor, ".error"))).toBe("SiiPet could not save the visit");
+    expect(inEditor(save.editor, "ha-control-select.type")?.value).toBe("pee");
+    expect(location.search).toBe("?siipet_visit=ev-2");
+    expect(visitReads(fake)).toBe(0);
+
+    // A refresh does not take the link while the failed save is on screen.
+    fake.listeners.get("ready")!();
+    await settle(card);
+    expect(find(card, "siipet-visit-editor")).toBe(save.editor);
+
+    // Back from the failed save opens the link.
+    inEditor(save.editor, ".header")!.dispatchEvent(
+      new CustomEvent("action", { detail: { action: "tap" } }),
+    );
+    await settle(card);
+    expect(editing(card)?.event_id).toBe("ev-2");
+    expect(location.search).toBe("");
+  });
+
+  it("opens a link held by a failed save on the next navigation", async () => {
+    const fake = fakeHass({ visit: { date: "2026-09-27", visit: LINGERING } });
+    const card = await mount(fake);
+    const save = await holdSave(fake, card);
+    navigate("/dash?siipet_visit=ev-2");
+    await settle(card);
+    save.reject({ code: "home_assistant_error", message: "SiiPet could not save the visit" });
+    await settle(card);
+    expect(find(card, "siipet-visit-editor")).toBe(save.editor);
 
     navigate("/dash?siipet_visit=ev-2");
     await settle(card);
     expect(editing(card)?.event_id).toBe("ev-2");
-    fake.callWS.mockClear();
+  });
+
+  it("holds a link whose read answers after a save started", async () => {
+    const fake = fakeHass({ visit: { date: "2026-09-27", visit: LINGERING } });
+    const card = await mount(fake);
+    let releaseVisit!: (value: unknown) => void;
+    const original = fake.callWS.getMockImplementation() as (
+      message: Record<string, unknown>,
+    ) => Promise<unknown>;
+    fake.callWS.mockImplementation(async (message: Record<string, unknown>) => {
+      if (message.type === "siipet/visit" && releaseVisit === undefined) {
+        return new Promise((resolve) => (releaseVisit = resolve));
+      }
+      return original(message);
+    });
+    const editor = await openFirstVisit(card);
+    navigate("/dash?siipet_visit=ev-2");
+    await settle(card);
+    expect(visitReads(fake)).toBe(1);
+
+    let releaseSave!: () => void;
+    fake.callService.mockImplementationOnce(
+      () => new Promise((resolve) => (releaseSave = () => resolve(undefined))),
+    );
+    inEditor(editor, "ha-control-select.type")!.dispatchEvent(
+      new CustomEvent("value-changed", { detail: { value: "pee" } }),
+    );
+    await settle(card);
+    inEditor(editor, ".save")!.click();
+    await settle(card);
+
+    releaseVisit(fake.results.visit);
+    await settle(card);
+    expect(find(card, "siipet-visit-editor")).toBe(editor);
+    expect(location.search).toBe("?siipet_visit=ev-2");
 
     releaseSave();
     await settle(card);
     expect(editing(card)?.event_id).toBe("ev-2");
+    expect(location.search).toBe("");
+  });
+
+  it("keeps a new editor of the same visit open when the save of the old one ends", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    const save = await holdSave(fake, card);
+
+    // A config change during the save shows the day again, and the visit opens anew.
+    card.setConfig({ type: "custom:siipet-visits-card", cat: "dev-luna" });
+    await settle(card);
+    expect(find(card, "siipet-visit-editor")).toBeNull();
+    const reopened = await openFirstVisit(card);
+    expect(reopened).not.toBe(save.editor);
+    const memo = inEditor(reopened, ".memo-input") as unknown as HTMLInputElement;
+    memo.value = "draft";
+    memo.dispatchEvent(new Event("input"));
+    await settle(card);
+    fake.callWS.mockClear();
+
+    save.release();
+    await settle(card);
+    expect(find(card, "siipet-visit-editor")).toBe(reopened);
+    expect((inEditor(reopened, ".memo-input") as unknown as HTMLInputElement).value).toBe("draft");
     expect(reads(fake).map((message) => message.type)).toEqual([
       "siipet/cats",
       "siipet/day",
