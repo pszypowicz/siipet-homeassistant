@@ -302,6 +302,100 @@ describe("day view", () => {
     expect(text(find(card, '.header [slot="primary"]'))).toBe("Milo");
   });
 
+  it("keeps the value-changed event of the cat strip inside the card", async () => {
+    const card = await mount(fakeHass());
+    const heard = vi.fn();
+    document.addEventListener("value-changed", heard);
+    try {
+      find(card, "ha-control-select.cats")!.dispatchEvent(
+        new CustomEvent("value-changed", {
+          detail: { value: "dev-milo" },
+          bubbles: true,
+          composed: true,
+        }),
+      );
+      await settle(card);
+    } finally {
+      document.removeEventListener("value-changed", heard);
+    }
+    expect(heard).not.toHaveBeenCalled();
+    expect(text(find(card, '.header [slot="primary"]'))).toBe("Milo");
+  });
+
+  it("shows the error when the card helpers do not load, and starts on the next try", async () => {
+    const helpers = vi
+      .spyOn(window as unknown as { loadCardHelpers: () => Promise<unknown> }, "loadCardHelpers")
+      .mockRejectedValueOnce(new Error("The card helpers did not load"));
+    const fake = fakeHass();
+    const card = await mount(fake);
+    expect(text(find(card, ".error"))).toBe("The card helpers did not load");
+    expect(fake.callWS).not.toHaveBeenCalled();
+
+    fake.listeners.get("ready")!();
+    await settle(card);
+    expect(helpers).toHaveBeenCalledTimes(2);
+    expect(sent(fake).map((message) => message.type)).toEqual([
+      "siipet/cats",
+      "siipet/day",
+      "siipet/calendar",
+    ]);
+    expect(find(card, ".error")).toBeNull();
+  });
+
+  it("shows the message of a failure inside a run", async () => {
+    const prototype = cardClass().prototype as unknown as { _followLink(): Promise<void> };
+    vi.spyOn(prototype, "_followLink").mockRejectedValue(new Error("boom"));
+    const card = await mount(fakeHass());
+    expect(text(find(card, ".error"))).toBe("boom");
+  });
+
+  it("does not render again or read for a hass update that changes another entity", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    const options = find(card, "ha-control-select.cats")!.options;
+    const render = vi.spyOn(cardClass().prototype as unknown as { render(): unknown }, "render");
+    fake.callWS.mockClear();
+
+    card.hass = withState(fake.hass, "sensor.outside", "13");
+    await settle(card);
+
+    expect(render).not.toHaveBeenCalled();
+    expect(find(card, "ha-control-select.cats")!.options).toBe(options);
+    expect(sent(fake)).toEqual([]);
+  });
+
+  it("reads again when a new SiiPet event entity appears while the card shows today", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    fake.callWS.mockClear();
+
+    card.hass = {
+      ...fake.hass,
+      entities: {
+        ...fake.hass.entities,
+        "event.milo_visit": {
+          entity_id: "event.milo_visit",
+          platform: "siipet",
+          device_id: "dev-milo",
+        },
+      },
+      states: {
+        ...fake.hass.states,
+        "event.milo_visit": {
+          entity_id: "event.milo_visit",
+          state: "2026-09-27T19:00:00.000+00:00",
+          last_changed: "",
+        },
+      },
+    };
+    await settle(card);
+    expect(sent(fake).map((message) => message.type)).toEqual([
+      "siipet/cats",
+      "siipet/day",
+      "siipet/calendar",
+    ]);
+  });
+
   it("says so when the account has no cats", async () => {
     const fake = fakeHass({ cats: catsResult({ cats: [] }) });
     const card = await mount(fake);
@@ -403,6 +497,23 @@ describe("hide_cat_picker", () => {
       { type: "siipet/calendar", month: "2026-09", cat: "dev-milo" },
     ]);
     expect(find(card, "ha-control-select.cats")).toBeNull();
+  });
+
+  it("says so and reads nothing more when the cat of a fixed card is not in the account", async () => {
+    history.replaceState(null, "", "/dash?siipet_visit=ev-1");
+    const fake = fakeHass();
+    const card = await mount(fake, { cat: "dev-gone", hide_cat_picker: true });
+    expect(text(find(card, ".message"))).toBe("The cat of this card is not in the SiiPet account.");
+    expect(sent(fake)).toEqual([{ type: "siipet/cats" }]);
+    expect(find(card, "siipet-visit-editor")).toBeNull();
+    expect(location.search).toBe("?siipet_visit=ev-1");
+  });
+
+  it("starts a card with the cat strip on the first cat when its cat is not in the account", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake, { cat: "dev-gone" });
+    expect(sent(fake)[1]).toEqual({ type: "siipet/day", date: "2026-09-27", cat: "dev-luna" });
+    expect(find(card, "ha-control-select.cats")?.value).toBe("dev-luna");
   });
 
   it("hides the cat strip and reads the first cat without a configured cat", async () => {

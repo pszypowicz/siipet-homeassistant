@@ -168,13 +168,18 @@ export function renderCatStrip(
   if (options.length < 2) {
     return nothing;
   }
+  // The event stops here, as in the tile features, so a dashboard editor around
+  // the card does not take it for a change of its own form.
   return html`
     <ha-control-select
       class="cats"
       .options=${options}
       .value=${selected}
       .label=${"Cat"}
-      @value-changed=${(ev: CustomEvent<{ value: string }>) => onSelect(ev.detail.value)}
+      @value-changed=${(ev: CustomEvent<{ value: string }>) => {
+        ev.stopPropagation();
+        onSelect(ev.detail.value);
+      }}
     ></ha-control-select>
   `;
 }

@@ -91,6 +91,62 @@ describe("edit view", () => {
     );
   });
 
+  it("keeps the playback note through a renewal", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+    inEditor(editor, "video")!.dispatchEvent(new Event("error"));
+    await settle();
+    fake.callWS.mockClear();
+
+    fake.results.day = { ...fake.results.day, visits: [{ ...POOP }, LINGERING] };
+    fake.listeners.get("ready")!();
+    await settle(card);
+
+    expect(inEditor(editor, "video")).toBeNull();
+    expect(text(inEditor(editor, ".video-note"))).toBe(
+      "This browser cannot play the recording. Safari and the Home Assistant app can.",
+    );
+    expect(sent(fake).map((message) => message.type)).not.toContain("media_source/resolve_media");
+  });
+
+  it("keeps the playback note when a pending renewal answers", async () => {
+    const fake = fakeHass();
+    const original = fake.callWS.getMockImplementation() as (
+      message: Record<string, unknown>,
+    ) => Promise<unknown>;
+    let resolves = 0;
+    let releaseRenewal!: () => void;
+    fake.callWS.mockImplementation(async (message: Record<string, unknown>) => {
+      if (message.type === "media_source/resolve_media") {
+        resolves += 1;
+        if (resolves === 1) {
+          return { url: "https://video.example/ev-1-a.mp4", mime_type: "video/mp4" };
+        }
+        return new Promise((resolve) => {
+          releaseRenewal = () =>
+            resolve({ url: "https://video.example/ev-1-b.mp4", mime_type: "video/mp4" });
+        });
+      }
+      return original(message);
+    });
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+    fake.results.day = { ...fake.results.day, visits: [{ ...POOP }, LINGERING] };
+    fake.listeners.get("ready")!();
+    await settle(card);
+
+    inEditor(editor, "video")!.dispatchEvent(new Event("error"));
+    await settle();
+    releaseRenewal();
+    await settle(card);
+
+    expect(inEditor(editor, "video")).toBeNull();
+    expect(text(inEditor(editor, ".video-note"))).toBe(
+      "This browser cannot play the recording. Safari and the Home Assistant app can.",
+    );
+  });
+
   it("does not ask for a recording that is on the camera only", async () => {
     const day = { summary: { visits: 1, pee: 0, poop: 1, abnormal: 1 } };
     const fake = fakeHass({ day: { ...day, visits: [{ ...POOP, has_video: false }] } });
@@ -223,6 +279,34 @@ describe("edit view", () => {
       false,
     );
     expect(find(card, "siipet-visit-editor")).toBeNull();
+  });
+
+  it("names the armed Delete for screen readers", async () => {
+    const editor = await openVisit(await mount(fakeHass()));
+    expect(inEditor(editor, ".delete")?.label).toBe("Delete");
+
+    inEditor(editor, ".delete")!.click();
+    await settle();
+    expect(inEditor(editor, ".delete")?.label).toBe("Tap again to delete");
+  });
+
+  it("keeps the value-changed event of the type inside the editor", async () => {
+    const card = await mount(fakeHass());
+    const editor = await openVisit(card);
+    const heard = vi.fn();
+    card.addEventListener("value-changed", heard);
+    inEditor(editor, "ha-control-select.type")!.dispatchEvent(
+      new CustomEvent("value-changed", {
+        detail: { value: "pee" },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+    await settle(card);
+    card.removeEventListener("value-changed", heard);
+
+    expect(heard).not.toHaveBeenCalled();
+    expect(inEditor(editor, ".save")?.disabled).toBe(false);
   });
 
   it("asks again for a tap on Delete after 5 seconds", async () => {

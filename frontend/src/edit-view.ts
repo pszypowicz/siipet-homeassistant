@@ -142,6 +142,9 @@ export class SiiPetVisitEditor extends LitElement {
 
   private _disarm?: ReturnType<typeof setTimeout>;
   private _resolveSeq = 0;
+  // Set after a playback error. A browser that cannot play H.265 fails again on
+  // a renewed URL, so the renewal is skipped and the note stays.
+  private _playbackFailed = false;
 
   constructor() {
     super();
@@ -168,8 +171,8 @@ export class SiiPetVisitEditor extends LitElement {
       // A refreshed visit object for the same event: the Save baseline, the
       // form, the error, and the busy and armed state stay as they are. The
       // cover and the stool photo render straight from `visit`, so they renew
-      // on their own. The recording renews too, unless it is currently
-      // playing, so a refresh does not interrupt it.
+      // on their own. The recording renews too, unless it is playing, so a
+      // refresh does not interrupt it, or it failed to play.
       if (this.visit.has_video && !this._isVideoPlaying()) {
         void this._resolveVideo(this.visit.event_id);
       }
@@ -179,6 +182,7 @@ export class SiiPetVisitEditor extends LitElement {
     this._form = initialForm(this.visit);
     this._video = undefined;
     this._videoNote = this.visit.has_video ? undefined : "Recording is on the camera only.";
+    this._playbackFailed = false;
     this._error = undefined;
     this._partialEdit = false;
     if (this.visit.has_video) {
@@ -199,6 +203,9 @@ export class SiiPetVisitEditor extends LitElement {
   }
 
   private async _resolveVideo(eventId: string): Promise<void> {
+    if (this._playbackFailed) {
+      return;
+    }
     const seq = ++this._resolveSeq;
     // A resolve that finds a URL already in place is a background renewal: its
     // failure must keep the working player, not replace it with an error note.
@@ -209,7 +216,7 @@ export class SiiPetVisitEditor extends LitElement {
       if (this.visit?.event_id !== eventId || seq !== this._resolveSeq) {
         return;
       }
-      if (this._isVideoActive()) {
+      if (this._isVideoActive() || this._playbackFailed) {
         return;
       }
       this._video = url;
@@ -349,6 +356,8 @@ export class SiiPetVisitEditor extends LitElement {
         .label=${"Type"}
         .disabled=${this._busy}
         @value-changed=${(ev: CustomEvent<{ value: EditForm["type"] }>) => {
+          // As in the tile features, the event does not leave the editor.
+          ev.stopPropagation();
           if (this._busy) {
             return;
           }
@@ -386,7 +395,7 @@ export class SiiPetVisitEditor extends LitElement {
       ? html`
           <ha-control-button
             class="delete ${this._armed ? "armed" : ""}"
-            .label=${"Delete"}
+            .label=${this._armed ? "Tap again to delete" : "Delete"}
             .disabled=${this._busy}
             @click=${() => this._delete()}
           >
@@ -422,6 +431,7 @@ export class SiiPetVisitEditor extends LitElement {
         poster=${cover ?? nothing}
         src=${this._video ?? nothing}
         @error=${() => {
+          this._playbackFailed = true;
           this._videoNote =
             "This browser cannot play the recording. Safari and the Home Assistant app can.";
         }}

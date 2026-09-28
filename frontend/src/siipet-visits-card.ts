@@ -74,11 +74,27 @@ function removeLink(): void {
   history.replaceState(history.state, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
+// The SiiPet event entity ids per entity registry object. Home Assistant
+// replaces `hass.entities` when the registry changes, not on a state change,
+// so the state updates in between reuse the list.
+const eventIdsByRegistry = new WeakMap<HomeAssistant["entities"], string[]>();
+const NO_ENTITIES: HomeAssistant["entities"] = {};
+
+function siipetEventIds(entities: HomeAssistant["entities"]): string[] {
+  let ids = eventIdsByRegistry.get(entities);
+  if (ids === undefined) {
+    ids = Object.values(entities)
+      .filter((entry) => entry.platform === "siipet" && entry.entity_id.startsWith("event."))
+      .map((entry) => entry.entity_id);
+    eventIdsByRegistry.set(entities, ids);
+  }
+  return ids;
+}
+
 /** The states of the SiiPet event entities. A new visit changes one of them. */
 function eventSignature(hass: HomeAssistant): string {
-  return Object.values(hass.entities ?? {})
-    .filter((entry) => entry.platform === "siipet" && entry.entity_id.startsWith("event."))
-    .map((entry) => `${entry.entity_id}=${hass.states[entry.entity_id]?.state ?? ""}`)
+  return siipetEventIds(hass.entities ?? NO_ENTITIES)
+    .map((entityId) => `${entityId}=${hass.states[entityId]?.state ?? ""}`)
     .join("|");
 }
 
@@ -118,6 +134,7 @@ export class SiiPetVisitsCard extends LitElement {
   declare _editing?: Visit;
 
   private _started = false;
+  private _partsLoaded = false;
   private _signature?: string;
   // The times of the last successful cats read and day or queue read. The
   // avatar paths come from the first and the other image paths from the second.
@@ -245,22 +262,32 @@ export class SiiPetVisitsCard extends LitElement {
     this._clearTimer();
   }
 
-  protected willUpdate(changed: PropertyValues<this>): void {
-    if (!this.hass || !this._config) {
-      return;
-    }
-    if (!this._started) {
-      this._started = true;
-      void this._run(() => this._start());
-    }
-    if (changed.has("hass")) {
-      this._listen();
-      const signature = eventSignature(this.hass);
-      if (this._signature !== undefined && signature !== this._signature && this._showsLatest()) {
-        void this._run(() => this._refresh());
+  // Home Assistant sets `hass` on every state change in the house, and the card
+  // renders nothing from it. An update that changes only `hass` does the hass
+  // work here and skips the render. The editor keeps the `hass` of its last
+  // render, which is enough for its calls.
+  protected shouldUpdate(changed: PropertyValues<this>): boolean {
+    // A run can change state before its first await. Lit drops a change made
+    // here when this returns false, so an update that starts a run renders.
+    let ran = false;
+    if (this.hass && this._config) {
+      if (!this._started) {
+        this._started = true;
+        ran = true;
+        void this._run(() => this._start());
       }
-      this._signature = signature;
+      if (changed.has("hass")) {
+        this._listen();
+        const signature = eventSignature(this.hass);
+        if (this._signature !== undefined && signature !== this._signature && this._showsLatest()) {
+          ran = true;
+          void this._run(() => this._refresh());
+        }
+        this._signature = signature;
+      }
     }
+    const onlyHass = changed.size === 1 && changed.has("hass");
+    return ran || !this.hasUpdated || !onlyHass;
   }
 
   private _onVisibilityChange = (): void => {
@@ -314,9 +341,13 @@ export class SiiPetVisitsCard extends LitElement {
     return this._active;
   }
 
+  // The callers drop the promise of a run, so a failure shows in the error line
+  // instead of leaving the card as an unhandled rejection.
   private async _execute(action: () => Promise<void>): Promise<void> {
     try {
       await action();
+    } catch (err) {
+      this._error = errorMessage(err);
     } finally {
       this._active = undefined;
       if (this._trailing) {
@@ -430,22 +461,56 @@ export class SiiPetVisitsCard extends LitElement {
     return this._firstCat(cats) ?? (cats.unknown.waiting > 0 ? cats.unknown.device_id : undefined);
   }
 
+  /** Whether the card is fixed on a cat that the account does not have. */
+  private _catGone(cats: CatsResult): boolean {
+    const wanted = this._config?.cat;
+    return (
+      this._fixed() &&
+      wanted !== undefined &&
+      wanted !== cats.unknown.device_id &&
+      !cats.cats.some((cat) => cat.device_id === wanted)
+    );
+  }
+
   private _startCat(cats: CatsResult): string | undefined {
     const wanted = this._config?.cat;
     if (wanted === cats.unknown.device_id && (this._fixed() || cats.unknown.waiting > 0)) {
       return wanted;
     }
+    // A fixed card stays on its cat, so it shows no other cat in its place.
+    if (this._catGone(cats)) {
+      return undefined;
+    }
     return cats.cats.find((cat) => cat.device_id === wanted)?.device_id ?? this._fallbackCat(cats);
   }
 
   private async _start(): Promise<void> {
-    const missing = await loadTileParts();
-    if (missing.length > 0) {
-      this._missing = missing;
+    if (!(await this._loadParts())) {
       return;
     }
     await this._readCatsAndInit();
     await this._followLink();
+  }
+
+  /** Load the tile parts, and return whether they are all there. A failed
+   * helper load shows its message, and the next refresh tries again. */
+  private async _loadParts(): Promise<boolean> {
+    if (this._partsLoaded) {
+      return true;
+    }
+    let missing: string[];
+    try {
+      missing = await loadTileParts();
+    } catch (err) {
+      this._error = errorMessage(err);
+      return false;
+    }
+    if (missing.length > 0) {
+      this._missing = missing;
+      return false;
+    }
+    this._partsLoaded = true;
+    return true;
   }
 
   /** Read the cats and pick the initial cat and day, as a fresh start does. */
@@ -584,8 +649,11 @@ export class SiiPetVisitsCard extends LitElement {
     }
     if (!this._cats) {
       // The first read never finished (for example Home Assistant was still starting),
-      // so pick up where a fresh start would: read the cats, then the initial selection.
-      await this._readCatsAndInit();
+      // so pick up where a fresh start would: the tile parts, the cats, then the
+      // initial selection.
+      if (await this._loadParts()) {
+        await this._readCatsAndInit();
+      }
       return;
     }
     // Keep the date shown before the read, so a day the user picks while this read
@@ -656,6 +724,10 @@ export class SiiPetVisitsCard extends LitElement {
   private async _followLink(): Promise<void> {
     const eventId = this._newLink();
     if (eventId === undefined || !this._cats || this._linkWaits()) {
+      return;
+    }
+    // A fixed card without its cat opens no visit, so it leaves the link unread.
+    if (this._fixed() && this._cat === undefined) {
       return;
     }
     this._linkEvent = eventId;
@@ -814,15 +886,21 @@ export class SiiPetVisitsCard extends LitElement {
     const cats = this._cats;
     const selected = this._cat;
     const mainShown = cats !== undefined && selected !== undefined;
-    const noCats = html`<div class="message alone">The SiiPet account has no cats.</div>`;
     return html`
       <ha-card style="--tile-color: var(--state-icon-color)">
         ${cats && !cats.available ? this._renderNotice(cats) : nothing}
-        ${cats && selected === undefined ? noCats : nothing}
+        ${cats && selected === undefined ? this._renderNoCat(cats) : nothing}
         ${cats && selected !== undefined ? this._renderMain(cats, selected) : nothing}
         ${!mainShown && this._error ? html`<div class="error">${this._error}</div>` : nothing}
       </ha-card>
     `;
+  }
+
+  private _renderNoCat(cats: CatsResult): TemplateResult {
+    const message = this._catGone(cats)
+      ? "The cat of this card is not in the SiiPet account."
+      : "The SiiPet account has no cats.";
+    return html`<div class="message alone">${message}</div>`;
   }
 
   private _renderNotice(cats: CatsResult): TemplateResult {
