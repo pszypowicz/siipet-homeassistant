@@ -130,7 +130,7 @@ export const cardStyles = css`
   .poster {
     position: relative;
     pointer-events: none;
-    aspect-ratio: 16 / 9;
+    aspect-ratio: 3 / 4;
     overflow: hidden;
     border-radius: var(--ha-border-radius-lg, 12px);
     background-color: var(--secondary-background-color);
@@ -143,6 +143,7 @@ export const cardStyles = css`
     width: 100%;
     height: 100%;
     object-fit: cover;
+    object-position: center;
   }
   .stool {
     position: absolute;

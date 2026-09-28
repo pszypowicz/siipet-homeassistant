@@ -74,10 +74,17 @@ export class SiiPetVisitEditor extends LitElement {
         gap: 12px;
         padding: 0 12px 12px;
       }
+      /* The box comes from the aspect ratio and the max height alone, so it holds
+         its size before the recording loads (preload="none" leaves no intrinsic
+         size to lay out from). */
       video {
         display: block;
-        width: 100%;
-        aspect-ratio: 16 / 9;
+        width: auto;
+        height: auto;
+        max-width: 100%;
+        max-height: 70vh;
+        aspect-ratio: 9 / 16;
+        margin: 0 auto;
         border-radius: var(--ha-border-radius-lg, 12px);
         background-color: black;
       }

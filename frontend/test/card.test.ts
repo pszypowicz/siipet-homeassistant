@@ -1,6 +1,7 @@
 import { render } from "lit";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { cardStyles } from "../src/styles";
 import type { Visit } from "../src/types";
 import {
   CALENDAR,
@@ -206,6 +207,14 @@ describe("day view", () => {
     const poster = slot?.querySelector(".poster");
     expect(poster).not.toBeNull();
     expect(poster?.querySelector(".cover")?.getAttribute("src")).toBe(POOP.cover);
+  });
+
+  it("gives the poster a portrait box, since every recording and cover is 9:16", () => {
+    const posterRule = cardStyles.cssText.match(/\.poster\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(posterRule).toMatch(/aspect-ratio:\s*3 \/ 4/);
+    const coverRule = cardStyles.cssText.match(/\.cover\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(coverRule).toMatch(/object-fit:\s*cover/);
+    expect(coverRule).toMatch(/object-position:\s*center/);
   });
 
   it("marks a visit that has no cloud recording", async () => {

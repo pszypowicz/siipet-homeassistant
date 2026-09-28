@@ -168,6 +168,19 @@ describe("edit view", () => {
     expect(cssText).not.toMatch(/\.stool-dialog\s*\{[^}]*display:\s*flex/);
   });
 
+  it("gives the video a 9:16 box that fits without side bars, sized before it loads", () => {
+    const cssText = (SiiPetVisitEditor.styles as { cssText?: string }[])
+      .map((style) => style.cssText ?? "")
+      .join("\n");
+    const videoRule = cssText.match(/video\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(videoRule).toMatch(/aspect-ratio:\s*9 \/ 16/);
+    expect(videoRule).toMatch(/max-height:\s*70vh/);
+    expect(videoRule).toMatch(/max-width:\s*100%/);
+    expect(videoRule).toMatch(/width:\s*auto/);
+    expect(videoRule).toMatch(/height:\s*auto/);
+    expect(videoRule).toMatch(/margin:\s*0 auto/);
+  });
+
   it("renders no stool dialog for a visit without a stool photo", async () => {
     const editor = await openVisit(await mount(fakeHass()), 1);
     expect(inEditor(editor, ".stool-dialog")).toBeNull();
