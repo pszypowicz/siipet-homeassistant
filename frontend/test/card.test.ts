@@ -446,6 +446,22 @@ describe("refresh", () => {
     expect(fake.listeners.has("ready")).toBe(false);
   });
 
+  it("keeps one refresh at a time when ready fires during the first start", async () => {
+    const fake = fakeHass();
+    let releaseCats!: (value: unknown) => void;
+    fake.callWS.mockImplementationOnce(() => new Promise((resolve) => (releaseCats = resolve)));
+
+    const card = await mount(fake);
+    fake.listeners.get("ready")!();
+    await settle(card);
+
+    releaseCats(fake.results.cats);
+    await settle(card);
+
+    const catsCalls = sent(fake).filter((message) => message.type === "siipet/cats");
+    expect(catsCalls).toHaveLength(1);
+  });
+
   it("recovers after a failed first read when the connection comes back", async () => {
     const fake = fakeHass({ fail: { "siipet/cats": { message: "not_loaded" } } });
     const card = await mount(fake);
@@ -516,6 +532,54 @@ describe("refresh", () => {
     document.body.append(card);
     await settle(card);
 
+    expect(sent(fake).map((message) => message.type)).toEqual([
+      "siipet/cats",
+      "siipet/day",
+      "siipet/calendar",
+    ]);
+  });
+
+  it("does not arm a renew timer for a read that lands after the card is removed", async () => {
+    // Fake timers from before mount, so a renew timer armed at any point in this
+    // test (including the buggy one this guards against) is one we can advance.
+    vi.useFakeTimers();
+    const fake = fakeHass();
+    const mounted = mount(fake);
+    await vi.advanceTimersByTimeAsync(1000);
+    const card = await mounted;
+    fake.callWS.mockClear();
+
+    let releaseDay!: (value: unknown) => void;
+    fake.callWS.mockImplementationOnce(() => new Promise((resolve) => (releaseDay = resolve)));
+
+    find(card, ".prev-day")!.click();
+    await vi.advanceTimersByTimeAsync(0);
+    card.remove();
+
+    releaseDay(fake.results.day);
+    await vi.advanceTimersByTimeAsync(0);
+
+    fake.callWS.mockClear();
+    await vi.advanceTimersByTimeAsync(50 * 60 * 1000);
+
+    expect(sent(fake)).toEqual([]);
+  });
+
+  it("renews on the original schedule after a quick reattach", async () => {
+    vi.useFakeTimers();
+    const fake = fakeHass();
+    const mounted = mount(fake);
+    await vi.advanceTimersByTimeAsync(1000);
+    const card = await mounted;
+    fake.callWS.mockClear();
+
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    card.remove();
+    document.body.append(card);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sent(fake)).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(40 * 60 * 1000);
     expect(sent(fake).map((message) => message.type)).toEqual([
       "siipet/cats",
       "siipet/day",

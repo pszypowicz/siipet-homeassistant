@@ -81,6 +81,7 @@ export class SiiPetVisitsCard extends LitElement {
   private _lastRead?: number;
   private _connection?: HassConnection;
   private _renewTimer?: ReturnType<typeof setTimeout>;
+  private _active?: Promise<void>;
 
   constructor() {
     super();
@@ -134,8 +135,15 @@ export class SiiPetVisitsCard extends LitElement {
     this._listen();
     // A dashboard view switch detaches and reattaches the card, which can leave it
     // stale for longer than a visibility change would ever let it go unnoticed.
-    if (this._lastRead !== undefined && Date.now() - this._lastRead > STALE_MS) {
-      void this._refresh();
+    if (this._lastRead !== undefined) {
+      const elapsed = Date.now() - this._lastRead;
+      if (elapsed > STALE_MS) {
+        void this._exclusive(() => this._refresh());
+      } else {
+        // Not stale yet: pick up the renewal schedule where it left off, instead
+        // of renewing early or not at all for the rest of the original wait.
+        this._scheduleRenew(RENEW_MS - elapsed);
+      }
     }
   }
 
@@ -156,13 +164,13 @@ export class SiiPetVisitsCard extends LitElement {
     }
     if (!this._started) {
       this._started = true;
-      void this._start();
+      void this._exclusive(() => this._start());
     }
     if (changed.has("hass")) {
       this._listen();
       const signature = eventSignature(this.hass);
       if (this._signature !== undefined && signature !== this._signature && this._showsLatest()) {
-        void this._refresh();
+        void this._exclusive(() => this._refresh());
       }
       this._signature = signature;
     }
@@ -174,24 +182,49 @@ export class SiiPetVisitsCard extends LitElement {
       this._lastRead !== undefined &&
       Date.now() - this._lastRead > STALE_MS
     ) {
-      void this._refresh();
+      void this._exclusive(() => this._refresh());
     }
   };
 
   // A Home Assistant restart makes every signed path invalid, so a new connection reads again.
   private _onReady = (): void => {
-    void this._refresh();
+    void this._exclusive(() => this._refresh());
   };
 
-  private _scheduleRenew(): void {
+  /** Run one start or refresh at a time. A trigger that arrives while one is
+   * already running shares its outcome instead of starting a second one next to it. */
+  private _exclusive(action: () => Promise<void>): Promise<void> {
+    if (this._active) {
+      return this._active;
+    }
+    const run = action();
+    this._active = run;
+    void run.finally(() => {
+      if (this._active === run) {
+        this._active = undefined;
+      }
+    });
+    return run;
+  }
+
+  private _scheduleRenew(delay = RENEW_MS): void {
     if (this._renewTimer !== undefined) {
       clearTimeout(this._renewTimer);
+      this._renewTimer = undefined;
     }
-    this._renewTimer = setTimeout(() => {
-      if (document.visibilityState === "visible") {
-        void this._refresh();
-      }
-    }, RENEW_MS);
+    // A read that lands after the card is removed must not arm a timer that no
+    // disconnectedCallback will ever clear.
+    if (!this.isConnected) {
+      return;
+    }
+    this._renewTimer = setTimeout(
+      () => {
+        if (this.isConnected && document.visibilityState === "visible") {
+          void this._exclusive(() => this._refresh());
+        }
+      },
+      Math.max(delay, 0),
+    );
   }
 
   private _listen(): void {
