@@ -16,16 +16,20 @@ custom_components/siipet/
     client.py          SiiPetClient: headers, envelope, one method per endpoint
     auth.py            challenge encryption, token payload, renewal rule
     challenge_key.py   AES key for the sign-in challenge
-    models.py          Cat, Camera, Visit, VisitType, DayVisits, DaySummary, CalendarDay, AbnormalLabels, MediaCredentials
+    models.py          models: Cat, Camera, CameraShadows, Visit, VisitType, DayVisits, DaySummary, CalendarDay, AbnormalLabels, MediaCredentials, IotCredentials, DeviceState
     edits.py           plan_edit: the annotate and memo calls for one visit edit
     errors.py          SiiPetError and its subclasses
     s3.py              SigV4 presigned GET URLs, credential cache
+    sigv4.py           SigV4 presigned URLs for S3 and the AWS IoT WebSocket
+    mqtt.py            MQTT 3.1.1 packets and MqttSession on an aiohttp WebSocket
+    shadow_link.py     ShadowLink: one AWS IoT connection for the device shadows
   __init__.py          setup of the image and recording views, the actions, the card commands, and the card, entry setup that starts the local media copy, unload, entry removal that deletes the copy, device removal
   config_flow.py       email and code steps, reauth and reconfigure, options step for the days of local media
   const.py             constants: config keys, Unknown cat id, intervals
   coordinator.py       SiiPetCoordinator, SiiPetData, SiiPetRuntime
+  device_state.py      SiiPetDeviceCoordinator: the device state that the shadow link pushes
   entity.py            cat and camera entity bases
-  sensor.py  event.py  diagnostics.py
+  sensor.py  binary_sensor.py  event.py  diagnostics.py
   services.py          actions: list_visits, update_visit, delete_visit
   services.yaml        action fields and selectors
   visit_data.py        visit and cat helpers, the date check, and the day read for the actions and the card commands
@@ -39,6 +43,7 @@ custom_components/siipet/
   card.py              serving of the card file, with a content version in its URL
   frontend/            siipet-visits-card.js, the card bundle built from frontend/ at the repo root
   translations/en.json
+  icons.json           icons of the device state entities
   brand/               icon.png and icon@2x.png, loaded by Home Assistant 2026.3 and later
 tests/
   api/                 client tests, with the Home Assistant HTTP mocker
@@ -71,6 +76,8 @@ frontend/              source of the dashboard card: TypeScript, Lit, esbuild, v
   It writes only through `siipet.update_visit` and `siipet.delete_visit`.
 - The card reuses internal tile parts of the Home Assistant frontend. `frontend/src/tile-parts.ts` lists them.
   If a part is missing, the card names it and shows nothing else.
+- Only `api/shadow_link.py` talks to AWS IoT. It reads the shadows and never writes them.
+- The device state entities read only `SiiPetDeviceCoordinator.data`. The shadow link runs as a background task, so setup never waits for it.
 
 ## API facts that are easy to get wrong
 
@@ -89,6 +96,8 @@ Read `docs/api.md` before you change `api/`. These points cause most mistakes:
 - The server checks `x-device-model`. Values that start with `iPhone` or `android-phone` work. With a rejected value, every authenticated call fails with `Code` -2. The `Msg` then says that another device logged in, but that is not the cause.
 - Sign-in succeeds even with a rejected model, so the config flow reads the cats once before it creates the entry.
 - Email code requests are limited per day (`Code` 10010).
+- `Data.IotCore.Endpoint` of `config/aws/auth` is an `https://` URL. The WebSocket host is its host part.
+- AWS IoT signs the WebSocket URL without the session token. The token goes after the signature.
 
 ## Privacy
 
@@ -97,6 +106,8 @@ This repo is public. Keep these values out of commits, tests, logs, and entity a
 - Tokens, emails, and passwords.
 - Camera serial numbers, `UserId`, `GroupId`, `PetId`, and messaging topics.
 - S3 credentials, the bucket name, media keys, and signed URLs.
+- Shadow names, MQTT topics, the AWS IoT endpoint, `IdentityId`, and the MQTT client identifier.
+- The Wi-Fi name and the IP and MAC addresses of a camera. The shadow parser does not read them.
 - Raw API captures. Build test fixtures from the documented shapes with fake values.
 
 Entity attributes can contain cat names, camera names, event IDs, types, durations, and abnormal data.
@@ -140,6 +151,8 @@ CI fails when the committed file differs from a new build.
 - Card tests define stub tile parts, because the Home Assistant frontend is not available in tests.
 - Tests run in UTC with the time frozen at 2026-09-26 12:00.
 - The entry fixtures turn the local media copy off. Tests of the copy use `setup_mirror` in `tests/common.py`.
+- Integration tests replace `ShadowLink` with `FakeShadowLink` from `tests/common.py`. A test calls its callbacks to push a state or a connection change.
+- The MQTT and shadow link tests run a fake broker on localhost. They use `socket_enabled` and replace the frozen clock, because a frozen clock stops asyncio timers.
 
 ## Style
 

@@ -405,6 +405,8 @@ Publishing to `/get` reads stored state without changing the camera configuratio
 See the [AWS shadow read procedure](https://docs.aws.amazon.com/iot/latest/developerguide/device-shadow-data-flow.html).
 
 Take the server hostname from `Data.IotCore.Endpoint`.
+That field holds an `https://` URL, so use its host part.
+`Data.IotCore` also holds `AccessKeyId`, `SecretAccessKey`, `SessionToken`, and `ExpireTime` in milliseconds.
 Android `AWSManager.getS3Client` creates shared credentials from `Data.S3.AccessKeyId`, `SecretAccessKey`, and `SessionToken`.
 Its MQTT connection uses those credentials too, and the direct MQTT test follows that path.
 The tested response supplies identical credential values under `Data.IotCore`.
@@ -889,6 +891,19 @@ The integration shows the recordings in the Home Assistant media browser:
 
 The download and decoding tests establish access to cloud media.
 Access to recordings stored only on the device remains untested.
+
+### Home Assistant device state
+
+The integration reads the device state as described in "Read the battery shadow":
+
+- It keeps one MQTT connection open over secure WebSockets, with QoS 0 for subscriptions and reads.
+- It subscribes to `get/accepted`, `get/rejected`, and `update/documents` for both shadows of each camera. Then it reads both shadows.
+- It reads both shadows of each camera again every 5 minutes, because the rate of update messages is not known.
+- It connects again with new credentials 10 minutes before the credentials expire.
+- It ignores a document with a lower `version` than the last one of the same shadow.
+- A camera that the account may not read is tried again after one hour. The other cameras keep working.
+- If the connection stays down for 15 minutes, the device state entities become unavailable.
+- It never publishes to `update`, so it never changes a camera setting.
 
 ## Findings from the Android app
 

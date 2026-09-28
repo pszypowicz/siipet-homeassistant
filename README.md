@@ -5,7 +5,7 @@ A Home Assistant custom integration for [SiiPet](https://siipet.com) LitterLens 
 ## Status
 
 The integration is in early development. It signs in to your SiiPet account and polls the SiiPet cloud every 5 minutes.
-It gives statistics and visit events for each cat, and it shows the cloud recordings in the media browser.
+It gives statistics and visit events for each cat, the battery and the device state of each camera, and it shows the cloud recordings in the media browser.
 Its actions list, edit, and delete visits. A dashboard card shows the visits of each day.
 
 ## Requirements
@@ -64,9 +64,29 @@ The Unknown cat has no baseline entities.
 
 ### Cameras
 
-| Entity               | Description                         |
-| -------------------- | ----------------------------------- |
-| Subscription expires | The end of the camera subscription. |
+| Entity               | Description                                                   |
+| -------------------- | ------------------------------------------------------------- |
+| Subscription expires | The end of the camera subscription.                           |
+| Battery              | The battery charge in percent, rounded like the SiiPet app.   |
+| Charging             | On while the camera reports that it charges.                  |
+| Privacy mode         | On while privacy mode is on.                                  |
+| Online               | Diagnostic. On while the camera reports that it is online.    |
+| Last report          | Diagnostic. The time of the newest value in the device state. |
+| Wi-Fi signal         | Diagnostic, disabled by default. The Wi-Fi signal in dBm.     |
+| Cloud storage        | Diagnostic. On while cloud storage is on for the camera.      |
+| Fill light           | Diagnostic. Low, medium, or high.                             |
+| Motion sensitivity   | Diagnostic. Medium or high.                                   |
+| Firmware update mode | Diagnostic. Automatic or manual.                              |
+
+The camera device shows the firmware version.
+
+The integration keeps one connection to the SiiPet cloud open for the device state.
+The values update when a camera reports a change, and at least every 5 minutes.
+If the connection stays down for 15 minutes, the device state entities become unavailable.
+
+- Charging off does not prove that the cable is unplugged. The camera reports only whether it charges.
+- A camera can stop reporting while Online stays on. Last report shows how old the data is.
+- The device state works for an invited account too.
 
 ### Removed cats and cameras
 
