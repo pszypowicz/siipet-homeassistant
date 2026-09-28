@@ -444,7 +444,7 @@ A live sample from a camera on external power reported `charging: true` at 99% b
 
 Do not interpret `charging: false` as proof that the power cable is disconnected.
 Behavior with a full battery on external power remains untested.
-Expose the value as charging status until a plugged-in test establishes its power connection behavior.
+Expose the value as charging status. It does not establish whether the camera is on external power.
 If a battery field is missing or null, treat that value as unknown.
 
 Shadow values describe the last reported state.
