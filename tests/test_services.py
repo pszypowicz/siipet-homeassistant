@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from datetime import timedelta
 import json
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -18,6 +20,9 @@ from homeassistant.exceptions import (
 )
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.test_util.aiohttp import (
+    AiohttpClientMocker,
+)
 import voluptuous as vol
 
 from custom_components.siipet.api import (
@@ -29,7 +34,20 @@ from custom_components.siipet.api import (
 )
 from custom_components.siipet.const import DOMAIN
 
-from .common import TODAY, load_data, setup_integration, siipet_device_id
+from .common import (
+    S3,
+    TODAY,
+    StalledResponse,
+    day_folder,
+    load_data,
+    md5_hex,
+    mirror_visit,
+    mock_s3,
+    serve_days,
+    setup_integration,
+    setup_mirror,
+    siipet_device_id,
+)
 
 
 async def _list(hass: HomeAssistant, **data: Any) -> dict[str, Any]:
@@ -560,6 +578,86 @@ async def test_delete_visit(
     assert _edit_calls(mock_client) == [("delete_visit", ("ev-1",))]
     assert mock_client.get_day.await_count == reads + 1
     assert mock_client.get_day.await_args_list[-1].args[0] == TODAY
+
+
+async def test_delete_visit_removes_the_local_copy(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+) -> None:
+    """A delete also removes the local files of the visit."""
+    serve_days(mock_client, {TODAY: (mirror_visit(),)})
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7)
+    assert (day_folder(media_dir) / "ev-1.mp4").exists()
+    mock_client.get_visit.side_effect = [_detail()]
+    serve_days(mock_client, {})
+    await _delete(hass, event_id="ev-1")
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert list(day_folder(media_dir).iterdir()) == []
+
+
+async def test_delete_visit_does_not_wait_for_a_running_download(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+) -> None:
+    """The files of a deleted visit are gone when the action returns."""
+    other_video = b"video-ev-2"
+    other = mirror_visit(
+        event_id="ev-2",
+        start=mirror_visit().start - timedelta(hours=1),
+        cover_key=None,
+        stool_key=None,
+        video_key="events/ev-2/video.mp4",
+        video_size=len(other_video),
+        video_md5=md5_hex(other_video),
+    )
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def respond(method: str, url: Any, data: Any) -> StalledResponse:
+        return StalledResponse(method, url, other_video, started, release)
+
+    serve_days(mock_client, {TODAY: (mirror_visit(), other)})
+    aioclient_mock.get(S3 + "events/ev-2/video.mp4", side_effect=respond)
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7, wait_for_downloads=False)
+    await asyncio.wait_for(started.wait(), timeout=1)
+
+    mock_client.get_visit.side_effect = [_detail()]
+    serve_days(mock_client, {TODAY: (other,)})
+    await _delete(hass, event_id="ev-1")
+    assert sorted(path.name for path in day_folder(media_dir).iterdir()) == [
+        "ev-2.mp4.part"
+    ]
+
+    release.set()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert (day_folder(media_dir) / "ev-2.mp4").read_bytes() == other_video
+
+
+async def test_failed_delete_keeps_the_local_copy(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+) -> None:
+    """A delete that SiiPet refuses keeps the local files."""
+    serve_days(mock_client, {TODAY: (mirror_visit(),)})
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7)
+    mock_client.get_visit.side_effect = [_detail()]
+    mock_client.delete_visit.side_effect = SiiPetConnectionError("down")
+    with pytest.raises(HomeAssistantError):
+        await _delete(hass, event_id="ev-1")
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert (day_folder(media_dir) / "ev-1.mp4").exists()
 
 
 async def test_delete_unknown_visit(

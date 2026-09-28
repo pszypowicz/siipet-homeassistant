@@ -20,8 +20,8 @@ custom_components/siipet/
     edits.py           plan_edit: the annotate and memo calls for one visit edit
     errors.py          SiiPetError and its subclasses
     s3.py              SigV4 presigned GET URLs, credential cache
-  __init__.py          setup of the image view, the actions, the card commands, and the card, entry setup and unload, device removal
-  config_flow.py       email and code steps, reauth and reconfigure
+  __init__.py          setup of the image and recording views, the actions, the card commands, and the card, entry setup that starts the local media copy, unload, entry removal that deletes the copy, device removal
+  config_flow.py       email and code steps, reauth and reconfigure, options step for the days of local media
   const.py             constants: config keys, Unknown cat id, intervals
   coordinator.py       SiiPetCoordinator, SiiPetData, SiiPetRuntime
   entity.py            cat and camera entity bases
@@ -31,9 +31,11 @@ custom_components/siipet/
   visit_data.py        visit and cat helpers, the date check, and the day read for the actions and the card commands
   calendar_data.py     SiiPetCalendar: calendar months per cat, kept for 5 minutes
   websocket_api.py     websocket commands for the dashboard card: cats, calendar, day, queue, visit
-  media.py             SiiPetMedia: media keys, recording URLs, image fetch
+  media.py             SiiPetMedia: media keys, recording URLs, image fetch, local files first
+  media_store.py       MediaStore: the local media copy on disk, its index, and verified writes
+  media_mirror.py      SiiPetMirror: downloads, backfill, and cleanup of the local media copy
   media_source.py      media browser: the last 30 days and their visits
-  views.py             authenticated image view for covers, stool images, and avatars
+  views.py             authenticated views: images, and recordings from the local media copy
   card.py              serving of the card file, with a content version in its URL
   frontend/            siipet-visits-card.js, the card bundle built from frontend/ at the repo root
   translations/en.json
@@ -55,10 +57,14 @@ frontend/              source of the dashboard card: TypeScript, Lit, esbuild, v
 - `SiiPetData.cat_ids(visit)` decides which cats own a visit.
   A visit with no known cat belongs to the virtual Unknown cat (`UNKNOWN_CAT_ID`).
 - `api/edits.py` has no I/O. `plan_edit` returns the calls, and `services.py` sends them.
-- After an edit or a delete, `services.py` drops the day from the media cache and its month from the calendar cache,
-  then calls `async_refresh_day`.
+- After a delete, `services.py` awaits `mirror.async_forget`, which deletes the local files of the visit.
+- After an edit or a delete, `services.py` drops the day from the older-day cache of `SiiPetMedia`
+  and its month from the calendar cache, then calls `async_refresh_day`.
 - S3 credentials stay inside `api/`. Other modules get signed URLs from `S3Signer`.
-- Only `media_source.py` returns a signed S3 URL, and only for a recording.
+- Only `media_store.py` writes to the media folder. It keeps the local copy in `.siipet`,
+  and a file name holds an id only if the id matches `[A-Za-z0-9_-]+`.
+  The views never build a path from a request. They look up the store index.
+- Only `media_source.py` returns a signed S3 URL, and only for a recording that the local copy does not hold.
   Images go through the image view in `views.py`, so their signed URLs stay inside Home Assistant.
 - The card commands in `websocket_api.py` sign image view paths for the logged-in user. They return no S3 URL.
 - The card reads only through the `siipet/*` websocket commands and `media_source/resolve_media`.
@@ -133,6 +139,7 @@ CI fails when the committed file differs from a new build.
 - Client tests mock HTTP with the `aioclient_mock` fixture.
 - Card tests define stub tile parts, because the Home Assistant frontend is not available in tests.
 - Tests run in UTC with the time frozen at 2026-09-26 12:00.
+- The entry fixtures turn the local media copy off. Tests of the copy use `setup_mirror` in `tests/common.py`.
 
 ## Style
 

@@ -8,7 +8,13 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.const import CONF_EMAIL
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_CLIENT_ID, CONF_TOKEN, UNKNOWN_CAT_ID
+from .const import (
+    CONF_CLIENT_ID,
+    CONF_MEDIA_DAYS,
+    CONF_TOKEN,
+    DEFAULT_MEDIA_DAYS,
+    UNKNOWN_CAT_ID,
+)
 from .coordinator import SiiPetConfigEntry
 
 TO_REDACT = {
@@ -42,6 +48,14 @@ async def async_get_config_entry_diagnostics(
     """Return a summary of the entry with no private values."""
     coordinator = entry.runtime_data.coordinator
     data = coordinator.data
+    mirror = entry.runtime_data.mirror
+    media_cache: dict[str, Any] = {
+        "days": entry.options.get(CONF_MEDIA_DAYS, DEFAULT_MEDIA_DAYS),
+        "running": mirror is not None and mirror.running,
+    }
+    if mirror is not None:
+        files, size = mirror.store.stats()
+        media_cache.update(files=files, bytes=size, **mirror.stats())
     return {
         "entry": async_redact_data(entry.as_dict(), TO_REDACT),
         "last_update_success": coordinator.last_update_success,
@@ -65,4 +79,5 @@ async def async_get_config_entry_diagnostics(
             "color": len(data.labels.color),
             "event": len(data.labels.event),
         },
+        "media_cache": media_cache,
     }

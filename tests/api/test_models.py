@@ -217,3 +217,37 @@ def test_calendar_day_flag_needs_true() -> None:
         {"Date": "2026-09-24", "AbnormalSummary": {"Event": False, "Level": 2}}
     )
     assert not day.flagged
+
+
+def test_visit_media_sizes() -> None:
+    """A visit keeps the byte sizes of its media and the MD5 of its recording."""
+    visit = _visit("ev-1")
+    assert visit.video_size == 1048576
+    assert visit.video_md5 == "00000000000000000000000000000000"
+    assert visit.cover_size == 51200
+    assert visit.stool_size == 40960
+    assert _visit("ev-2").stool_size is None
+
+
+@pytest.mark.parametrize(
+    ("raw_info", "size", "md5"),
+    [
+        ({}, None, None),
+        ({"Size": 0, "Md5": ""}, None, None),
+        ({"Size": -5, "Md5": "not-a-hash"}, None, None),
+        ({"Size": "big", "Md5": None}, None, None),
+        (
+            {"Size": "2048", "Md5": "ABCDEF0123456789ABCDEF0123456789"},
+            2048,
+            "abcdef0123456789abcdef0123456789",
+        ),
+        ({"Size": 10, "Md5": "abc"}, 10, None),
+    ],
+)
+def test_visit_video_size_and_md5(
+    raw_info: dict[str, object], size: int | None, md5: str | None
+) -> None:
+    """A missing or invalid size or hash gives None. A hash is kept in lowercase."""
+    visit = Visit.from_api({"EventId": "ev-x", "ToiletVideo": {"RawInfo": raw_info}})
+    assert visit.video_size == size
+    assert visit.video_md5 == md5

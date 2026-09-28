@@ -1,4 +1,4 @@
-"""Authenticated image proxy for SiiPet covers, stool images, and avatars."""
+"""Authenticated views for SiiPet images and for recordings of the local media copy."""
 
 from __future__ import annotations
 
@@ -10,11 +10,13 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
-from .media import MediaKind, MediaNotFound, MediaUnavailable
+from .media import RECORDING_URL, MediaKind, MediaNotFound, MediaUnavailable
 
 _LOGGER = logging.getLogger(__name__)
 
 IMAGE_URL = "/api/siipet/image/{kind}/{item_id}"
+IMAGE_CACHE = "private, max-age=86400"
+RECORDING_CACHE = "private, max-age=3600"
 
 
 def image_path(kind: MediaKind, item_id: str) -> str:
@@ -33,7 +35,9 @@ class SiiPetImageView(HomeAssistantView):
         """Create the view."""
         self.hass = hass
 
-    async def get(self, request: web.Request, kind: str, item_id: str) -> web.Response:
+    async def get(
+        self, request: web.Request, kind: str, item_id: str
+    ) -> web.StreamResponse:
         """Return the JPEG bytes of one image."""
         try:
             media_kind = MediaKind(kind)
@@ -43,6 +47,8 @@ class SiiPetImageView(HomeAssistantView):
         if not entries:
             return web.Response(status=HTTPStatus.SERVICE_UNAVAILABLE)
         media = entries[0].runtime_data.media
+        if (path := await media.async_local_image(media_kind, item_id)) is not None:
+            return web.FileResponse(path, headers={"Cache-Control": IMAGE_CACHE})
         try:
             body = await media.async_fetch_image(media_kind, item_id)
         except MediaNotFound as err:
@@ -54,5 +60,27 @@ class SiiPetImageView(HomeAssistantView):
         return web.Response(
             body=body,
             content_type="image/jpeg",
-            headers={"Cache-Control": "private, max-age=86400"},
+            headers={"Cache-Control": IMAGE_CACHE},
         )
+
+
+class SiiPetRecordingView(HomeAssistantView):
+    """Serve recordings from the local copy to logged-in users, with range requests."""
+
+    url = RECORDING_URL
+    name = "api:siipet:recording"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        """Create the view."""
+        self.hass = hass
+
+    async def get(self, request: web.Request, event_id: str) -> web.StreamResponse:
+        """Return the stored MP4 recording of a visit."""
+        entries = self.hass.config_entries.async_loaded_entries(DOMAIN)
+        if not entries:
+            return web.Response(status=HTTPStatus.SERVICE_UNAVAILABLE)
+        path = await entries[0].runtime_data.media.async_local_recording(event_id)
+        if path is None:
+            return web.Response(status=HTTPStatus.NOT_FOUND)
+        return web.FileResponse(path, headers={"Cache-Control": RECORDING_CACHE})

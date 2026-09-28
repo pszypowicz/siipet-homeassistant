@@ -10,12 +10,18 @@ import uuid
 from homeassistant.config_entries import (
     SOURCE_REAUTH,
     SOURCE_RECONFIGURE,
+    ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
+    OptionsFlowWithReload,
 )
 from homeassistant.const import CONF_EMAIL
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
@@ -38,8 +44,11 @@ from .const import (
     CONF_CLIENT_ID,
     CONF_CODE,
     CONF_EXPIRE_AT,
+    CONF_MEDIA_DAYS,
     CONF_TOKEN,
+    DEFAULT_MEDIA_DAYS,
     DOMAIN,
+    MAX_MEDIA_DAYS,
     SESSION_KEYS,
 )
 
@@ -60,11 +69,34 @@ CODE_SCHEMA = vol.Schema(
     }
 )
 
+OPTIONS_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_MEDIA_DAYS, default=DEFAULT_MEDIA_DAYS): vol.All(
+            NumberSelector(
+                NumberSelectorConfig(
+                    min=0,
+                    max=MAX_MEDIA_DAYS,
+                    step=1,
+                    mode=NumberSelectorMode.BOX,
+                    unit_of_measurement="days",
+                )
+            ),
+            vol.Coerce(int),
+        )
+    }
+)
+
 
 class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
     """Sign in to a SiiPet account with an emailed code."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> SiiPetOptionsFlow:
+        """Return the flow that sets the days of local media."""
+        return SiiPetOptionsFlow()
 
     def __init__(self) -> None:
         """Start a flow with a new client identifier."""
@@ -217,4 +249,21 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
             async_get_clientsession(self.hass),
             client_id=self._client_id,
             time_zone=str(self.hass.config.time_zone),
+        )
+
+
+class SiiPetOptionsFlow(OptionsFlowWithReload):
+    """Set how many days of media Home Assistant keeps."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show and store the number of days."""
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self.add_suggested_values_to_schema(
+                OPTIONS_SCHEMA, self.config_entry.options
+            ),
         )

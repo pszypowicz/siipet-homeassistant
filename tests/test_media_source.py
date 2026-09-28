@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import timedelta
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 from homeassistant.components.media_player import BrowseError
@@ -16,6 +17,10 @@ from homeassistant.components.media_source import (
 from homeassistant.core import HomeAssistant
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.test_util.aiohttp import (
+    AiohttpClientMocker,
+)
+from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
 from custom_components.siipet.api import (
     DayVisits,
@@ -24,7 +29,20 @@ from custom_components.siipet.api import (
     Visit,
 )
 
-from .common import EMPTY_DAY, TODAY, fixture_day, load_data, setup_integration
+from .common import (
+    EMPTY_DAY,
+    TODAY,
+    VIDEO,
+    day_folder,
+    fixture_day,
+    load_data,
+    md5_hex,
+    mirror_visit,
+    mock_s3,
+    serve_days,
+    setup_integration,
+    setup_mirror,
+)
 
 ROOT = "media-source://siipet"
 OLD_DAY = TODAY - timedelta(days=10)
@@ -201,3 +219,68 @@ async def test_resolve_not_loaded(
     with pytest.raises(Unresolvable) as info:
         await async_resolve_media(hass, f"{ROOT}/visit/ev-1", None)
     assert str(info.value) == "SiiPet is not loaded"
+
+
+async def test_resolve_video_from_the_local_copy(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """A stored recording resolves to the recording view, signed for the card."""
+    serve_days(mock_client, {TODAY: (mirror_visit(),)})
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7)
+    media = await async_resolve_media(hass, f"{ROOT}/visit/ev-1", None)
+    assert media.url == "/api/siipet/recording/ev-1"
+    assert media.mime_type == "video/mp4"
+
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(
+        {"type": "media_source/resolve_media", "media_content_id": f"{ROOT}/visit/ev-1"}
+    )
+    result = await client.receive_json()
+    assert result["success"]
+    assert result["result"]["url"].startswith("/api/siipet/recording/ev-1?authSig=")
+
+
+async def test_resolve_video_not_in_the_local_copy(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+) -> None:
+    """A recording that failed its check still resolves to a signed S3 URL."""
+    serve_days(mock_client, {TODAY: (mirror_visit(video_md5=md5_hex(b"other")),)})
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7)
+    media = await async_resolve_media(hass, f"{ROOT}/visit/ev-1", None)
+    assert media.url.startswith(
+        "https://media-bucket.s3.amazonaws.com/events/ev-1/video.mp4?"
+    )
+
+
+async def test_resolve_video_with_a_missing_local_file(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+) -> None:
+    """A stored recording that is gone from the disk resolves to S3, then downloads again."""
+    serve_days(mock_client, {TODAY: (mirror_visit(),)})
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7)
+    (day_folder(media_dir) / "ev-1.mp4").unlink()
+
+    media = await async_resolve_media(hass, f"{ROOT}/visit/ev-1", None)
+    assert media.url.startswith(
+        "https://media-bucket.s3.amazonaws.com/events/ev-1/video.mp4?"
+    )
+
+    await config_entry.runtime_data.coordinator.async_refresh()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert (day_folder(media_dir) / "ev-1.mp4").read_bytes() == VIDEO
+    media = await async_resolve_media(hass, f"{ROOT}/visit/ev-1", None)
+    assert media.url == "/api/siipet/recording/ev-1"

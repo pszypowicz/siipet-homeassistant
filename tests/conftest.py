@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from freezegun.api import FrozenDateTimeFactory
@@ -25,6 +26,7 @@ from custom_components.siipet.const import (
     CONF_AUTH_METHOD,
     CONF_CLIENT_ID,
     CONF_EXPIRE_AT,
+    CONF_MEDIA_DAYS,
     CONF_TOKEN,
     DOMAIN,
 )
@@ -41,6 +43,14 @@ def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
 async def utc_time_zone(hass: HomeAssistant) -> None:
     """Run every test in UTC, so local days match the fixture timestamps."""
     await hass.config.async_set_time_zone("UTC")
+
+
+@pytest.fixture(autouse=True)
+def media_dir(hass: HomeAssistant, tmp_path: Path) -> Path:
+    """Point the local media folder of Home Assistant to a temporary folder."""
+    folder = tmp_path / "media"
+    hass.config.media_dirs = {"local": str(folder)}
+    return folder
 
 
 @pytest.fixture(autouse=True)
@@ -98,7 +108,7 @@ def mock_client(mock_client_class: MagicMock) -> AsyncMock:
 
 @pytest.fixture
 def config_entry(hass: HomeAssistant) -> MockConfigEntry:
-    """A signed-in SiiPet entry."""
+    """A signed-in SiiPet entry. Local media is off, so it makes no downloads."""
     login = load_data("login.json")
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -111,6 +121,7 @@ def config_entry(hass: HomeAssistant) -> MockConfigEntry:
             CONF_EXPIRE_AT: login["ExpireAt"],
             CONF_CLIENT_ID: "client-uuid-0001",
         },
+        options={CONF_MEDIA_DAYS: 0},
     )
     entry.add_to_hass(hass)
     return entry
@@ -118,7 +129,10 @@ def config_entry(hass: HomeAssistant) -> MockConfigEntry:
 
 @pytest.fixture
 def token_entry(hass: HomeAssistant) -> MockConfigEntry:
-    """A SiiPet entry from a pasted token, with the phone's device identifier."""
+    """A SiiPet entry from a pasted token, with the phone's device identifier.
+
+    Local media is off, so it makes no downloads.
+    """
     login = load_data("login.json")
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -130,6 +144,7 @@ def token_entry(hass: HomeAssistant) -> MockConfigEntry:
             CONF_EXPIRE_AT: login["ExpireAt"],
             CONF_CLIENT_ID: "phone-device-0001",
         },
+        options={CONF_MEDIA_DAYS: 0},
     )
     entry.add_to_hass(hass)
     return entry

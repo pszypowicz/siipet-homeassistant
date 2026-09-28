@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from enum import IntEnum
+import re
 from typing import Any
 
 
@@ -21,6 +22,25 @@ def _media_key(media: Any) -> str | None:
     if not isinstance(media, Mapping):
         return None
     return media.get("Url") or None
+
+
+def _media_size(media: Any) -> int | None:
+    """Return the positive byte size of a media object, or None."""
+    if not isinstance(media, Mapping):
+        return None
+    try:
+        size = int(media.get("Size") or 0)
+    except TypeError, ValueError:
+        return None
+    return size if size > 0 else None
+
+
+def _media_md5(media: Any) -> str | None:
+    """Return the lowercase hex MD5 of a media object, or None."""
+    if not isinstance(media, Mapping):
+        return None
+    value = str(media.get("Md5") or "").lower()
+    return value if re.fullmatch(r"[0-9a-f]{32}", value) else None
 
 
 class VisitType(IntEnum):
@@ -109,6 +129,10 @@ class Visit:
     video_key: str | None
     cover_key: str | None
     stool_key: str | None
+    video_size: int | None = None
+    video_md5: str | None = None
+    cover_size: int | None = None
+    stool_size: int | None = None
 
     @classmethod
     def from_api(cls, data: Mapping[str, Any]) -> Visit:
@@ -136,6 +160,10 @@ class Visit:
             video_key=_media_key(video.get("RawInfo")),
             cover_key=_media_key(video.get("Cover")),
             stool_key=_media_key(data.get("FecesImage")),
+            video_size=_media_size(video.get("RawInfo")),
+            video_md5=_media_md5(video.get("RawInfo")),
+            cover_size=_media_size(video.get("Cover")),
+            stool_size=_media_size(data.get("FecesImage")),
         )
 
     @property
