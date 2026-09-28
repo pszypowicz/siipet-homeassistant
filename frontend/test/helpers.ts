@@ -11,6 +11,7 @@ import type {
   HomeAssistant,
   QueueResult,
   Visit,
+  VisitResult,
 } from "../src/types";
 
 /** Define every tile part as a plain element, except the parts in `skip`. */
@@ -98,6 +99,7 @@ export interface FakeResults {
   day: DayResult;
   calendar: CalendarResult;
   queue: QueueResult;
+  visit: VisitResult;
   /** Websocket command type to the error that the call rejects with. */
   fail: Record<string, unknown>;
 }
@@ -117,6 +119,7 @@ export function fakeHass(overrides: Partial<FakeResults> = {}, admin = true): Fa
     day: DAY,
     calendar: CALENDAR,
     queue: { visits: [UNASSIGNED] },
+    visit: { date: "2026-09-27", visit: POOP },
     fail: {},
     ...overrides,
   };
@@ -135,6 +138,8 @@ export function fakeHass(overrides: Partial<FakeResults> = {}, admin = true): Fa
         return results.calendar;
       case "siipet/queue":
         return results.queue;
+      case "siipet/visit":
+        return results.visit;
       case "media_source/resolve_media":
         return { url: "https://video.example/ev-1.mp4", mime_type: "video/mp4" };
     }

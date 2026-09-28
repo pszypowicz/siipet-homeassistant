@@ -7,6 +7,7 @@ import {
   fetchCats,
   fetchDay,
   fetchQueue,
+  fetchVisit,
   resolveVideo,
   updateVisit,
 } from "../src/api";
@@ -25,11 +26,13 @@ describe("api", () => {
     await fetchDay(hass, "2026-09-27", "dev-milo");
     await fetchQueue(hass);
     await fetchCalendar(hass, "2026-09", "dev-milo");
+    await fetchVisit(hass, "ev-1");
     expect(callWS.mock.calls.map((call) => call[0])).toEqual([
       { type: "siipet/cats" },
       { type: "siipet/day", date: "2026-09-27", cat: "dev-milo" },
       { type: "siipet/queue" },
       { type: "siipet/calendar", month: "2026-09", cat: "dev-milo" },
+      { type: "siipet/visit", event_id: "ev-1" },
     ]);
   });
 

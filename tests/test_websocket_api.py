@@ -296,6 +296,86 @@ async def test_queue(
     assert _private_values(response) == []
 
 
+def _without_paths(visit: dict[str, Any]) -> dict[str, Any]:
+    """Return a card visit without its signed image paths."""
+    return {key: value for key, value in visit.items() if key not in ("cover", "stool")}
+
+
+@pytest.mark.parametrize(
+    ("event_id", "cat_names", "has_stool"),
+    [("ev-1", ["Luna"], True), ("ev-4", [], False), ("ev-6", ["Luna"], False)],
+)
+async def test_visit(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+    event_id: str,
+    cat_names: list[str],
+    has_stool: bool,
+) -> None:
+    """A window visit comes with its day, in the visit shape of siipet/day, and no API call."""
+    await setup_integration(hass, config_entry)
+    day = await _ws(hass, hass_ws_client, type="siipet/day", date=TODAY.isoformat())
+    [expected] = [
+        visit for visit in day["result"]["visits"] if visit["event_id"] == event_id
+    ]
+    reads = mock_client.get_day.await_count
+    response = await _ws(hass, hass_ws_client, type="siipet/visit", event_id=event_id)
+    assert response["success"]
+    result = response["result"]
+    assert result["date"] == TODAY.isoformat()
+    visit = result["visit"]
+    assert _without_paths(visit) == _without_paths(expected)
+    assert [cat["name"] for cat in visit["cats"]] == cat_names
+    assert visit["cover"].startswith(f"/api/siipet/image/cover/{event_id}?authSig=")
+    if has_stool:
+        assert visit["stool"].startswith(f"/api/siipet/image/stool/{event_id}?authSig=")
+    else:
+        assert visit["stool"] is None
+    assert _private_values(response) == []
+    assert mock_client.get_day.await_count == reads
+
+
+async def test_visit_on_an_earlier_window_day(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """The date is the window day that holds the visit."""
+    day = TODAY - timedelta(days=2)
+    mock_client.get_day.side_effect = lambda requested, **_: (
+        fixture_day() if requested == day else EMPTY_DAY
+    )
+    await setup_integration(hass, config_entry)
+    response = await _ws(hass, hass_ws_client, type="siipet/visit", event_id="ev-1")
+    assert response["result"]["date"] == day.isoformat()
+    assert response["result"]["visit"]["event_id"] == "ev-1"
+
+
+async def test_visit_not_in_window(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A visit outside the window gives visit_not_in_window, with no API call and no error in the log."""
+    await setup_integration(hass, config_entry)
+    reads = mock_client.get_day.await_count
+    response = await _ws(hass, hass_ws_client, type="siipet/visit", event_id="ev-99")
+    assert not response["success"]
+    error = response["error"]
+    assert error["code"] == "service_validation_error"
+    assert error["translation_key"] == "visit_not_in_window"
+    assert error["translation_domain"] == DOMAIN
+    assert error["translation_placeholders"] == {"event_id": "ev-99"}
+    assert error["message"] == "SiiPet has no visit ev-99 in the last 7 days"
+    assert mock_client.get_day.await_count == reads
+    assert "Error handling message" not in caplog.text
+
+
 @pytest.mark.parametrize(
     "message",
     [
@@ -303,6 +383,7 @@ async def test_queue(
         {"type": "siipet/calendar", "month": "2026-09"},
         {"type": "siipet/day", "date": TODAY.isoformat()},
         {"type": "siipet/queue"},
+        {"type": "siipet/visit", "event_id": "ev-1"},
     ],
     ids=lambda message: message["type"],
 )

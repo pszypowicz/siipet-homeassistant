@@ -1,16 +1,21 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import type { Visit } from "../src/types";
 import {
   CALENDAR,
   catsResult,
+  DAY,
   fakeHass,
+  type FakeHass,
   find,
   findAll,
+  LINGERING,
   mount,
   POOP,
   sent,
   settle,
   stubTileParts,
+  type TestCard,
   text,
   UNASSIGNED,
   withState,
@@ -25,6 +30,7 @@ afterEach(() => {
   document.body.replaceChildren();
   vi.restoreAllMocks();
   vi.useRealTimers();
+  history.replaceState(null, "", "/");
 });
 
 interface CardClass {
@@ -845,5 +851,252 @@ describe("edit view", () => {
     await settle(card);
 
     expect(text(find(card, ".error"))).toBe("boom");
+  });
+});
+
+describe("open a visit from a link", () => {
+  function editing(card: TestCard): Visit | undefined {
+    return find(card, "siipet-visit-editor")?.visit as Visit | undefined;
+  }
+
+  async function closeEditor(card: TestCard, eventId: string): Promise<void> {
+    find(card, "siipet-visit-editor")!.dispatchEvent(
+      new CustomEvent("siipet-close", { detail: { changed: false, eventId } }),
+    );
+    await settle(card);
+  }
+
+  // The open editor also resolves the recording, which these tests leave out.
+  function reads(fake: FakeHass): Record<string, unknown>[] {
+    return sent(fake).filter((message) => String(message.type).startsWith("siipet/"));
+  }
+
+  function visitReads(fake: FakeHass): number {
+    return sent(fake).filter((message) => message.type === "siipet/visit").length;
+  }
+
+  function navigate(path: string, event = "location-changed"): void {
+    history.pushState(null, "", path);
+    window.dispatchEvent(new Event(event));
+  }
+
+  it("opens the linked visit on start and removes only its parameter", async () => {
+    history.replaceState(null, "", "/dash?edit=1&siipet_visit=ev-1#visits");
+    const fake = fakeHass();
+    const card = await mount(fake);
+    expect(reads(fake)).toEqual([
+      { type: "siipet/cats" },
+      { type: "siipet/day", date: "2026-09-27", cat: "dev-luna" },
+      { type: "siipet/calendar", month: "2026-09", cat: "dev-luna" },
+      { type: "siipet/visit", event_id: "ev-1" },
+    ]);
+    expect(editing(card)?.event_id).toBe("ev-1");
+    expect(`${location.pathname}${location.search}${location.hash}`).toBe("/dash?edit=1#visits");
+  });
+
+  it("selects the first cat and the day of the visit, then opens it", async () => {
+    const shared: Visit = {
+      ...POOP,
+      cats: [
+        { device_id: "dev-milo", name: "Milo" },
+        { device_id: "dev-luna", name: "Luna" },
+      ],
+    };
+    history.replaceState(null, "", "/dash?siipet_visit=ev-1");
+    // The day read after the switch does not hold the visit.
+    const fake = fakeHass({
+      visit: { date: "2026-09-25", visit: shared },
+      day: { ...DAY, visits: [LINGERING] },
+    });
+    const card = await mount(fake);
+    expect(reads(fake).slice(3)).toEqual([
+      { type: "siipet/visit", event_id: "ev-1" },
+      { type: "siipet/day", date: "2026-09-25", cat: "dev-milo" },
+      { type: "siipet/calendar", month: "2026-09", cat: "dev-milo" },
+    ]);
+    expect(editing(card)).toBe(shared);
+
+    await closeEditor(card, "ev-1");
+    expect(text(find(card, '.header [slot="primary"]'))).toBe("Milo");
+    expect(text(find(card, ".date"))).toBe("Fri 25 Sep");
+  });
+
+  it("moves a fixed card to the day of a visit of its cat", async () => {
+    history.replaceState(null, "", "/dash?siipet_visit=ev-1");
+    const fake = fakeHass({ visit: { date: "2026-09-25", visit: POOP } });
+    const card = await mount(fake, { cat: "dev-luna", hide_cat_picker: true });
+    expect(reads(fake).slice(3)).toEqual([
+      { type: "siipet/visit", event_id: "ev-1" },
+      { type: "siipet/day", date: "2026-09-25", cat: "dev-luna" },
+    ]);
+    expect(editing(card)?.event_id).toBe("ev-1");
+
+    await closeEditor(card, "ev-1");
+    expect(text(find(card, ".date"))).toBe("Fri 25 Sep");
+  });
+
+  it("opens a visit without a cat in the Unknown queue", async () => {
+    history.replaceState(null, "", "/dash?siipet_visit=ev-9");
+    const fake = fakeHass({
+      cats: catsResult({ unknown: { device_id: "dev-unknown", waiting: 1 } }),
+      visit: { date: "2026-09-25", visit: UNASSIGNED },
+    });
+    const card = await mount(fake);
+    expect(reads(fake).slice(3)).toEqual([
+      { type: "siipet/visit", event_id: "ev-9" },
+      { type: "siipet/queue" },
+    ]);
+    expect(editing(card)?.event_id).toBe("ev-9");
+
+    await closeEditor(card, "ev-9");
+    expect(text(find(card, '.header [slot="primary"]'))).toBe("Unknown");
+  });
+
+  it.each([
+    { cat: "dev-luna", visit: POOP, eventId: "ev-1", opens: true },
+    { cat: "dev-milo", visit: POOP, eventId: "ev-1", opens: false },
+    { cat: "dev-unknown", visit: UNASSIGNED, eventId: "ev-9", opens: true },
+    { cat: "dev-luna", visit: UNASSIGNED, eventId: "ev-9", opens: false },
+  ])(
+    "a card fixed on $cat opens $eventId only when the cat owns it",
+    async ({ cat, visit, eventId, opens }) => {
+      history.replaceState(null, "", `/dash?siipet_visit=${eventId}`);
+      const fake = fakeHass({ visit: { date: "2026-09-27", visit } });
+      const card = await mount(fake, { cat, hide_cat_picker: true });
+      expect(sent(fake)).toContainEqual({ type: "siipet/visit", event_id: eventId });
+      expect(editing(card)?.event_id).toBe(opens ? eventId : undefined);
+      expect(location.search).toBe(opens ? "" : `?siipet_visit=${eventId}`);
+    },
+  );
+
+  it("leaves the link to the card on the page that owns the visit", async () => {
+    history.replaceState(null, "", "/dash?siipet_visit=ev-1");
+    const fake = fakeHass();
+    const milo = await mount(fake, { cat: "dev-milo", hide_cat_picker: true });
+    const luna = await mount(fake, { cat: "dev-luna", hide_cat_picker: true });
+    expect(editing(milo)).toBeUndefined();
+    expect(editing(luna)?.event_id).toBe("ev-1");
+    expect(location.search).toBe("");
+  });
+
+  it("reads a link once while the address keeps it", async () => {
+    history.replaceState(null, "", "/dash?siipet_visit=ev-1");
+    const fake = fakeHass();
+    const card = await mount(fake, { cat: "dev-milo", hide_cat_picker: true });
+    expect(visitReads(fake)).toBe(1);
+
+    window.dispatchEvent(new Event("location-changed"));
+    fake.listeners.get("ready")!();
+    await settle(card);
+    expect(visitReads(fake)).toBe(1);
+
+    navigate("/dash");
+    navigate("/dash?siipet_visit=ev-1");
+    await settle(card);
+    expect(visitReads(fake)).toBe(2);
+  });
+
+  it("reads the link on location-changed and popstate", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    expect(visitReads(fake)).toBe(0);
+    fake.callWS.mockClear();
+
+    navigate("/dash?siipet_visit=ev-1");
+    await settle(card);
+    expect(reads(fake)).toEqual([{ type: "siipet/visit", event_id: "ev-1" }]);
+    expect(editing(card)?.event_id).toBe("ev-1");
+    expect(location.search).toBe("");
+
+    await closeEditor(card, "ev-1");
+    fake.callWS.mockClear();
+    navigate("/dash?siipet_visit=ev-1", "popstate");
+    await settle(card);
+    expect(reads(fake)).toEqual([{ type: "siipet/visit", event_id: "ev-1" }]);
+    expect(editing(card)?.event_id).toBe("ev-1");
+  });
+
+  it("follows a link that arrives while a read runs", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    let releaseCats!: (value: unknown) => void;
+    fake.callWS.mockImplementationOnce(() => new Promise((resolve) => (releaseCats = resolve)));
+    fake.listeners.get("ready")!();
+    await settle(card);
+
+    navigate("/dash?siipet_visit=ev-1");
+    await settle(card);
+    expect(visitReads(fake)).toBe(0);
+
+    releaseCats(fake.results.cats);
+    await settle(card);
+    expect(visitReads(fake)).toBe(1);
+    expect(editing(card)?.event_id).toBe("ev-1");
+  });
+
+  it("follows a link that arrived while the card was detached", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    card.remove();
+    navigate("/dash?siipet_visit=ev-1");
+    await settle();
+    expect(visitReads(fake)).toBe(0);
+
+    document.body.append(card);
+    await settle(card);
+    expect(visitReads(fake)).toBe(1);
+    expect(editing(card)?.event_id).toBe("ev-1");
+  });
+
+  it("does not open a visit when the address moves on during the read", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    let releaseVisit!: (value: unknown) => void;
+    fake.callWS.mockImplementationOnce(() => new Promise((resolve) => (releaseVisit = resolve)));
+
+    navigate("/dash?siipet_visit=ev-1");
+    await settle(card);
+    navigate("/dash/other");
+    releaseVisit(fake.results.visit);
+    await settle(card);
+
+    expect(editing(card)).toBeUndefined();
+    expect(location.pathname).toBe("/dash/other");
+  });
+
+  it("reads the link again when the config changes during the read", async () => {
+    history.replaceState(null, "", "/dash?siipet_visit=ev-1");
+    const fake = fakeHass();
+    let releaseVisit: ((value: unknown) => void) | undefined;
+    const original = fake.callWS.getMockImplementation() as (
+      message: Record<string, unknown>,
+    ) => Promise<unknown>;
+    fake.callWS.mockImplementation(async (message: Record<string, unknown>) => {
+      if (message.type === "siipet/visit" && releaseVisit === undefined) {
+        return new Promise((resolve) => (releaseVisit = resolve));
+      }
+      return original(message);
+    });
+
+    const card = await mount(fake, { cat: "dev-milo", hide_cat_picker: true });
+    card.setConfig({ type: "custom:siipet-visits-card", cat: "dev-luna", hide_cat_picker: true });
+    await settle(card);
+    releaseVisit!(fake.results.visit);
+    await settle(card);
+
+    expect(visitReads(fake)).toBe(2);
+    expect(editing(card)?.event_id).toBe("ev-1");
+  });
+
+  it("shows the message of a failed visit read", async () => {
+    history.replaceState(null, "", "/dash?siipet_visit=ev-99");
+    const error = {
+      code: "service_validation_error",
+      message: "SiiPet has no visit ev-99 in the last 7 days",
+    };
+    const card = await mount(fakeHass({ fail: { "siipet/visit": error } }));
+    expect(text(find(card, ".error"))).toBe("SiiPet has no visit ev-99 in the last 7 days");
+    expect(editing(card)).toBeUndefined();
+    expect(location.search).toBe("?siipet_visit=ev-99");
   });
 });

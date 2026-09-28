@@ -2,7 +2,7 @@
 
 import { html, LitElement, nothing, type PropertyValues, type TemplateResult } from "lit";
 
-import { errorMessage, fetchCalendar, fetchCats, fetchDay, fetchQueue } from "./api";
+import { errorMessage, fetchCalendar, fetchCats, fetchDay, fetchQueue, fetchVisit } from "./api";
 import {
   daySummaryText,
   queueSummaryText,
@@ -26,6 +26,7 @@ import type {
   HomeAssistant,
   QueueResult,
   Visit,
+  VisitResult,
 } from "./types";
 
 // The time since the last successful read after which a visible page reads again.
@@ -37,6 +38,19 @@ const STALE_MS = 30 * 60 * 1000;
 const RENEW_MS = 50 * 60 * 1000;
 // The calendar command accepts the current month and the 12 months before it.
 const CALENDAR_MONTHS = 12;
+// A link such as a notification tap opens one visit with `?siipet_visit=<event_id>`.
+const LINK_PARAM = "siipet_visit";
+
+function linkedEventId(): string | undefined {
+  return new URLSearchParams(window.location.search).get(LINK_PARAM) || undefined;
+}
+
+/** Remove the link from the address and keep the rest, so a reload does not open the visit again. */
+function removeLink(): void {
+  const url = new URL(window.location.href);
+  url.searchParams.delete(LINK_PARAM);
+  history.replaceState(history.state, "", `${url.pathname}${url.search}${url.hash}`);
+}
 
 /** The states of the SiiPet event entities. A new visit changes one of them. */
 function eventSignature(hass: HomeAssistant): string {
@@ -88,6 +102,10 @@ export class SiiPetVisitsCard extends LitElement {
   private _renewTimer?: ReturnType<typeof setTimeout>;
   private _active?: Promise<void>;
   private _trailing = false;
+  // The linked event id this card has read while the address still holds it.
+  // A card that does not own the visit leaves the link in the address, so
+  // without this it would read the link again on every refresh.
+  private _linkEvent?: string;
 
   constructor() {
     super();
@@ -139,6 +157,7 @@ export class SiiPetVisitsCard extends LitElement {
       this._queue = undefined;
       this._error = undefined;
       this._editing = undefined;
+      this._linkEvent = undefined;
     }
   }
 
@@ -153,7 +172,12 @@ export class SiiPetVisitsCard extends LitElement {
   connectedCallback(): void {
     super.connectedCallback();
     document.addEventListener("visibilitychange", this._onVisibilityChange);
+    window.addEventListener("location-changed", this._onLocationChange);
+    window.addEventListener("popstate", this._onLocationChange);
     this._listen();
+    // A view switch attaches the card after the navigation event, so a link
+    // that came with the switch is read here.
+    this._onLocationChange();
     // A dashboard view switch detaches and reattaches the card, which can leave it
     // stale for longer than a visibility change would ever let it go unnoticed.
     if (this._lastRead !== undefined) {
@@ -171,6 +195,8 @@ export class SiiPetVisitsCard extends LitElement {
   disconnectedCallback(): void {
     super.disconnectedCallback();
     document.removeEventListener("visibilitychange", this._onVisibilityChange);
+    window.removeEventListener("location-changed", this._onLocationChange);
+    window.removeEventListener("popstate", this._onLocationChange);
     this._connection?.removeEventListener("ready", this._onReady);
     this._connection = undefined;
     if (this._renewTimer !== undefined) {
@@ -210,6 +236,15 @@ export class SiiPetVisitsCard extends LitElement {
   // A Home Assistant restart makes every signed path invalid, so a new connection reads again.
   private _onReady = (): void => {
     void this._run(() => this._refresh());
+  };
+
+  // Home Assistant fires `location-changed` on `window` when it navigates.
+  // Before the first cats, the start reads the link. During a run, `_run`
+  // queues a refresh, and a refresh reads the link at its end.
+  private _onLocationChange = (): void => {
+    if (this._newLink() !== undefined && this._cats) {
+      void this._run(() => this._followLink());
+    }
   };
 
   /** Run one start or refresh at a time, and queue at most one more behind it.
@@ -319,6 +354,7 @@ export class SiiPetVisitsCard extends LitElement {
       return;
     }
     await this._readCatsAndInit();
+    await this._followLink();
   }
 
   /** Read the cats and pick the initial cat and day, as a fresh start does. */
@@ -428,8 +464,14 @@ export class SiiPetVisitsCard extends LitElement {
     }
   }
 
-  /** Read the cats and the shown data again. A card on today moves on to a new day. */
+  /** Read the cats and the shown data again, then follow a new link. */
   private async _refresh(): Promise<void> {
+    await this._readAgain();
+    await this._followLink();
+  }
+
+  /** Read the cats and the shown data again. A card on today moves on to a new day. */
+  private async _readAgain(): Promise<void> {
     this._error = undefined;
     if (this._missing?.length) {
       return;
@@ -466,6 +508,76 @@ export class SiiPetVisitsCard extends LitElement {
       }
     }
     await this._loadSelection();
+  }
+
+  /** Return the linked event id, unless this card read it and the address still holds it. */
+  private _newLink(): string | undefined {
+    const eventId = linkedEventId();
+    if (eventId === undefined) {
+      // The link left the address, so the same link after this is a new one.
+      this._linkEvent = undefined;
+    }
+    return eventId !== this._linkEvent ? eventId : undefined;
+  }
+
+  /** Read the linked visit, and open it when this card owns it. Runs inside `_run`. */
+  private async _followLink(): Promise<void> {
+    const eventId = this._newLink();
+    if (eventId === undefined || !this._cats) {
+      return;
+    }
+    this._linkEvent = eventId;
+    let result: VisitResult;
+    try {
+      result = await fetchVisit(this.hass!, eventId);
+    } catch (err) {
+      // The next run reads the link again, as the failure can pass, for
+      // example while Home Assistant starts.
+      this._linkEvent = undefined;
+      if (linkedEventId() === eventId) {
+        this._error = errorMessage(err);
+      }
+      return;
+    }
+    // A config change clears the cats, and a navigation can replace the link,
+    // while the read runs.
+    if (!this._cats || linkedEventId() !== eventId) {
+      return;
+    }
+    const cat = this._linkedCat(this._cats, result.visit);
+    if (cat === undefined) {
+      return;
+    }
+    removeLink();
+    this._linkEvent = undefined;
+    this._openLinked(cat, result);
+  }
+
+  /** Return the cat that shows a linked visit in this card, or undefined when the card does not own it. */
+  private _linkedCat(cats: CatsResult, visit: Visit): string | undefined {
+    const owners =
+      visit.cats.length > 0
+        ? visit.cats.flatMap((cat) => (cat.device_id !== null ? [cat.device_id] : []))
+        : [cats.unknown.device_id];
+    if (this._fixed()) {
+      return this._cat !== undefined && owners.includes(this._cat) ? this._cat : undefined;
+    }
+    return owners[0];
+  }
+
+  /** Select the cat and the day of a linked visit, then open it in the editor. */
+  private _openLinked(cat: string, { date, visit }: VisitResult): void {
+    const queue = cat === this._cats?.unknown.device_id;
+    if (cat !== this._cat) {
+      if (!queue) {
+        this._date = date;
+        this._month = monthOf(date);
+      }
+      this._selectCat(cat);
+    } else if (!queue && date !== this._date) {
+      this._goToDay(date);
+    }
+    this._editing = visit;
   }
 
   private _selectCat(cat: string): void {

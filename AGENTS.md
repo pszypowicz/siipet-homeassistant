@@ -30,7 +30,7 @@ custom_components/siipet/
   services.yaml        action fields and selectors
   visit_data.py        visit and cat helpers, the date check, and the day read for the actions and the card commands
   calendar_data.py     SiiPetCalendar: calendar months per cat, kept for 5 minutes
-  websocket_api.py     websocket commands for the dashboard card: cats, calendar, day, queue
+  websocket_api.py     websocket commands for the dashboard card: cats, calendar, day, queue, visit
   media.py             SiiPetMedia: media keys, recording URLs, image fetch
   media_source.py      media browser: the last 30 days and their visits
   views.py             authenticated image view for covers, stool images, and avatars

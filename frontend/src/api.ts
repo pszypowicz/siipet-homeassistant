@@ -1,6 +1,13 @@
 // Typed calls to the SiiPet websocket commands and actions.
 
-import type { CalendarResult, CatsResult, DayResult, HomeAssistant, QueueResult } from "./types";
+import type {
+  CalendarResult,
+  CatsResult,
+  DayResult,
+  HomeAssistant,
+  QueueResult,
+  VisitResult,
+} from "./types";
 
 export function fetchCats(hass: HomeAssistant): Promise<CatsResult> {
   return hass.callWS<CatsResult>({ type: "siipet/cats" });
@@ -12,6 +19,10 @@ export function fetchDay(hass: HomeAssistant, date: string, cat: string): Promis
 
 export function fetchQueue(hass: HomeAssistant): Promise<QueueResult> {
   return hass.callWS<QueueResult>({ type: "siipet/queue" });
+}
+
+export function fetchVisit(hass: HomeAssistant, eventId: string): Promise<VisitResult> {
+  return hass.callWS<VisitResult>({ type: "siipet/visit", event_id: eventId });
 }
 
 export function fetchCalendar(

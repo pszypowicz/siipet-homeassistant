@@ -47,6 +47,7 @@ def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_calendar)
     websocket_api.async_register_command(hass, ws_day)
     websocket_api.async_register_command(hass, ws_queue)
+    websocket_api.async_register_command(hass, ws_visit)
 
 
 def _translated_errors(handler: _Handler) -> _Handler:
@@ -303,4 +304,34 @@ async def ws_queue(
                 hass, connection, data, device_ids(hass, entry), visits
             )
         },
+    )
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "siipet/visit", vol.Required("event_id"): cv.string}
+)
+@websocket_api.async_response
+@_translated_errors
+async def ws_visit(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return one visit of the window and the day that holds it."""
+    entry = loaded_entry(hass)
+    data = entry.runtime_data.coordinator.data
+    for day, visits in data.days.items():
+        for visit in visits:
+            if visit.event_id == msg["event_id"]:
+                [card_visit] = _card_visits(
+                    hass, connection, data, device_ids(hass, entry), [visit]
+                )
+                connection.send_result(
+                    msg["id"], {"date": day.isoformat(), "visit": card_visit}
+                )
+                return
+    raise ServiceValidationError(
+        translation_domain=DOMAIN,
+        translation_key="visit_not_in_window",
+        translation_placeholders={"event_id": msg["event_id"]},
     )

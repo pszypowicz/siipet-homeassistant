@@ -79,6 +79,9 @@
     "unknown_visit": {
       "message": "SiiPet has no visit {event_id}."
     },
+    "visit_not_in_window": {
+      "message": "SiiPet has no visit {event_id} in the last 7 days."
+    },
     "nothing_to_change": {
       "message": "The visit already matches the request."
     },

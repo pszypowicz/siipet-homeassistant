@@ -53,6 +53,12 @@ export interface QueueResult {
   visits: Visit[];
 }
 
+export interface VisitResult {
+  /** The day of the visit in the window, as `siipet/day` groups it. */
+  date: string;
+  visit: Visit;
+}
+
 export interface CalendarDayInfo {
   visits: number;
   abnormal: number;
