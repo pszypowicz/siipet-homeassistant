@@ -143,6 +143,7 @@ hide_cat_picker: true
 ```
 
 A card fixed on the Unknown cat shows the visits that have no cat, also when none are waiting.
+If the account no longer has the cat of a fixed card, the card says so and shows no other cat.
 
 ### Open a visit from a notification
 
@@ -150,6 +151,8 @@ A dashboard link with `?siipet_visit=<event id>` opens that visit in the card.
 A card fixed on a cat opens only the visits of its cat.
 A card with the cat picker changes to the cat and the day of the visit.
 The card finds the visits of the last 7 days.
+While you save or delete a visit, the link waits, so you see the result.
+If the save or the delete fails, the linked visit opens when you go back.
 
 This automation sends a notification after each visit of one cat. A tap opens the visit.
 Replace the entity, the notify action, and the dashboard path with your own.
