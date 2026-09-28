@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from homeassistant.components.diagnostics import REDACTED
 from homeassistant.const import CONF_EMAIL
@@ -124,3 +124,28 @@ async def test_diagnostics_local_copy_off(
     await setup_integration(hass, config_entry)
     result = await async_get_config_entry_diagnostics(hass, config_entry)
     assert result["media_cache"] == {"days": 0, "running": False}
+
+
+async def test_diagnostics_local_copy_stopped(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+) -> None:
+    """A copy that stopped after a folder error does not count as running."""
+    serve_days(mock_client, {TODAY: (mirror_visit(),)})
+    mock_s3(aioclient_mock)
+    with patch(
+        "custom_components.siipet.media_store.shutil.disk_usage",
+        side_effect=OSError,
+    ):
+        await setup_mirror(hass, config_entry, 7)
+    result = await async_get_config_entry_diagnostics(hass, config_entry)
+    assert result["media_cache"] == {
+        "days": 7,
+        "running": False,
+        "files": 0,
+        "bytes": 0,
+        "queued": 0,
+        "failing": 0,
+    }

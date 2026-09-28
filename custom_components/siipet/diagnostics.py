@@ -51,7 +51,7 @@ async def async_get_config_entry_diagnostics(
     mirror = entry.runtime_data.mirror
     media_cache: dict[str, Any] = {
         "days": entry.options.get(CONF_MEDIA_DAYS, DEFAULT_MEDIA_DAYS),
-        "running": mirror is not None,
+        "running": mirror is not None and mirror.running,
     }
     if mirror is not None:
         files, size = mirror.store.stats()

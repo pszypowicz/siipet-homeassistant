@@ -198,6 +198,11 @@ class SiiPetMirror:
         """Return the numbers of waiting and failing downloads."""
         return {"queued": len(self._pending), "failing": len(self._failures)}
 
+    @property
+    def running(self) -> bool:
+        """Return False once the copy has stopped or the entry has unloaded."""
+        return not self._stopped
+
     def _in_window(self, day: date) -> bool:
         today = dt_util.now().date()
         return today - timedelta(days=self.days - 1) <= day <= today
