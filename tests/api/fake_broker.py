@@ -67,8 +67,10 @@ class FakeBroker:
     answer_ping: bool = True
     deny_subscribe: set[str] = field(default_factory=set)
     close_on_get: set[str] = field(default_factory=set)
+    close_on_get_budget: dict[str, int] = field(default_factory=dict)
     reject_get: set[str] = field(default_factory=set)
     silent_get: set[str] = field(default_factory=set)
+    silent_subscribe: set[str] = field(default_factory=set)
     handshake_status: int | None = None
     connections: list[BrokerConnection] = field(default_factory=list)
     gets: list[str] = field(default_factory=list)
@@ -113,11 +115,16 @@ class FakeBroker:
             return self.connack_code == 0
         if packet.kind == SUBSCRIBE:
             packet_id = packet.body[:2]
-            codes = bytearray()
+            topics: list[str] = []
             index = 2
             while index < len(packet.body):
                 topic, index = _read_string(packet.body, index)
                 index += 1
+                topics.append(topic)
+            if any(_serial(topic) in self.silent_subscribe for topic in topics):
+                return True
+            codes = bytearray()
+            for topic in topics:
                 if _serial(topic) in self.deny_subscribe:
                     codes.append(SUBACK_FAILURE)
                 else:
@@ -143,6 +150,9 @@ class FakeBroker:
         self.gets.append(topic)
         sn = _serial(topic)
         if sn in self.close_on_get:
+            return False
+        if self.close_on_get_budget.get(sn, 0) > 0:
+            self.close_on_get_budget[sn] -= 1
             return False
         if sn in self.silent_get:
             return True
@@ -170,7 +180,9 @@ async def run_broker(broker: FakeBroker) -> AsyncIterator[str]:
     app = web.Application()
     app.router.add_get("/mqtt", broker.handler)
     server = TestServer(app)
-    await server.start_server()
+    # The access log of the broker shows the signed query of the test URL.
+    # Without it, the privacy checks see only what the integration logs.
+    await server.start_server(access_log=None)
     try:
         yield f"ws://{server.host}:{server.port}/mqtt"
     finally:

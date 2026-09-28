@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+import gc
+from typing import Any
 
 import aiohttp
 import pytest
@@ -12,6 +14,7 @@ from custom_components.siipet.api.mqtt import (
     DISCONNECT_PACKET,
     PINGREQ_PACKET,
     MqttError,
+    MqttRefused,
     MqttSession,
     Packet,
     PacketReader,
@@ -176,10 +179,10 @@ async def test_session_subscribe_and_receive(
 
 
 async def test_session_connect_refused(websession: aiohttp.ClientSession) -> None:
-    """A CONNACK with a non-zero code raises MqttError."""
+    """A CONNACK with a non-zero code raises MqttRefused."""
     async with run_broker(FakeBroker(connack_code=5)) as url:
         session = await _session(websession, url)
-        with pytest.raises(MqttError, match="code 5"):
+        with pytest.raises(MqttRefused, match="code 5"):
             await session.connect("id:1", 60, 1)
         await session.close()
 
@@ -204,6 +207,78 @@ async def test_session_stalled_write_times_out() -> None:
     session = MqttSession(StalledSocket(), lambda _topic, _payload: None)  # type: ignore[arg-type]
     with pytest.raises(MqttError, match="in time"):
         await session.ping(0.05)
+
+
+class StalledWriteSocket:
+    """A socket that never finishes a write. `close` returns unless it stalls too."""
+
+    def __init__(self, *, stall_close: bool = False) -> None:
+        self.stall_close = stall_close
+        self.close_calls = 0
+
+    async def send_bytes(self, _data: bytes) -> None:
+        await asyncio.Event().wait()
+
+    async def close(self) -> None:
+        self.close_calls += 1
+        if self.stall_close:
+            await asyncio.Event().wait()
+
+
+async def test_session_stalled_publish_times_out() -> None:
+    """A publish that the broker does not take ends at the write limit."""
+    session = MqttSession(
+        StalledWriteSocket(),  # type: ignore[arg-type]
+        lambda _topic, _payload: None,
+        write_limit=0.05,
+    )
+    async with asyncio.timeout(1):
+        with pytest.raises(MqttError, match="did not take the message in time"):
+            await session.publish("t")
+
+
+@pytest.mark.parametrize("stall_close", [False, True])
+async def test_session_close_with_stalled_write_returns(stall_close: bool) -> None:
+    """Close returns after the write limit when DISCONNECT stalls, and closes the socket."""
+    ws = StalledWriteSocket(stall_close=stall_close)
+    session = MqttSession(
+        ws,  # type: ignore[arg-type]
+        lambda _topic, _payload: None,
+        write_limit=0.05,
+    )
+    async with asyncio.timeout(1):
+        await session.close()
+    assert session.closed
+    assert ws.close_calls == 1
+
+
+async def test_session_close_reads_a_failed_reader(
+    websession: aiohttp.ClientSession,
+) -> None:
+    """Close reads the error of a reader that failed, so asyncio does not log it."""
+    loop = asyncio.get_running_loop()
+    contexts: list[dict[str, Any]] = []
+    previous = loop.get_exception_handler()
+    loop.set_exception_handler(lambda _loop, context: contexts.append(context))
+
+    def fail(_topic: str, _payload: bytes) -> None:
+        raise RuntimeError("callback failed")
+
+    try:
+        broker = FakeBroker()
+        async with run_broker(broker) as url:
+            ws = await websession.ws_connect(url, protocols=("mqtt",))
+            session = MqttSession(ws, fail)
+            await session.connect("id:1", 60, 1)
+            await session.subscribe(["$aws/things/SN0001/x"], 1)
+            await broker.push("$aws/things/SN0001/x", {"a": 1})
+            assert await session.wait_closed(1)
+            await session.close()
+            del session
+            gc.collect()
+    finally:
+        loop.set_exception_handler(previous)
+    assert not [c for c in contexts if "never retrieved" in c.get("message", "")]
 
 
 async def test_session_close_by_broker(websession: aiohttp.ClientSession) -> None:

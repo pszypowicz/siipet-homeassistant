@@ -53,7 +53,7 @@ class FakeShadowLink:
         self,
         websession: Any,
         fetch_credentials: Callable[[], Any],
-        on_state: Callable[[str, DeviceState], None],
+        on_state: Callable[[str, DeviceState | None], None],
         on_connection: Callable[[bool], None],
         label: Callable[[str], str],
         **_kwargs: Any,

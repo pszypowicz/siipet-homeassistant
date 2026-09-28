@@ -24,7 +24,7 @@ from .models import (
     ShadowPart,
     parse_shadow,
 )
-from .mqtt import MqttError, MqttSession
+from .mqtt import MqttError, MqttRefused, MqttSession
 from .sigv4 import iot_ws_url
 
 _LOGGER = logging.getLogger(__name__)
@@ -33,6 +33,8 @@ ACCEPTED = "get/accepted"
 REJECTED = "get/rejected"
 DOCUMENTS = "update/documents"
 REPLIES = (ACCEPTED, REJECTED, DOCUMENTS)
+# Failed starts in a row that deny a camera.
+DENY_STRIKES = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +77,13 @@ def _describe(err: BaseException) -> str:
     return type(err).__name__
 
 
+def _refused_credentials(err: BaseException) -> bool:
+    """True when AWS IoT refuses the credentials, so new ones are needed."""
+    if isinstance(err, MqttRefused):
+        return True
+    return isinstance(err, aiohttp.WSServerHandshakeError) and err.status in (401, 403)
+
+
 def _rejected_code(payload: bytes) -> object:
     """Return the `code` of a rejected reply. Its message can name the shadow."""
     try:
@@ -87,14 +96,15 @@ class ShadowLink:
     """Keep one MQTT connection open and report the device state of each camera.
 
     `on_state` and `on_connection` run in the event loop. After `stop()` the
-    link calls neither of them.
+    link calls neither of them. `on_state` gets `None` when a camera has no
+    state any more.
     """
 
     def __init__(
         self,
         websession: aiohttp.ClientSession,
         fetch_credentials: Callable[[], Awaitable[IotCredentials]],
-        on_state: Callable[[str, DeviceState], None],
+        on_state: Callable[[str, DeviceState | None], None],
         on_connection: Callable[[bool], None],
         label: Callable[[str], str],
         *,
@@ -120,8 +130,8 @@ class ShadowLink:
         self._started: set[str] = set()
         self._denied: dict[str, datetime] = {}
         self._denied_logged: set[str] = set()
+        self._strikes: dict[str, int] = {}
         self._rejected_logged: set[tuple[str, str]] = set()
-        self._starting: str | None = None
         self._session: MqttSession | None = None
         self._task: asyncio.Task[None] | None = None
         self._stopping = False
@@ -168,9 +178,8 @@ class ShadowLink:
             except Exception as err:
                 if self._stopping:
                     return
-                if self._starting is not None:
-                    self._deny(self._starting)
-                    self._starting = None
+                if _refused_credentials(err):
+                    self._credentials = None
                 self._set_connected(False)
                 backoff = self._timings.backoff
                 delay = backoff[min(self._failures, len(backoff) - 1)]
@@ -210,7 +219,7 @@ class ShadowLink:
             ws = await self._websession.ws_connect(
                 self._url(credentials, self._clock()), protocols=("mqtt",)
             )
-        session = MqttSession(ws, self._handle_message)
+        session = MqttSession(ws, self._handle_message, write_limit=self._timings.reply)
         self._session = session
         self._started.clear()
         try:
@@ -286,9 +295,21 @@ class ShadowLink:
     ) -> None:
         """Subscribe to the replies of both shadows, then read both.
 
-        While this runs, a closed connection denies the camera.
+        A refused subscription denies the camera at once. An MqttError is a
+        strike, and `DENY_STRIKES` strikes in a row deny the camera. The error
+        still ends the connection.
         """
-        self._starting = sn
+        try:
+            await self._subscribe_and_read(session, sn, shadows)
+        except MqttError:
+            # A camera that set_cameras replaced or removed gets no strike.
+            if self._cameras.get(sn) == shadows:
+                self._strike(sn)
+            raise
+
+    async def _subscribe_and_read(
+        self, session: MqttSession, sn: str, shadows: CameraShadows
+    ) -> None:
         topics = [
             shadow_topic(sn, shadows.name(kind), suffix)
             for kind in SHADOW_KINDS
@@ -296,7 +317,6 @@ class ShadowLink:
         ]
         if not all(await session.subscribe(topics, self._timings.reply)):
             self._deny(sn)
-            self._starting = None
             return
         loop = asyncio.get_running_loop()
         replies: list[asyncio.Future[None]] = []
@@ -314,8 +334,16 @@ class ShadowLink:
         if self._cameras.get(sn) == shadows:
             # set_cameras can replace or remove the camera while it starts.
             self._denied.pop(sn, None)
+            self._denied_logged.discard(sn)
+            self._strikes.pop(sn, None)
             self._started.add(sn)
-        self._starting = None
+
+    def _strike(self, sn: str) -> None:
+        strikes = self._strikes.get(sn, 0) + 1
+        if strikes < DENY_STRIKES:
+            self._strikes[sn] = strikes
+            return
+        self._deny(sn)
 
     async def _wait_replies(
         self, session: MqttSession, replies: list[asyncio.Future[None]]
@@ -375,7 +403,7 @@ class ShadowLink:
         if part is not None and not self._stale(sn, kind, part):
             parts = self._parts.setdefault(sn, {})
             parts[kind] = part
-            self._on_state(
+            self._notify(
                 sn,
                 DeviceState.from_parts(
                     parts.get(CONFIG_SHADOW), parts.get(SYSTEM_SHADOW)
@@ -383,6 +411,17 @@ class ShadowLink:
             )
         if suffix == ACCEPTED:
             self._resolve(sn, kind)
+
+    def _notify(self, sn: str, state: DeviceState | None) -> None:
+        """Call `on_state`. An error in it does not end the connection."""
+        try:
+            self._on_state(sn, state)
+        except Exception as err:
+            _LOGGER.warning(
+                "Could not use the device state of %s: %s",
+                self._label(sn),
+                type(err).__name__,
+            )
 
     def _stale(self, sn: str, kind: str, part: ShadowPart) -> bool:
         """True for a document older than the last one of the same shadow."""
@@ -400,8 +439,15 @@ class ShadowLink:
             future.set_result(None)
 
     def _deny(self, sn: str) -> None:
+        """Skip the camera for the retry time, and drop its state."""
         self._denied[sn] = self._clock()
         self._started.discard(sn)
+        self._strikes.pop(sn, None)
+        self._parts.pop(sn, None)
+        for kind in SHADOW_KINDS:
+            self._versions.pop((sn, kind), None)
+        if not self._stopping:
+            self._notify(sn, None)
         if sn in self._denied_logged:
             _LOGGER.debug(
                 "SiiPet still refuses the device state of %s", self._label(sn)
@@ -419,6 +465,7 @@ class ShadowLink:
         self._started.discard(sn)
         self._denied.pop(sn, None)
         self._denied_logged.discard(sn)
+        self._strikes.pop(sn, None)
         for kind in SHADOW_KINDS:
             self._versions.pop((sn, kind), None)
             self._rejected_logged.discard((sn, kind))

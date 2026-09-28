@@ -42,7 +42,17 @@ FAST = LinkTimings(
     denied_retry=timedelta(minutes=5),
     backoff=(0.05, 0.1),
 )
-PRIVATE = ("SN0001", "SN0002", "prod_", "identity-0001", "AKIDEXAMPLE", "X-Amz")
+PRIVATE = (
+    "SN0001",
+    "SN0002",
+    "prod_",
+    "identity-0001",
+    "AKIDEXAMPLE",
+    "X-Amz",
+    "fake-token",
+    "fake-signature",
+)
+SIGNED_QUERY = "X-Amz-Signature=fake-signature&X-Amz-Security-Token=fake-token"
 
 
 @pytest.fixture(autouse=True)
@@ -72,11 +82,16 @@ class Recorder:
     """Collects the callbacks of the link."""
 
     states: dict[str, DeviceState] = field(default_factory=dict)
+    dropped: list[str] = field(default_factory=list)
     connection: list[bool] = field(default_factory=list)
     hook: Callable[[str], None] | None = None
     fail_first_connect: bool = False
 
-    def on_state(self, sn: str, state: DeviceState) -> None:
+    def on_state(self, sn: str, state: DeviceState | None) -> None:
+        if state is None:
+            self.states.pop(sn, None)
+            self.dropped.append(sn)
+            return
         self.states[sn] = state
         if self.hook is not None:
             self.hook(sn)
@@ -115,7 +130,7 @@ async def _running(
             recorder.on_connection,
             NAMES.__getitem__,
             timings=timings,
-            url=lambda _credentials, _now: url,
+            url=lambda _credentials, _now: f"{url}?{SIGNED_QUERY}",
         )
         link.set_cameras(CAMERAS if cameras is None else cameras)
         task = asyncio.create_task(link.run())
@@ -224,16 +239,60 @@ async def test_subscribe_denied(caplog: pytest.LogCaptureFixture) -> None:
         assert private not in caplog.text
 
 
-async def test_close_on_get_denies_camera() -> None:
-    """A close while a camera starts denies it, and the link connects without it."""
+async def test_repeated_close_on_get_denies_camera() -> None:
+    """Two closes in a row while a camera starts deny it. The link connects without it."""
     broker = _broker(close_on_get={"SN0002"})
     async with _running(broker) as running:
         await _until(lambda: running.recorder.connection == [True])
         assert running.link.status.denied_cameras == 1
-        assert len(broker.connections) == 2
-        second = broker.connections[1]
-        assert not any("SN0002" in topic for topic in second.subscriptions)
+        assert len(broker.connections) == 3
+        third = broker.connections[2]
+        assert not any("SN0002" in topic for topic in third.subscriptions)
         assert "SN0001" in running.recorder.states
+
+
+async def test_one_close_on_get_does_not_deny() -> None:
+    """One close while a camera starts only reconnects. The camera then starts."""
+    broker = _broker(close_on_get_budget={"SN0002": 1})
+    async with _running(broker) as running:
+        await _until(lambda: len(running.recorder.states) == 2)
+        await _until(lambda: running.recorder.connection == [True])
+        assert running.link.status.denied_cameras == 0
+        assert len(broker.connections) == 2
+
+
+async def test_silent_get_does_not_deny() -> None:
+    """A read with no reply ends the start after the reply wait, with no denial."""
+    broker = _broker(silent_get={"SN0002"})
+    async with _running(broker) as running:
+        await _until(lambda: running.recorder.connection == [True])
+        assert running.link.status.denied_cameras == 0
+        assert "SN0001" in running.recorder.states
+        assert len(broker.connections) == 1
+
+
+async def test_repeated_subscribe_timeout_denies_camera() -> None:
+    """Two subscribe timeouts in a row deny the camera. The other camera keeps working."""
+    broker = _broker(silent_subscribe={"SN0002"})
+    async with _running(broker) as running:
+        await _until(lambda: running.recorder.connection == [True])
+        assert running.link.status.denied_cameras == 1
+        assert running.link.status.connected
+        assert "SN0001" in running.recorder.states
+        assert len(broker.connections) == 3
+
+
+async def test_denied_camera_drops_its_state() -> None:
+    """A camera that is denied after a read loses its state."""
+    broker = _broker()
+    async with _running(broker) as running:
+        await _until(lambda: len(running.recorder.states) == 2)
+        broker.deny_subscribe = {"SN0002"}
+        await broker.close_all()
+        await _until(lambda: running.link.status.denied_cameras == 1)
+        assert running.recorder.dropped == ["SN0002"]
+        assert "SN0002" not in running.recorder.states
+        assert running.link.status.cameras_with_state == 1
 
 
 async def test_denied_camera_is_tried_again() -> None:
@@ -256,6 +315,7 @@ async def test_backoff_and_recovery(caplog: pytest.LogCaptureFixture) -> None:
         await _until(lambda: "failed again" in caplog.text)
         broker.handshake_status = None
         await _until(lambda: running.recorder.connection == [True])
+        assert running.fetch.await_count == 1
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1
     assert "next try in 0.05 s" in warnings[0].getMessage()
@@ -271,6 +331,27 @@ async def test_auth_error_backs_off() -> None:
     async with _running(_broker(), fetch=fetch) as running:
         await _until(lambda: running.recorder.connection == [True])
         assert fetch.await_count == 2
+
+
+async def test_refused_connack_fetches_new_credentials() -> None:
+    """A refused CONNACK drops the credentials, so the next try fetches new ones."""
+    broker = _broker(connack_code=5)
+    async with _running(broker) as running:
+        # The client id is set when the broker reads CONNECT, after it picks the code.
+        await _until(lambda: broker.connections[0].client_id is not None)
+        broker.connack_code = 0
+        await _until(lambda: running.link.status.connected)
+        assert running.fetch.await_count >= 2
+
+
+@pytest.mark.parametrize("status", [401, 403])
+async def test_refused_handshake_fetches_new_credentials(status: int) -> None:
+    """A handshake refused with 401 or 403 drops the credentials."""
+    broker = _broker(handshake_status=status)
+    async with _running(broker) as running:
+        await _until(lambda: running.fetch.await_count >= 2)
+        broker.handshake_status = None
+        await _until(lambda: running.link.status.connected)
 
 
 async def test_planned_reconnect() -> None:
@@ -349,6 +430,32 @@ async def test_unexpected_error_does_not_end_the_link() -> None:
         await _until(lambda: running.recorder.connection.count(True) == 2)
         assert not running.task.done()
         assert len(running.broker.connections) == 2
+
+
+async def test_state_callback_error_keeps_the_connection(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An error in the state callback logs its type only and keeps the connection."""
+    caplog.set_level(logging.DEBUG, logger="custom_components.siipet")
+    async with _running(_broker()) as running:
+        failed: list[str] = []
+
+        def fail_once(sn: str) -> None:
+            if not failed:
+                failed.append(sn)
+                raise RuntimeError(f"SN0001 fake-token {SIGNED_QUERY}")
+
+        running.recorder.hook = fail_once
+        await _until(lambda: len(running.recorder.states) == 2)
+        await _until(lambda: running.recorder.connection == [True])
+        assert len(running.broker.connections) == 1
+        assert not running.task.done()
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "RuntimeError" in warnings[0].getMessage()
+    assert "Bathroom" in warnings[0].getMessage()
+    for private in PRIVATE:
+        assert private not in caplog.text
 
 
 async def test_rejected_read_logs_code_only(caplog: pytest.LogCaptureFixture) -> None:

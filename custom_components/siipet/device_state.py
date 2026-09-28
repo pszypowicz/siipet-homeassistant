@@ -92,6 +92,9 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         if shadows == self._shadows:
             return
         self._shadows = shadows
+        self._firmware = {
+            sn: firmware for sn, firmware in self._firmware.items() if sn in shadows
+        }
         self._link.set_cameras(shadows)
         if any(sn not in shadows for sn in self.data):
             self.data = {sn: state for sn, state in self.data.items() if sn in shadows}
@@ -102,7 +105,15 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         return camera.name if camera else "a removed camera"
 
     @callback
-    def _async_on_state(self, sn: str, state: DeviceState) -> None:
+    def _async_on_state(self, sn: str, state: DeviceState | None) -> None:
+        if state is None:
+            # async_set_updated_data would also mark a success and hide an outage.
+            if sn in self.data:
+                self.data = {
+                    key: value for key, value in self.data.items() if key != sn
+                }
+                self.async_update_listeners()
+            return
         if sn not in self._shadows:
             return
         self._async_update_firmware(sn, state.firmware)

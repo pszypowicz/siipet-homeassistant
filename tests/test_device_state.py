@@ -64,6 +64,30 @@ async def test_state_is_stored(
     assert device_state.last_update_success
 
 
+async def test_dropped_state_is_removed(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+) -> None:
+    """A `None` state removes the camera from the data and keeps the coordinator working."""
+    await setup_integration(hass, config_entry)
+    link = shadow_links[0]
+    await _push(hass, link)
+    await _push(hass, link, "SN0002")
+    device_state = config_entry.runtime_data.device_state
+    updates: list[None] = []
+    device_state.async_add_listener(lambda: updates.append(None))
+    link.on_state("SN0001", None)
+    await hass.async_block_till_done()
+    assert device_state.data == {"SN0002": DEVICE_STATE}
+    assert device_state.last_update_success
+    assert len(updates) == 1
+    link.on_state("SN0001", None)
+    await hass.async_block_till_done()
+    assert len(updates) == 1
+
+
 async def test_state_of_unknown_camera_is_ignored(
     hass: HomeAssistant,
     mock_client: AsyncMock,
@@ -167,6 +191,38 @@ async def test_camera_list_change(
     await _tick(hass, freezer, timedelta(hours=1))
     assert link.cameras == {"SN0001": SHADOWS}
     assert "SN0002" not in config_entry.runtime_data.device_state.data
+
+
+async def test_firmware_cache_drops_removed_cameras(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+) -> None:
+    """A camera that leaves and comes back gets its firmware written again."""
+    await setup_integration(hass, config_entry)
+    link = shadow_links[0]
+    await _push(hass, link, "SN0002")
+    registry = dr.async_get(hass)
+    identifier = (DOMAIN, "SN0002")
+    device = registry.async_get_device_by_identifier(identifier, config_entry.entry_id)
+    assert device.sw_version == "1.2.3"
+    cameras = dict(mock_client.get_cameras.return_value)
+    mock_client.get_cameras.return_value = {
+        sn: camera for sn, camera in cameras.items() if sn != "SN0002"
+    }
+    await _tick(hass, freezer, timedelta(hours=1))
+    assert link.cameras == {"SN0001": SHADOWS}
+    # The device can be removed and made again while the camera is away.
+    # Then it has no version.
+    registry.async_update_device(device.id, sw_version=None)
+    mock_client.get_cameras.return_value = cameras
+    await _tick(hass, freezer, timedelta(hours=1))
+    assert link.cameras == {"SN0001": SHADOWS, "SN0002": SHADOWS}
+    await _push(hass, link, "SN0002")
+    device = registry.async_get_device_by_identifier(identifier, config_entry.entry_id)
+    assert device.sw_version == "1.2.3"
 
 
 async def test_unload_stops_the_link(

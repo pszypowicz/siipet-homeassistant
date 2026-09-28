@@ -37,6 +37,10 @@ class MqttError(SiiPetError):
     """The MQTT connection failed, timed out, or closed."""
 
 
+class MqttRefused(MqttError):
+    """The broker refused the connection with a non-zero CONNACK code."""
+
+
 @dataclass(frozen=True, slots=True)
 class Packet:
     """One MQTT control packet: its type, the low bits of its first byte, its body."""
@@ -167,17 +171,21 @@ class MqttSession:
 
     A task reads packets until the socket closes. Published messages go to
     `on_message`. Requests that wait for an answer fail with MqttError when
-    the connection closes.
+    the connection closes. A write that takes longer than `write_limit`
+    seconds is given up.
     """
 
     def __init__(
         self,
         ws: aiohttp.ClientWebSocketResponse,
         on_message: Callable[[str, bytes], None],
+        *,
+        write_limit: float = 10.0,
     ) -> None:
         """Wrap an open WebSocket. Call `connect` before anything else."""
         self._ws = ws
         self._on_message = on_message
+        self._write_limit = write_limit
         self._reader = PacketReader()
         self._waiters: dict[tuple[int, int], asyncio.Future[Packet]] = {}
         self._closed = asyncio.Event()
@@ -197,7 +205,7 @@ class MqttSession:
         )
         code = parse_connack(packet)
         if code:
-            raise MqttError(f"The broker refused the connection with code {code}")
+            raise MqttRefused(f"The broker refused the connection with code {code}")
 
     async def subscribe(self, topics: Sequence[str], limit: float) -> list[bool]:
         """Subscribe at QoS 0. Return for each topic whether the broker granted it."""
@@ -212,8 +220,12 @@ class MqttSession:
         return [code != SUBACK_FAILURE for code in codes]
 
     async def publish(self, topic: str, payload: bytes = b"") -> None:
-        """Publish at QoS 0."""
-        await self._send(encode_publish(topic, payload))
+        """Publish at QoS 0. Raise MqttError if the write takes too long."""
+        try:
+            async with asyncio.timeout(self._write_limit):
+                await self._send(encode_publish(topic, payload))
+        except TimeoutError as err:
+            raise MqttError("The broker did not take the message in time") from err
 
     async def ping(self, limit: float) -> None:
         """Send PINGREQ and wait for PINGRESP."""
@@ -229,16 +241,29 @@ class MqttSession:
         return True
 
     async def close(self) -> None:
-        """Send DISCONNECT if the connection is open, then close the socket."""
+        """Send DISCONNECT if the connection is open, then close the socket.
+
+        Each of the two steps gets up to the write limit.
+        """
         if not self._closed.is_set():
-            with suppress(aiohttp.ClientError, ConnectionError):
-                await self._ws.send_bytes(DISCONNECT_PACKET)
+            with suppress(aiohttp.ClientError, ConnectionError, TimeoutError):
+                async with asyncio.timeout(self._write_limit):
+                    await self._ws.send_bytes(DISCONNECT_PACKET)
         self._mark_closed()
-        await self._ws.close()
-        if self._task is not None and not self._task.done():
-            self._task.cancel()
+        # When a timeout cancels the close handshake, aiohttp drops the connection.
+        with suppress(TimeoutError):
+            async with asyncio.timeout(self._write_limit):
+                await self._ws.close()
+        task = self._task
+        if task is None:
+            return
+        if not task.done():
+            task.cancel()
             with suppress(asyncio.CancelledError):
-                await self._task
+                await task
+        elif not task.cancelled() and (err := task.exception()) is not None:
+            # Reading the error keeps asyncio from logging it as never retrieved.
+            _LOGGER.debug("The MQTT reader failed: %s", type(err).__name__)
 
     async def _request(self, data: bytes, key: tuple[int, int], limit: float) -> Packet:
         future: asyncio.Future[Packet] = asyncio.get_running_loop().create_future()
