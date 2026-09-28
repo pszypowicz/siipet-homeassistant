@@ -186,7 +186,11 @@ class MediaStore:
                 await self._async_unlink(path)
 
     async def async_delete_before(self, day: date) -> None:
-        """Delete the day folders before `day`, with their index entries."""
+        """Delete the day folders before `day`, with their index entries.
+
+        The index is pruned even when the delete fails, so it never points at
+        a folder that a partial delete already removed.
+        """
         async with self._lock:
             try:
                 await self.hass.async_add_executor_job(self._delete_days_before, day)
@@ -194,16 +198,17 @@ class MediaStore:
                 raise MediaStoreError(
                     f"Cannot delete a media folder ({type(err).__name__})"
                 ) from None
-            files: dict[str, dict[MediaFile, _Entry]] = {}
-            for event_id, entries in self._files.items():
-                kept = {
-                    kind: entry
-                    for kind, entry in entries.items()
-                    if (_parse_day(entry[0].parent.name) or day) >= day
-                }
-                if kept:
-                    files[event_id] = kept
-            self._files = files
+            finally:
+                files: dict[str, dict[MediaFile, _Entry]] = {}
+                for event_id, entries in self._files.items():
+                    kept = {
+                        kind: entry
+                        for kind, entry in entries.items()
+                        if (_parse_day(entry[0].parent.name) or day) >= day
+                    }
+                    if kept:
+                        files[event_id] = kept
+                self._files = files
 
     async def async_prune_avatars(self, current: Mapping[str, str | None]) -> None:
         """Delete the avatars of cats that left the account or changed their avatar."""

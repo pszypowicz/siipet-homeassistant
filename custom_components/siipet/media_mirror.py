@@ -207,7 +207,8 @@ class SiiPetMirror:
         self._queue_data(self.coordinator.data)
 
     def _queue_data(self, data: SiiPetData) -> None:
-        self._retry_failures()
+        # The current data goes first, so a fresh avatar key or a changed
+        # visit size or hash is not shadowed by a stale retry of the same slot.
         for cat in data.cats.values():
             if (
                 cat.avatar_key
@@ -216,6 +217,7 @@ class SiiPetMirror:
                 self._add(_Job(None, cat.pet_id, cat.avatar_key))
         for visits in data.days.values():
             self._queue_visits(visits)
+        self._retry_failures()
         self._kick()
 
     def _queue_visits(self, visits: Iterable[Visit]) -> None:
@@ -229,11 +231,20 @@ class SiiPetMirror:
                     self._add(job)
 
     def _retry_failures(self) -> None:
-        """Add again the failed jobs whose wait is over and that are still due."""
+        """Add again the failed visit jobs whose wait is over and still due.
+
+        An avatar always comes back from the current cat data above, with its
+        current key, so it is not retried from its failure record.
+        """
         now = dt_util.utcnow()
         for failure in list(self._failures.values()):
-            if failure.retry_at <= now and not self._should_skip(failure.job):
-                self._add(failure.job)
+            job = failure.job
+            if (
+                job.kind is not None
+                and failure.retry_at <= now
+                and not self._should_skip(job)
+            ):
+                self._add(job)
 
     def _should_skip(self, job: _Job) -> bool:
         """True when a job's file is already stored, or its day left the window."""
@@ -250,9 +261,15 @@ class SiiPetMirror:
         if self._stopped or not safe_id(job.item_id) or job.job_key == self._active:
             return
         failure = self._failures.get(job.job_key)
-        if failure and failure.retry_at > dt_util.utcnow():
-            return
-        self._pending.setdefault(job.job_key, job)
+        if failure is not None:
+            same = (failure.job.key, failure.job.size, failure.job.md5)
+            if same != (job.key, job.size, job.md5):
+                # The current data moved on from what failed, so the old
+                # backoff does not apply to it.
+                del self._failures[job.job_key]
+            elif failure.retry_at > dt_util.utcnow():
+                return
+        self._pending[job.job_key] = job
 
     @callback
     def _kick(self) -> None:
@@ -342,6 +359,9 @@ class SiiPetMirror:
             self._failures.pop(job.job_key, None)
 
     def _record_failure(self, job: _Job) -> None:
+        if job.item_id in self._forgotten:
+            # The visit is gone; its files must not come back through a retry.
+            return
         failure = self._failures.get(job.job_key)
         attempts = failure.attempts + 1 if failure else 1
         delay = RETRY_DELAYS[min(attempts, len(RETRY_DELAYS)) - 1]
@@ -385,13 +405,11 @@ class SiiPetMirror:
 
     async def _async_cleanup(self) -> None:
         cutoff = dt_util.now().date() - timedelta(days=self.days - 1)
+        current_cats = self.coordinator.data.cats
         try:
             await self.store.async_delete_before(cutoff)
             await self.store.async_prune_avatars(
-                {
-                    cat.pet_id: cat.avatar_key
-                    for cat in self.coordinator.data.cats.values()
-                }
+                {cat.pet_id: cat.avatar_key for cat in current_cats.values()}
             )
         except MediaStoreError as err:
             self._stop(err)
@@ -399,7 +417,8 @@ class SiiPetMirror:
         self._failures = {
             job_key: failure
             for job_key, failure in self._failures.items()
-            if failure.job.day is None or failure.job.day >= cutoff
+            if (failure.job.day is not None and failure.job.day >= cutoff)
+            or (failure.job.day is None and failure.job.item_id in current_cats)
         }
         self._pending = {
             job_key: job

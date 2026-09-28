@@ -454,7 +454,8 @@ async def test_unload_stops_a_daily_run_in_progress(
     media_dir: Path,
 ) -> None:
     """Unloading while the daily backfill waits on a day read drops that day."""
-    old_day = TODAY - timedelta(days=9)
+    next_run = datetime.fromisoformat("2026-09-27T00:05:00+00:00")
+    old_day = next_run.date() - timedelta(days=9)
     old = mirror_visit(start=mirror_visit().start - timedelta(days=9))
     armed = False
     waiting = asyncio.Event()
@@ -471,14 +472,10 @@ async def test_unload_stops_a_daily_run_in_progress(
     mock_s3(aioclient_mock)
     await setup_mirror(hass, config_entry, 10)
 
-    # More than the 5-minute cache of an older day, so the day read repeats.
-    # The trigger runs directly: a real time change that crosses midnight
-    # also shifts what `_async_backfill` treats as today.
     armed = True
-    frozen_time.tick(timedelta(minutes=6))
-    mirror = config_entry.runtime_data.mirror
-    assert mirror is not None
-    mirror._async_daily_trigger(datetime.fromisoformat("2026-09-26T12:06:00+00:00"))
+    frozen_time.move_to(next_run)
+    async_fire_time_changed(hass, next_run)
+    await hass.async_block_till_done()
     await asyncio.wait_for(waiting.wait(), timeout=1)
 
     assert await hass.config_entries.async_unload(config_entry.entry_id)
@@ -532,21 +529,21 @@ async def test_a_failed_backfill_day_does_not_stop_the_others(
     """A day read that fails during the backfill does not stop the other days."""
     day8 = TODAY - timedelta(days=8)
     day9 = TODAY - timedelta(days=9)
-    visit8 = mirror_visit(
-        event_id="ev-8", start=mirror_visit().start - timedelta(days=8)
+    visit9 = mirror_visit(
+        event_id="ev-9", start=mirror_visit().start - timedelta(days=9)
     )
 
     async def get_day(requested: Any, **_: Any) -> Any:
-        if requested == day9:
-            raise SiiPetConnectionError("The connection failed")
         if requested == day8:
-            return replace(fixture_day(), visits=(visit8,))
+            raise SiiPetConnectionError("The connection failed")
+        if requested == day9:
+            return replace(fixture_day(), visits=(visit9,))
         return replace(fixture_day(), visits=())
 
     mock_client.get_day.side_effect = get_day
     mock_s3(aioclient_mock)
     await setup_mirror(hass, config_entry, 10)
-    assert (day_folder(media_dir, day8) / "ev-8.mp4").read_bytes() == VIDEO
+    assert (day_folder(media_dir, day9) / "ev-9.mp4").read_bytes() == VIDEO
 
 
 async def test_a_write_failure_at_runtime_stops_the_copy(
@@ -653,3 +650,67 @@ async def test_an_unexpected_download_error_is_recorded_as_a_failure(
     frozen_time.tick(timedelta(minutes=5))
     await _refresh(hass, config_entry)
     assert s3_gets(aioclient_mock, "events/ev-1/cover.jpg") == 2
+
+
+async def test_a_new_avatar_key_is_not_blocked_by_the_old_keys_backoff(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    frozen_time: FrozenDateTimeFactory,
+    media_dir: Path,
+) -> None:
+    """A cat's new avatar key downloads even while the old key still waits out its backoff."""
+    serve_days(mock_client, {})
+    aioclient_mock.get(S3 + "resources/luna.jpg", status=404)
+    mock_s3(aioclient_mock, **{"resources/luna-2.jpg": b"luna-2"})
+    await setup_mirror(hass, config_entry, 7)
+    assert s3_gets(aioclient_mock, "resources/luna.jpg") == 1
+
+    cats = dict(mock_client.get_cats.return_value)
+    cats["pet-luna"] = replace(cats["pet-luna"], avatar_key="resources/luna-2.jpg")
+    mock_client.get_cats.return_value = cats
+    frozen_time.tick(timedelta(hours=1))
+    await _refresh(hass, config_entry)
+
+    avatars = media_dir / ".siipet" / "avatars"
+    new = avatars / f"pet-luna.{key_hash('resources/luna-2.jpg')}.jpg"
+    assert new.read_bytes() == b"luna-2"
+    assert s3_gets(aioclient_mock, "resources/luna.jpg") == 1
+
+
+async def test_forget_during_a_failing_download_is_not_retried(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    frozen_time: FrozenDateTimeFactory,
+    media_dir: Path,
+) -> None:
+    """A visit forgotten during a download that then fails does not come back."""
+    serve_days(mock_client, {TODAY: (mirror_visit(cover_key=None, stool_key=None),)})
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def respond(method: str, url: Any, data: Any) -> AiohttpClientMockResponse:
+        started.set()
+        await release.wait()
+        return AiohttpClientMockResponse(method, url, status=500)
+
+    aioclient_mock.get(S3 + "events/ev-1/video.mp4", side_effect=respond)
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7, wait_for_downloads=False)
+    await asyncio.wait_for(started.wait(), timeout=1)
+
+    mirror = config_entry.runtime_data.mirror
+    assert mirror is not None
+    mirror.async_forget("ev-1")
+    release.set()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    # As after a real deletion, the visit no longer comes back from the API.
+    serve_days(mock_client, {})
+    frozen_time.tick(timedelta(minutes=6))
+    await _refresh(hass, config_entry)
+    assert s3_gets(aioclient_mock, "events/ev-1/video.mp4") == 1
+    assert not day_folder(media_dir).exists()

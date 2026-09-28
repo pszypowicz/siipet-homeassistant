@@ -248,6 +248,22 @@ async def test_delete_before(hass: HomeAssistant, tmp_path: Path) -> None:
     assert store.avatar_path("pet-luna", "cats/luna.jpg") is not None
 
 
+async def test_delete_before_error_still_prunes_the_index(
+    hass: HomeAssistant, tmp_path: Path
+) -> None:
+    """A failing delete still drops the index entries at or before the cutoff."""
+    store = await _store(hass, tmp_path)
+    await _write(store, MediaFile.RECORDING, "ev-old", b"old", date(2026, 9, 19))
+    await _write(store, MediaFile.RECORDING, "ev-new", b"new", date(2026, 9, 20))
+    with (
+        patch.object(store, "_delete_days_before", side_effect=OSError),
+        pytest.raises(MediaStoreError),
+    ):
+        await store.async_delete_before(date(2026, 9, 20))
+    assert store.path(MediaFile.RECORDING, "ev-old") is None
+    assert store.path(MediaFile.RECORDING, "ev-new") is not None
+
+
 async def test_avatar_with_a_new_key_replaces_the_old_file(
     hass: HomeAssistant, tmp_path: Path
 ) -> None:
