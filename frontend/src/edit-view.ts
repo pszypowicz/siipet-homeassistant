@@ -5,6 +5,7 @@ import { css, html, LitElement, nothing, type PropertyValues, type TemplateResul
 import { deleteVisit, errorMessage, isPartialEdit, resolveVideo, updateVisit } from "./api";
 import { changedFields, type EditForm, initialForm } from "./changes";
 import { dayLabel, durationText, timeOf, TYPE_STYLE } from "./format";
+import { optionRow } from "./option-row";
 import { cardStyles } from "./styles";
 import type { Cat, HomeAssistant, Visit } from "./types";
 
@@ -31,20 +32,6 @@ interface CardHelpers {
 interface HelperWindow {
   loadCardHelpers?: () => Promise<CardHelpers>;
   confirm(message?: string): boolean;
-}
-
-// ha-control-select stacks an option's icon and label in a column that does not
-// fit the tile control height, so the icon template puts both in one row instead
-// and the option's label stays unset; the name goes to ariaLabel for aria-label
-// and title.
-const OPTION_ROW_STYLE =
-  "display: inline-flex; align-items: center; gap: 8px; max-width: 100%; white-space: nowrap";
-const OPTION_NAME_STYLE = "overflow: hidden; text-overflow: ellipsis; min-width: 0";
-
-function optionRow(icon: TemplateResult, name: string): TemplateResult {
-  return html`<span style=${OPTION_ROW_STYLE}
-    >${icon}<span style=${OPTION_NAME_STYLE}>${name}</span></span
-  >`;
 }
 
 export interface CloseDetail {
@@ -160,7 +147,7 @@ export class SiiPetVisitEditor extends LitElement {
       ha-control-button.cat img {
         width: 20px;
         height: 20px;
-        margin-right: 8px;
+        margin-right: 6px;
         border-radius: 50%;
         object-fit: cover;
       }

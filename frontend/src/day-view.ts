@@ -4,6 +4,7 @@ import { html, nothing, type TemplateResult } from "lit";
 
 import { monthCells } from "./calendar";
 import { dayLabel, durationText, monthLabel, timeOf, TYPE_STYLE } from "./format";
+import { optionRow } from "./option-row";
 import type { CalendarResult, CatsResult, DaySummary, Visit } from "./types";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -139,19 +140,6 @@ export function renderCalendar(options: CalendarOptions): TemplateResult {
 }
 
 const AVATAR_STYLE = "width: 20px; height: 20px; border-radius: 50%; object-fit: cover; flex: none";
-// ha-control-select stacks an option's icon and label in a column that does not
-// fit the tile control height, so the icon template puts both in one row instead
-// and the option's label stays unset; the name goes to ariaLabel for aria-label
-// and title.
-const OPTION_ROW_STYLE =
-  "display: inline-flex; align-items: center; gap: 8px; max-width: 100%; white-space: nowrap";
-const OPTION_NAME_STYLE = "overflow: hidden; text-overflow: ellipsis; min-width: 0";
-
-function optionRow(icon: TemplateResult, name: string): TemplateResult {
-  return html`<span style=${OPTION_ROW_STYLE}
-    >${icon}<span style=${OPTION_NAME_STYLE}>${name}</span></span
-  >`;
-}
 
 /** The cat strip, or nothing when it is hidden or there is only one option. */
 export function renderCatStrip(
