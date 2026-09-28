@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 import contextlib
 from datetime import date, datetime, timedelta
 from enum import StrEnum
+from pathlib import Path
 
 import aiohttp
 from homeassistant.core import HomeAssistant
@@ -15,11 +16,18 @@ from homeassistant.util import dt as dt_util
 from .api import SiiPetApiError, SiiPetClient, SiiPetError, Visit
 from .api.s3 import S3Signer
 from .coordinator import SiiPetCoordinator
+from .media_store import MediaFile, MediaStore
 
 VIDEO_URL_LIFETIME = timedelta(hours=1)
 IMAGE_URL_LIFETIME = timedelta(minutes=5)
 OLDER_DAY_CACHE = timedelta(minutes=5)
 IMAGE_TIMEOUT = aiohttp.ClientTimeout(total=30)
+RECORDING_URL = "/api/siipet/recording/{event_id}"
+
+
+def recording_path(event_id: str) -> str:
+    """Return the recording view path of one visit."""
+    return RECORDING_URL.format(event_id=event_id)
 
 
 class MediaKind(StrEnum):
@@ -57,6 +65,8 @@ class SiiPetMedia:
         self.coordinator = coordinator
         self.client = client
         self.signer = signer
+        # Set while the local copy runs.
+        self.store: MediaStore | None = None
         self._older_days: dict[date, tuple[datetime, tuple[Visit, ...]]] = {}
 
     async def async_day_visits(self, day: date) -> tuple[Visit, ...]:
@@ -87,8 +97,25 @@ class SiiPetMedia:
         except SiiPetError as err:
             raise MediaUnavailable("Could not read the visit") from err
 
+    def local_recording(self, event_id: str) -> Path | None:
+        """Return the stored recording of a visit, or None."""
+        return self.store.path(MediaFile.RECORDING, event_id) if self.store else None
+
+    def local_image(self, kind: MediaKind, item_id: str) -> Path | None:
+        """Return a stored cover, stool photo, or current avatar, or None."""
+        if self.store is None:
+            return None
+        if kind is MediaKind.AVATAR:
+            cat = self.coordinator.data.cats.get(item_id)
+            if cat is None or not cat.avatar_key:
+                return None
+            return self.store.avatar_path(item_id, cat.avatar_key)
+        return self.store.path(MediaFile(kind.value), item_id)
+
     async def async_video_url(self, event_id: str) -> str:
-        """Return a signed URL of the recording of a visit."""
+        """Return the local path or a signed S3 URL of the recording of a visit."""
+        if self.local_recording(event_id) is not None:
+            return recording_path(event_id)
         visit = await self.async_visit(event_id)
         if not visit.cloud_stored:
             raise MediaNotFound("The recording is only on the camera")

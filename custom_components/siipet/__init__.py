@@ -36,7 +36,7 @@ from .media_mirror import (
 )
 from .media_store import MediaStore, MediaStoreError, async_delete_folder, media_root
 from .services import async_setup_services
-from .views import SiiPetImageView
+from .views import SiiPetImageView, SiiPetRecordingView
 from .websocket_api import async_setup_websocket_api
 
 _LOGGER = logging.getLogger(__name__)
@@ -49,6 +49,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Register the image view, the actions, the card commands, and the card."""
     hass.http.register_view(SiiPetImageView(hass))
+    hass.http.register_view(SiiPetRecordingView(hass))
     async_setup_services(hass)
     async_setup_websocket_api(hass)
     await async_register_card(hass)
@@ -118,6 +119,7 @@ async def _async_start_mirror(
         return None
     async_clear_issues(hass)
     runtime = entry.runtime_data
+    runtime.media.store = store
     mirror = SiiPetMirror(hass, entry, runtime.coordinator, runtime.media, store, days)
     await mirror.async_start()
     return mirror
