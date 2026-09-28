@@ -406,15 +406,16 @@ export class SiiPetVisitEditor extends LitElement {
   }
 
   private _renderActions(data: Record<string, unknown> | null): TemplateResult {
+    const deleteLabel = this._armed ? "Tap again to delete" : "Delete";
     const remove = this.hass?.user?.is_admin
       ? html`
           <ha-control-button
             class="delete ${this._armed ? "armed" : ""}"
-            .label=${this._armed ? "Tap again to delete" : "Delete"}
+            .label=${deleteLabel}
             .disabled=${this._busy}
             @click=${() => this._delete()}
           >
-            ${this._armed ? "Tap again to delete" : "Delete"}
+            <span>${deleteLabel}</span>
           </ha-control-button>
         `
       : nothing;
@@ -426,7 +427,7 @@ export class SiiPetVisitEditor extends LitElement {
           .disabled=${data === null || this._busy}
           @click=${() => data && this._save(data)}
         >
-          Save
+          <span>Save</span>
         </ha-control-button>
         ${remove}
       </ha-control-button-group>

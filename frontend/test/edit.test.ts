@@ -291,6 +291,18 @@ describe("edit view", () => {
     expect((inEditor(editor, ".memo-input") as unknown as HTMLInputElement).value).toBe("soft");
   });
 
+  it("keeps the Save and Delete text in a span, in the normal and the armed state", async () => {
+    const editor = await openVisit(await mount(fakeHass()));
+    expect(inEditor(editor, ".save")!.querySelector("span")?.textContent).toBe("Save");
+    expect(inEditor(editor, ".delete")!.querySelector("span")?.textContent).toBe("Delete");
+
+    inEditor(editor, ".delete")!.click();
+    await settle();
+    expect(inEditor(editor, ".delete")!.querySelector("span")?.textContent).toBe(
+      "Tap again to delete",
+    );
+  });
+
   it("deletes after a second tap on Delete", async () => {
     const fake = fakeHass();
     const card = await mount(fake);

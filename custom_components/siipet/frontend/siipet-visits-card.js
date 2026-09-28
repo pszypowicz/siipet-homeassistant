@@ -383,14 +383,14 @@ var U=globalThis,I=U.ShadowRoot&&(U.ShadyCSS===void 0||U.ShadyCSS.nativeShadow)&
         />
         <span class="counter">${t.note.length}/${fe}</span>
       </div>
-    `}_renderActions(t){let s=this.hass?.user?.is_admin?a`
+    `}_renderActions(t){let s=this._armed?"Tap again to delete":"Delete",n=this.hass?.user?.is_admin?a`
           <ha-control-button
             class="delete ${this._armed?"armed":""}"
-            .label=${this._armed?"Tap again to delete":"Delete"}
+            .label=${s}
             .disabled=${this._busy}
             @click=${()=>this._delete()}
           >
-            ${this._armed?"Tap again to delete":"Delete"}
+            <span>${s}</span>
           </ha-control-button>
         `:d;return a`
       <ha-control-button-group class="actions">
@@ -400,9 +400,9 @@ var U=globalThis,I=U.ShadowRoot&&(U.ShadyCSS===void 0||U.ShadyCSS.nativeShadow)&
           .disabled=${t===null||this._busy}
           @click=${()=>t&&this._save(t)}
         >
-          Save
+          <span>Save</span>
         </ha-control-button>
-        ${s}
+        ${n}
       </ha-control-button-group>
     `}_renderVideo(t){return this._videoNote!==void 0?a`<div class="video-note">${this._videoNote}</div>`:a`
       <video
