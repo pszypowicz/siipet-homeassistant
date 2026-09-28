@@ -15,6 +15,7 @@ import {
   POOP,
   sent,
   settle,
+  stubConfirmationDialog,
   stubTileParts,
   type TestCard,
   text,
@@ -1188,6 +1189,7 @@ describe("answers out of order", () => {
   }
 
   it("does not bring back a deleted visit with an old answer for the same day", async () => {
+    stubConfirmationDialog(true);
     const fake = fakeHass();
     const card = await mount(fake);
     find(card, ".prev-day")!.click();
@@ -1211,8 +1213,6 @@ describe("answers out of order", () => {
     );
     await settle(card);
     const editor = find(card, "siipet-visit-editor")!;
-    (editor.shadowRoot!.querySelector(".delete") as HTMLElement).click();
-    await settle(card);
     (editor.shadowRoot!.querySelector(".delete") as HTMLElement).click();
     await settle(card);
     expect(shownEvents(card)).toEqual(["ev-2"]);
@@ -1302,14 +1302,13 @@ describe("a change in another card", () => {
       inEditor(editor, ".save")!.click();
     } else {
       inEditor(editor, ".delete")!.click();
-      await settle(card);
-      inEditor(editor, ".delete")!.click();
     }
   }
 
   it.each(["save", "delete"] as const)(
     "reads again in the other cards after a %s",
     async (action) => {
+      stubConfirmationDialog(true);
       const fake = fakeHass();
       const luna = await mount(fake);
       const milo = await mount(fake, { cat: "dev-milo", hide_cat_picker: true });
@@ -1728,23 +1727,16 @@ describe("open a visit from a link", () => {
     expect(location.search).toBe("");
   });
 
-  it("gives a linked visit its own editor, without the armed Delete of the last one", async () => {
+  it("gives a linked visit its own editor, distinct from the last one", async () => {
     const fake = fakeHass({ visit: { date: "2026-09-27", visit: LINGERING } });
     const card = await mount(fake);
     const first = await openFirstVisit(card);
-    inEditor(first, ".delete")!.click();
-    await settle(card);
-    expect(text(inEditor(first, ".delete"))).toBe("Tap again to delete");
 
     navigate("/dash?siipet_visit=ev-2");
     await settle(card);
     expect(editing(card)?.event_id).toBe("ev-2");
     const second = find(card, "siipet-visit-editor")!;
-    inEditor(second, ".delete")!.click();
-    await settle(card);
 
-    expect(fake.callService).not.toHaveBeenCalled();
-    expect(text(inEditor(second, ".delete"))).toBe("Tap again to delete");
     expect(second).not.toBe(first);
   });
 

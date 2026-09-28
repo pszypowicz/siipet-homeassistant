@@ -1,5 +1,5 @@
 import { render } from "lit";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   catsResult,
@@ -11,6 +11,7 @@ import {
   POOP,
   sent,
   settle,
+  stubConfirmationDialog,
   stubTileParts,
   text,
   type TestCard,
@@ -21,9 +22,16 @@ beforeAll(async () => {
   await import("../src/siipet-visits-card");
 });
 
+// A test that needs a delete confirmation stubs window.loadCardHelpers itself;
+// this keeps it at the tile part stub's default between tests.
+beforeEach(() => {
+  stubTileParts();
+});
+
 afterEach(() => {
   document.body.replaceChildren();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
@@ -291,30 +299,38 @@ describe("edit view", () => {
     expect((inEditor(editor, ".memo-input") as unknown as HTMLInputElement).value).toBe("soft");
   });
 
-  it("keeps the Save and Delete text in a span, in the normal and the armed state", async () => {
+  it("keeps the Save and Delete text in a span", async () => {
     const editor = await openVisit(await mount(fakeHass()));
     expect(inEditor(editor, ".save")!.querySelector("span")?.textContent).toBe("Save");
+    expect(inEditor(editor, ".delete")?.label).toBe("Delete");
     expect(inEditor(editor, ".delete")!.querySelector("span")?.textContent).toBe("Delete");
+  });
+
+  it("opens a confirmation dialog with a warning before deleting", async () => {
+    const showConfirmationDialog = stubConfirmationDialog(true);
+    const editor = await openVisit(await mount(fakeHass()));
 
     inEditor(editor, ".delete")!.click();
     await settle();
-    expect(inEditor(editor, ".delete")!.querySelector("span")?.textContent).toBe(
-      "Tap again to delete",
-    );
+
+    expect(showConfirmationDialog).toHaveBeenCalledWith(editor, {
+      title: "Delete this visit?",
+      text: "SiiPet deletes the visit and its recording. You cannot undo this.",
+      confirmText: "Delete",
+      dismissText: "Cancel",
+      destructive: true,
+    });
   });
 
-  it("deletes after a second tap on Delete", async () => {
+  it("deletes after confirming the dialog", async () => {
+    stubConfirmationDialog(true);
     const fake = fakeHass();
     const card = await mount(fake);
     const editor = await openVisit(card);
 
     inEditor(editor, ".delete")!.click();
-    await settle();
-    expect(text(inEditor(editor, ".delete"))).toBe("Tap again to delete");
-    expect(fake.callService).not.toHaveBeenCalled();
-
-    inEditor(editor, ".delete")!.click();
     await settle(card);
+
     expect(fake.callService).toHaveBeenCalledWith(
       "siipet",
       "delete_visit",
@@ -325,13 +341,39 @@ describe("edit view", () => {
     expect(find(card, "siipet-visit-editor")).toBeNull();
   });
 
-  it("names the armed Delete for screen readers", async () => {
-    const editor = await openVisit(await mount(fakeHass()));
-    expect(inEditor(editor, ".delete")?.label).toBe("Delete");
+  it("keeps the editor open and does not delete when the dialog is canceled", async () => {
+    stubConfirmationDialog(false);
+    const fake = fakeHass();
+    const card = await mount(fake);
+    const editor = await openVisit(card);
 
     inEditor(editor, ".delete")!.click();
-    await settle();
-    expect(inEditor(editor, ".delete")?.label).toBe("Tap again to delete");
+    await settle(card);
+
+    expect(fake.callService).not.toHaveBeenCalled();
+    expect(find(card, "siipet-visit-editor")).toBe(editor);
+  });
+
+  it("falls back to window.confirm when the card helpers have no confirmation dialog", async () => {
+    const confirm = vi.fn().mockReturnValue(true);
+    vi.stubGlobal("confirm", confirm);
+    const fake = fakeHass();
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+
+    inEditor(editor, ".delete")!.click();
+    await settle(card);
+
+    expect(confirm).toHaveBeenCalledWith(
+      "Delete this visit?\nSiiPet deletes the visit and its recording. You cannot undo this.",
+    );
+    expect(fake.callService).toHaveBeenCalledWith(
+      "siipet",
+      "delete_visit",
+      { event_id: "ev-1" },
+      undefined,
+      false,
+    );
   });
 
   it("keeps the value-changed event of the type inside the editor", async () => {
@@ -369,20 +411,6 @@ describe("edit view", () => {
     render(pee.icon, container);
     expect(text(container)).toBe("Pee");
     expect(container.querySelector("ha-icon")?.getAttribute("icon")).toBe("mdi:water");
-  });
-
-  it("asks again for a tap on Delete after 5 seconds", async () => {
-    const fake = fakeHass();
-    const editor = await openVisit(await mount(fake));
-    vi.useFakeTimers();
-
-    inEditor(editor, ".delete")!.click();
-    await vi.advanceTimersByTimeAsync(5001);
-    expect(text(inEditor(editor, ".delete"))).toBe("Delete");
-
-    inEditor(editor, ".delete")!.click();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(fake.callService).not.toHaveBeenCalled();
   });
 
   it("shows Delete only to admins", async () => {
@@ -508,36 +536,13 @@ describe("edit view", () => {
     );
   });
 
-  it("resets an armed delete when the editor detaches and reattaches", async () => {
-    const fake = fakeHass();
-    const editor = document.createElement("siipet-visit-editor") as HTMLElement &
-      Record<string, unknown>;
-    editor.hass = fake.hass;
-    editor.visit = POOP;
-    editor.cats = catsResult().cats;
-    document.body.append(editor);
-    await settle();
-
-    inEditor(editor, ".delete")!.click();
-    await settle();
-    expect(text(inEditor(editor, ".delete"))).toBe("Tap again to delete");
-
-    editor.remove();
-    document.body.append(editor);
-    await settle();
-
-    inEditor(editor, ".delete")!.click();
-    await settle();
-    expect(fake.callService).not.toHaveBeenCalled();
-    expect(text(inEditor(editor, ".delete"))).toBe("Tap again to delete");
-  });
-
   it.each([
     { action: "save", fails: false },
     { action: "save", fails: true },
     { action: "delete", fails: false },
     { action: "delete", fails: true },
   ])("tells when a $action starts and ends (fails: $fails)", async ({ action, fails }) => {
+    stubConfirmationDialog(true);
     const fake = fakeHass();
     if (fails) {
       fake.callService.mockRejectedValue({ message: "boom" });
@@ -560,8 +565,6 @@ describe("edit view", () => {
       await settle();
       inEditor(editor, ".save")!.click();
     } else {
-      inEditor(editor, ".delete")!.click();
-      await settle();
       inEditor(editor, ".delete")!.click();
     }
     await settle();
@@ -834,6 +837,7 @@ describe("edit view", () => {
   });
 
   it("shows the error of a failed delete and keeps the editor open", async () => {
+    stubConfirmationDialog(true);
     const fake = fakeHass();
     fake.callService.mockRejectedValue({
       code: "home_assistant_error",
@@ -842,8 +846,6 @@ describe("edit view", () => {
     const card = await mount(fake);
     const editor = await openVisit(card);
 
-    inEditor(editor, ".delete")!.click();
-    await settle();
     inEditor(editor, ".delete")!.click();
     await settle(card);
 

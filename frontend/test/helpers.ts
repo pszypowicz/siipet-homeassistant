@@ -24,6 +24,15 @@ export function stubTileParts(skip: string[] = []): void {
   (window as { loadCardHelpers?: () => Promise<unknown> }).loadCardHelpers = async () => ({});
 }
 
+/** Stubs window.loadCardHelpers to resolve a delete confirmation dialog to `result`. */
+export function stubConfirmationDialog(result: boolean): ReturnType<typeof vi.fn> {
+  const showConfirmationDialog = vi.fn().mockResolvedValue(result);
+  (
+    window as unknown as { loadCardHelpers: () => Promise<{ showConfirmationDialog: unknown }> }
+  ).loadCardHelpers = async () => ({ showConfirmationDialog });
+  return showConfirmationDialog;
+}
+
 export const POOP: Visit = {
   event_id: "ev-1",
   start: "2026-09-27T20:11:00+02:00",

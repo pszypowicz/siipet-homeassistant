@@ -124,7 +124,7 @@ The card shows the visits of one cat on one day, newest first:
   Only today and the 30 days before it open.
 - The cat strip changes the cat. **Unknown** shows while visits of the last 7 days have no cat.
 - Tap a visit to open it. You can play the recording, change the cats, the type, and the memo, and save.
-- Administrators can also delete a visit. Tap **Delete**, then tap again within 5 seconds.
+- Administrators can also delete a visit. Tap **Delete** and confirm in the dialog that follows.
 
 The card uses the tile parts of the Home Assistant frontend, so it looks like the tile cards around it.
 If a Home Assistant update removes one of these parts, the card names the missing part.

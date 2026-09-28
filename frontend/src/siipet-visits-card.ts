@@ -920,9 +920,9 @@ export class SiiPetVisitsCard extends LitElement {
 
   private _renderMain(cats: CatsResult, selected: string): TemplateResult {
     if (this._editing) {
-      // Another visit gets a new editor, so an armed Delete or a pending save
-      // of the last visit does not act on the new one. The old editor still
-      // sends its close, which `_closeEditor` tells apart by its element.
+      // Another visit gets a new editor, so a pending save or delete of the
+      // last visit does not act on the new one. The old editor still sends
+      // its close, which `_closeEditor` tells apart by its element.
       return html`${keyed(
         this._editing.event_id,
         html`

@@ -9,8 +9,29 @@ import { cardStyles } from "./styles";
 import type { Cat, HomeAssistant, Visit } from "./types";
 
 const MEMO_LENGTH = 200;
-const DELETE_WINDOW_MS = 5000;
 const TYPES = ["pee", "poop", "lingering"] as const;
+const DELETE_TITLE = "Delete this visit?";
+const DELETE_TEXT = "SiiPet deletes the visit and its recording. You cannot undo this.";
+
+interface ConfirmationDialogParams {
+  title?: string;
+  text?: string;
+  confirmText?: string;
+  dismissText?: string;
+  destructive?: boolean;
+}
+
+interface CardHelpers {
+  showConfirmationDialog?: (
+    element: HTMLElement,
+    params: ConfirmationDialogParams,
+  ) => Promise<boolean>;
+}
+
+interface HelperWindow {
+  loadCardHelpers?: () => Promise<CardHelpers>;
+  confirm(message?: string): boolean;
+}
 
 // ha-control-select stacks an option's icon and label in a column that does not
 // fit the tile control height, so the icon template puts both in one row instead
@@ -50,7 +71,6 @@ export class SiiPetVisitEditor extends LitElement {
     _videoNote: { state: true },
     _error: { state: true },
     _busy: { state: true },
-    _armed: { state: true },
     _partialEdit: { state: true },
   };
 
@@ -110,11 +130,6 @@ export class SiiPetVisitEditor extends LitElement {
       ha-control-button.delete {
         --control-button-icon-color: var(--error-color);
       }
-      ha-control-button.delete.armed {
-        --control-button-background-color: var(--error-color);
-        --control-button-background-opacity: 1;
-        --control-button-icon-color: white;
-      }
       .memo-field {
         position: relative;
       }
@@ -156,26 +171,15 @@ export class SiiPetVisitEditor extends LitElement {
   declare _videoNote?: string;
   declare _error?: string;
   declare _busy: boolean;
-  declare _armed: boolean;
   declare _partialEdit: boolean;
 
-  private _disarm?: ReturnType<typeof setTimeout>;
   private _resolveSeq = 0;
 
   constructor() {
     super();
     this.cats = [];
     this._busy = false;
-    this._armed = false;
     this._partialEdit = false;
-  }
-
-  disconnectedCallback(): void {
-    super.disconnectedCallback();
-    clearTimeout(this._disarm);
-    // A view switch detaches the card (and this editor with it) without a user
-    // tap on Delete, so an arm from before the detach must not survive it.
-    this._armed = false;
   }
 
   protected willUpdate(changed: PropertyValues<this>): void {
@@ -185,10 +189,10 @@ export class SiiPetVisitEditor extends LitElement {
     const previous = changed.get("visit") as Visit | undefined;
     if (previous?.event_id === this.visit.event_id) {
       // A refreshed visit object for the same event: the Save baseline, the
-      // form, the error, and the busy and armed state stay as they are. The
-      // cover and the stool photo render straight from `visit`, so they renew
-      // on their own. The recording renews too, unless it is playing, so a
-      // refresh does not interrupt it.
+      // form, the error, and the busy state stay as they are. The cover and
+      // the stool photo render straight from `visit`, so they renew on their
+      // own. The recording renews too, unless it is playing, so a refresh
+      // does not interrupt it.
       if (this.visit.has_video && !this._isVideoPlaying()) {
         void this._resolveVideo(this.visit.event_id);
       }
@@ -291,16 +295,25 @@ export class SiiPetVisitEditor extends LitElement {
     }
   }
 
+  private async _confirmDelete(): Promise<boolean> {
+    const win = window as unknown as HelperWindow;
+    const helpers = await win.loadCardHelpers?.();
+    if (helpers?.showConfirmationDialog) {
+      return helpers.showConfirmationDialog(this, {
+        title: DELETE_TITLE,
+        text: DELETE_TEXT,
+        confirmText: "Delete",
+        dismissText: "Cancel",
+        destructive: true,
+      });
+    }
+    return win.confirm(`${DELETE_TITLE}\n${DELETE_TEXT}`);
+  }
+
   private async _delete(): Promise<void> {
-    if (!this._armed) {
-      this._armed = true;
-      this._disarm = setTimeout(() => {
-        this._armed = false;
-      }, DELETE_WINDOW_MS);
+    if (!(await this._confirmDelete())) {
       return;
     }
-    clearTimeout(this._disarm);
-    this._armed = false;
     this._setBusy(true);
     this._error = undefined;
     try {
@@ -406,16 +419,15 @@ export class SiiPetVisitEditor extends LitElement {
   }
 
   private _renderActions(data: Record<string, unknown> | null): TemplateResult {
-    const deleteLabel = this._armed ? "Tap again to delete" : "Delete";
     const remove = this.hass?.user?.is_admin
       ? html`
           <ha-control-button
-            class="delete ${this._armed ? "armed" : ""}"
-            .label=${deleteLabel}
+            class="delete"
+            .label=${"Delete"}
             .disabled=${this._busy}
             @click=${() => this._delete()}
           >
-            <span>${deleteLabel}</span>
+            <span>Delete</span>
           </ha-control-button>
         `
       : nothing;
