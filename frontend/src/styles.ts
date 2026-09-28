@@ -120,7 +120,13 @@ export const cardStyles = css`
     color: var(--error-color);
     background-color: color-mix(in srgb, var(--error-color) 20%, transparent);
   }
-  /* Taps on the poster pass through to the tap area of the row. */
+  /* ha-tile-container pads its features slot, so the poster's background and
+     radius would sit inside that padding instead of filling the row; a plain
+     wrapper takes the slot and padding, and the poster box fills the wrapper.
+     Taps on both pass through to the tap area of the row. */
+  .poster-slot {
+    pointer-events: none;
+  }
   .poster {
     position: relative;
     pointer-events: none;
@@ -129,7 +135,7 @@ export const cardStyles = css`
     border-radius: var(--ha-border-radius-lg, 12px);
     background-color: var(--secondary-background-color);
   }
-  .lingering .poster {
+  .lingering .poster-slot {
     width: 50%;
   }
   .cover {

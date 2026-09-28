@@ -198,6 +198,16 @@ describe("day view", () => {
     expect(lingering.querySelector(".cover")).toBeNull();
   });
 
+  it("wraps the poster so its background stays inside the row instead of the tile padding", async () => {
+    const card = await mount(fakeHass());
+    const [poop] = findAll(card, ".visit");
+    const slot = poop.querySelector('[slot="features"]');
+    expect(slot?.classList.contains("poster-slot")).toBe(true);
+    const poster = slot?.querySelector(".poster");
+    expect(poster).not.toBeNull();
+    expect(poster?.querySelector(".cover")?.getAttribute("src")).toBe(POOP.cover);
+  });
+
   it("marks a visit that has no cloud recording", async () => {
     const day = { summary: { visits: 1, pee: 0, poop: 1, abnormal: 0 } };
     const card = await mount(

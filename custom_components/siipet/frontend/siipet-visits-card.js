@@ -96,7 +96,9 @@ var U=globalThis,I=U.ShadowRoot&&(U.ShadyCSS===void 0||U.ShadyCSS.nativeShadow)&
         <span slot="secondary">${s.label} · ${K(i.duration)} ${r}</span>
       </ha-tile-info>
       ${d}
-      <div slot="features" class="poster">${h} ${p} ${u}</div>
+      <div slot="features" class="poster-slot">
+        <div class="poster">${h} ${p} ${u}</div>
+      </div>
     </ha-tile-container>
   `}function pt(i,e,t){return i===void 0?l:i.length===0?a`<div class="message empty">${e?"No visits are waiting.":"No visits on this day."}</div>`:a`<div class="timeline">
     ${i.map(s=>Ue(s,e,t))}
@@ -218,7 +220,13 @@ var U=globalThis,I=U.ShadowRoot&&(U.ShadyCSS===void 0||U.ShadyCSS.nativeShadow)&
     color: var(--error-color);
     background-color: color-mix(in srgb, var(--error-color) 20%, transparent);
   }
-  /* Taps on the poster pass through to the tap area of the row. */
+  /* ha-tile-container pads its features slot, so the poster's background and
+     radius would sit inside that padding instead of filling the row; a plain
+     wrapper takes the slot and padding, and the poster box fills the wrapper.
+     Taps on both pass through to the tap area of the row. */
+  .poster-slot {
+    pointer-events: none;
+  }
   .poster {
     position: relative;
     pointer-events: none;
@@ -227,7 +235,7 @@ var U=globalThis,I=U.ShadowRoot&&(U.ShadyCSS===void 0||U.ShadyCSS.nativeShadow)&
     border-radius: var(--ha-border-radius-lg, 12px);
     background-color: var(--secondary-background-color);
   }
-  .lingering .poster {
+  .lingering .poster-slot {
     width: 50%;
   }
   .cover {

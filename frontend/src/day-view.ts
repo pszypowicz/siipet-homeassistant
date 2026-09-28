@@ -242,7 +242,9 @@ function renderVisit(
         <span slot="secondary">${style.label} · ${durationText(visit.duration)} ${memo}</span>
       </ha-tile-info>
       ${chip}
-      <div slot="features" class="poster">${cover} ${stool} ${cameraOnly}</div>
+      <div slot="features" class="poster-slot">
+        <div class="poster">${cover} ${stool} ${cameraOnly}</div>
+      </div>
     </ha-tile-container>
   `;
 }
