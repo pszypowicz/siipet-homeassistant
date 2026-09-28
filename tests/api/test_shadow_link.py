@@ -298,7 +298,9 @@ async def test_denied_camera_drops_its_state() -> None:
 async def test_denied_camera_is_tried_again() -> None:
     """After the retry time, a denied camera starts on the open connection."""
     broker = _broker(deny_subscribe={"SN0002"})
-    timings = replace(FAST, denied_retry=timedelta(seconds=0.2))
+    # A long read interval keeps a periodic re-read from masking a retry that
+    # ignores its own replies, so the state must come from the retry itself.
+    timings = replace(FAST, denied_retry=timedelta(seconds=0.2), read_interval=30.0)
     async with _running(broker, timings=timings) as running:
         await _until(lambda: running.link.status.denied_cameras == 1)
         broker.deny_subscribe.clear()
@@ -482,7 +484,13 @@ async def test_partly_refused_camera_ignores_updates() -> None:
             shadow_topic("SN0002", "prod_configInfo", "update/documents"),
             load_fixture("shadow_config_update.json"),
         )
-        await asyncio.sleep(0.1)
+        await broker.push(
+            shadow_topic("SN0001", "prod_configInfo", "update/documents"),
+            load_fixture("shadow_config_update.json"),
+        )
+        # Messages arrive in order on one connection, so SN0001's new battery
+        # is a barrier: SN0002's update was already handled by this point.
+        await _until(lambda: running.recorder.states["SN0001"].battery == 81)
         assert "SN0002" not in running.recorder.states
         assert running.link.status.denied_cameras == 1
 
@@ -518,14 +526,21 @@ async def test_failed_callback_logs_one_warning_per_camera(
     for name in ("Bathroom", "Hallway"):
         matching = [r for r in warnings if name in r.getMessage()]
         assert len(matching) == 1
-        assert "RuntimeError" in matching[0].getMessage()
-    debugs = [r for r in caplog.records if r.levelno == logging.DEBUG]
-    assert any("RuntimeError" in r.getMessage() for r in debugs)
+        message = matching[0].getMessage()
+        assert "RuntimeError" in message
+        debugs = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.DEBUG and r.getMessage() == message
+        ]
+        assert debugs
     assert len(running.broker.connections) == 1
+    for private in PRIVATE:
+        assert private not in caplog.text
 
 
 async def test_strike_resets_after_a_success() -> None:
-    """A strike from a failed start does not add to one from a later start."""
+    """A successful start clears an earlier strike, so a later failed start does not deny the camera."""
     broker = _broker(close_on_get_budget={"SN0002": 1})
     async with _running(broker) as running:
         await _until(lambda: len(running.recorder.states) == 2)

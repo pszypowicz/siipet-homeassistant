@@ -320,7 +320,7 @@ class ShadowLink:
             for suffix in REPLIES
         ]
         if not all(await session.subscribe(topics, self._timings.reply)):
-            # A camera that set_cameras renamed during the wait gets no denial.
+            # A camera that set_cameras replaced or removed during the wait gets no denial.
             if self._cameras.get(sn) == shadows:
                 self._deny(sn)
             return

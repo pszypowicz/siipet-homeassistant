@@ -227,6 +227,7 @@ async def test_dropped_state_turns_entities_unavailable(
 ) -> None:
     """A camera whose state is dropped turns its entities unavailable."""
     await _setup(hass, config_entry, shadow_links)
+    assert hass.states.get("sensor.bathroom_battery").state == "72"
     shadow_links[0].on_state("SN0001", None)
     await hass.async_block_till_done()
     assert hass.states.get("sensor.bathroom_battery").state == STATE_UNAVAILABLE
