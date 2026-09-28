@@ -169,7 +169,7 @@ export class SiiPetVisitEditor extends LitElement {
       // form, the error, and the busy and armed state stay as they are. The
       // cover and the stool photo render straight from `visit`, so they renew
       // on their own. The recording renews too, unless it is playing, so a
-      // refresh does not interrupt it, or it failed to play.
+      // refresh does not interrupt it.
       if (this.visit.has_video && !this._isVideoPlaying()) {
         void this._resolveVideo(this.visit.event_id);
       }
