@@ -1063,7 +1063,7 @@ These results come from tests against a real account.
   - `battery.SOC` was an integer on three cameras and a fraction on one.
   - `Data.IotCore.Endpoint` uses an `https://` scheme.
 - The integration's own MQTT connection ran for 120 seconds against the owner account. It connected and reported a state for all 4 cameras. Its log held no serial number, shadow name, identity, or signed URL.
-- After the 0.2.0 deploy, the invited-account instance created the device state entities of all 4 cameras. The owner instance showed battery values for all 4 cameras, all online, privacy mode off, and update mode manual. One camera on external power reported `charging: true` at 99% battery, the first live sample with that value.
+- After the deploy of the device state, the invited-account instance created the device state entities of all 4 cameras. The owner instance showed battery values for all 4 cameras, all online, privacy mode off, and update mode manual. One camera on external power reported `charging: true` at 99% battery, the first live sample with that value.
 
 ## Open questions
 
