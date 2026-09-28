@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import timedelta
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 from homeassistant.components.media_player import BrowseError
@@ -31,6 +32,8 @@ from custom_components.siipet.api import (
 from .common import (
     EMPTY_DAY,
     TODAY,
+    VIDEO,
+    day_folder,
     fixture_day,
     load_data,
     md5_hex,
@@ -256,3 +259,28 @@ async def test_resolve_video_not_in_the_local_copy(
     assert media.url.startswith(
         "https://media-bucket.s3.amazonaws.com/events/ev-1/video.mp4?"
     )
+
+
+async def test_resolve_video_with_a_missing_local_file(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+) -> None:
+    """A stored recording that is gone from the disk resolves to S3, then downloads again."""
+    serve_days(mock_client, {TODAY: (mirror_visit(),)})
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7)
+    (day_folder(media_dir) / "ev-1.mp4").unlink()
+
+    media = await async_resolve_media(hass, f"{ROOT}/visit/ev-1", None)
+    assert media.url.startswith(
+        "https://media-bucket.s3.amazonaws.com/events/ev-1/video.mp4?"
+    )
+
+    await config_entry.runtime_data.coordinator.async_refresh()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert (day_folder(media_dir) / "ev-1.mp4").read_bytes() == VIDEO
+    media = await async_resolve_media(hass, f"{ROOT}/visit/ev-1", None)
+    assert media.url == "/api/siipet/recording/ev-1"

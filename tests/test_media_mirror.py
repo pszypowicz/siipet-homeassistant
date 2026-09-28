@@ -14,6 +14,7 @@ from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
+import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_time_changed,
@@ -843,3 +844,85 @@ async def test_forget_drops_a_failed_job_of_an_unpolled_day(
     await _refresh(hass, config_entry)
     assert s3_gets(aioclient_mock, "events/ev-1/video.mp4") == 1
     assert not day_folder(media_dir, old_day).exists()
+
+
+@pytest.mark.parametrize(
+    ("changes", "gone"),
+    [
+        ({"stool_key": None, "stool_size": None}, "ev-1.stool.jpg"),
+        ({"cloud_stored": False}, "ev-1.mp4"),
+    ],
+)
+async def test_a_removed_media_key_deletes_its_file(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+    changes: dict[str, Any],
+    gone: str,
+) -> None:
+    """A stool photo or a recording that left the current data leaves the copy."""
+    serve_days(mock_client, {TODAY: (mirror_visit(),)})
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7)
+    folder = day_folder(media_dir)
+    assert (folder / gone).exists()
+
+    serve_days(mock_client, {TODAY: (mirror_visit(**changes),)})
+    await _refresh(hass, config_entry)
+    assert sorted(path.name for path in folder.iterdir()) == sorted(
+        {"ev-1.mp4", "ev-1.cover.jpg", "ev-1.stool.jpg"} - {gone}
+    )
+
+
+async def test_a_changed_size_downloads_the_file_again(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+) -> None:
+    """A stored file whose size no longer matches the current data is replaced."""
+    new_cover = b"cover-ev-1-new"
+    cover = {"data": COVER}
+
+    async def respond(method: str, url: Any, data: Any) -> AiohttpClientMockResponse:
+        return AiohttpClientMockResponse(method, url, response=cover["data"])
+
+    aioclient_mock.get(S3 + "events/ev-1/cover.jpg", side_effect=respond)
+    serve_days(mock_client, {TODAY: (mirror_visit(),)})
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7)
+    assert (day_folder(media_dir) / "ev-1.cover.jpg").read_bytes() == COVER
+
+    cover["data"] = new_cover
+    serve_days(mock_client, {TODAY: (mirror_visit(cover_size=len(new_cover)),)})
+    await _refresh(hass, config_entry)
+    assert (day_folder(media_dir) / "ev-1.cover.jpg").read_bytes() == new_cover
+    assert s3_gets(aioclient_mock, "events/ev-1/cover.jpg") == 2
+    assert s3_gets(aioclient_mock, "events/ev-1/video.mp4") == 1
+
+
+@pytest.mark.parametrize(("more", "kept"), [(False, False), (True, True)])
+async def test_a_visit_that_left_its_polled_day(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+    more: bool,
+    kept: bool,
+) -> None:
+    """A complete day list without the visit deletes its files, a partial one does not."""
+    serve_days(mock_client, {TODAY: (mirror_visit(),)})
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7)
+    assert (day_folder(media_dir) / "ev-1.mp4").exists()
+
+    mock_client.get_day.side_effect = lambda requested, **_: replace(
+        fixture_day(), visits=(), more=more and requested == TODAY
+    )
+    await _refresh(hass, config_entry)
+    assert (day_folder(media_dir) / "ev-1.mp4").exists() is kept
+    assert (day_folder(media_dir) / "ev-1.cover.jpg").exists() is kept

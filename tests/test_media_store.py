@@ -292,6 +292,26 @@ async def test_delete_visit(hass: HomeAssistant, tmp_path: Path) -> None:
     assert store.path(MediaFile.COVER, "ev-2") is not None
 
 
+async def test_delete_one_file_of_a_visit(hass: HomeAssistant, tmp_path: Path) -> None:
+    """Deleting one file keeps the other files of the visit, and its day."""
+    store = await _store(hass, tmp_path)
+    await _write(store, MediaFile.RECORDING, "ev-1", b"video")
+    await _write(store, MediaFile.COVER, "ev-1", b"cover")
+    await _write(store, MediaFile.COVER, "ev-2", b"cover", date(2026, 9, 25))
+    assert store.visit_ids(DAY) == {"ev-1"}
+    assert store.size(MediaFile.COVER, "ev-1") == 5
+
+    await store.async_delete_visit("ev-1", [MediaFile.COVER])
+    assert store.path(MediaFile.COVER, "ev-1") is None
+    assert not (tmp_path / ".siipet" / "2026-09-26" / "ev-1.cover.jpg").exists()
+    assert store.path(MediaFile.RECORDING, "ev-1") is not None
+    assert store.visit_ids(DAY) == {"ev-1"}
+
+    await store.async_delete_visit("ev-1", [MediaFile.RECORDING])
+    assert store.visit_ids(DAY) == set()
+    assert store.stats() == (1, 5)
+
+
 async def test_failed_delete_is_logged_once(
     hass: HomeAssistant, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

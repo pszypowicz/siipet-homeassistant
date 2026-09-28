@@ -167,7 +167,7 @@ class SiiPetMirror:
                 self.hass, self._async_daily_trigger, hour=0, minute=5, second=0
             )
         )
-        self._queue_data(self.coordinator.data)
+        await self._async_update()
         self.entry.async_create_background_task(
             self.hass, self._async_backfill(), "siipet media backfill"
         )
@@ -205,7 +205,44 @@ class SiiPetMirror:
 
     @callback
     def _async_on_update(self) -> None:
-        self._queue_data(self.coordinator.data)
+        self.entry.async_create_background_task(
+            self.hass, self._async_update(), "siipet media update"
+        )
+
+    async def _async_update(self) -> None:
+        """Delete the stored files that changed, and queue the missing ones."""
+        data = self.coordinator.data
+        await self._async_delete_changed(data)
+        self._queue_data(data)
+
+    async def _async_delete_changed(self, data: SiiPetData) -> None:
+        """Delete the stored files that the polled days no longer match.
+
+        A file goes when its key left the data or its size changed. The files
+        in the folder of a polled day go when no polled day lists their visit.
+        """
+        listed: set[str] = set()
+        for visits in data.days.values():
+            for visit in visits:
+                listed.add(visit.event_id)
+                if stale := self._stale_files(visit):
+                    await self.store.async_delete_visit(visit.event_id, stale)
+        if data.more:
+            # A day list with more pages can leave out a visit that exists.
+            return
+        for day in data.days:
+            for event_id in self.store.visit_ids(day) - listed:
+                await self.store.async_delete_visit(event_id)
+
+    def _stale_files(self, visit: Visit) -> list[MediaFile]:
+        """Return the stored files of a visit with no key or with a new size."""
+        sizes = {job.kind: job.size for job in _visit_jobs(visit, visit_day(visit))}
+        return [
+            kind
+            for kind in MediaFile
+            if (stored := self.store.size(kind, visit.event_id)) is not None
+            and (kind not in sizes or sizes[kind] not in (None, stored))
+        ]
 
     def _queue_data(self, data: SiiPetData) -> None:
         # The current data goes first, so a fresh avatar key or a changed

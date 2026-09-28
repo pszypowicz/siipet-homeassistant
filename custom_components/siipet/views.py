@@ -47,7 +47,7 @@ class SiiPetImageView(HomeAssistantView):
         if not entries:
             return web.Response(status=HTTPStatus.SERVICE_UNAVAILABLE)
         media = entries[0].runtime_data.media
-        if (path := media.local_image(media_kind, item_id)) is not None:
+        if (path := await media.async_local_image(media_kind, item_id)) is not None:
             return web.FileResponse(path, headers={"Cache-Control": IMAGE_CACHE})
         try:
             body = await media.async_fetch_image(media_kind, item_id)
@@ -80,7 +80,7 @@ class SiiPetRecordingView(HomeAssistantView):
         entries = self.hass.config_entries.async_loaded_entries(DOMAIN)
         if not entries:
             return web.Response(status=HTTPStatus.SERVICE_UNAVAILABLE)
-        path = entries[0].runtime_data.media.local_recording(event_id)
+        path = await entries[0].runtime_data.media.async_local_recording(event_id)
         if path is None:
             return web.Response(status=HTTPStatus.NOT_FOUND)
         return web.FileResponse(path, headers={"Cache-Control": RECORDING_CACHE})

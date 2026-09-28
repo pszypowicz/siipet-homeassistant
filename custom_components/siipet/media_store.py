@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterable, Callable, Mapping
+from collections.abc import AsyncIterable, Callable, Iterable, Mapping
 from datetime import date
 from enum import StrEnum
 from functools import partial
@@ -129,6 +129,33 @@ class MediaStore:
         entry = self._avatars.get(pet_id)
         return entry[1] if entry and entry[0] == key_hash(key) else None
 
+    def size(self, kind: MediaFile, event_id: str) -> int | None:
+        """Return the size of a stored visit file, or None."""
+        entry = self._files.get(event_id, {}).get(kind)
+        return entry[1] if entry else None
+
+    def visit_ids(self, day: date) -> set[str]:
+        """Return the ids of the visits with a stored file in the folder of `day`."""
+        name = day.isoformat()
+        return {
+            event_id
+            for event_id, files in self._files.items()
+            if any(path.parent.name == name for path, _ in files.values())
+        }
+
+    def drop(self, kind: MediaFile, event_id: str) -> Path | None:
+        """Remove a visit file from the index, and return its path."""
+        files = self._files.get(event_id)
+        if files is None or (entry := files.pop(kind, None)) is None:
+            return None
+        if not files:
+            del self._files[event_id]
+        return entry[0]
+
+    def drop_avatar(self, pet_id: str) -> None:
+        """Remove the avatar of a cat from the index."""
+        self._avatars.pop(pet_id, None)
+
     def stats(self) -> tuple[int, int]:
         """Return the number of stored files and their total size in bytes."""
         sizes = [size for files in self._files.values() for _, size in files.values()]
@@ -189,13 +216,16 @@ class MediaStore:
             if old and old[1] != target:
                 await self._async_unlink(old[1])
 
-    async def async_delete_visit(self, event_id: str) -> None:
-        """Delete the files of a visit, without waiting for a running download.
+    async def async_delete_visit(
+        self, event_id: str, kinds: Iterable[MediaFile] = tuple(MediaFile)
+    ) -> None:
+        """Delete files of a visit, all by default, without waiting for a download.
 
         The index drops the files at once, and the caller keeps a running
         download of the same visit from storing its file.
         """
-        for path, _ in self._files.pop(event_id, {}).values():
+        paths = [path for kind in kinds if (path := self.drop(kind, event_id))]
+        for path in paths:
             await self._async_unlink(path)
 
     async def async_delete_before(self, day: date) -> None:

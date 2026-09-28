@@ -97,24 +97,46 @@ class SiiPetMedia:
         except SiiPetError as err:
             raise MediaUnavailable("Could not read the visit") from err
 
-    def local_recording(self, event_id: str) -> Path | None:
-        """Return the stored recording of a visit, or None."""
-        return self.store.path(MediaFile.RECORDING, event_id) if self.store else None
+    async def async_local_recording(self, event_id: str) -> Path | None:
+        """Return the stored recording of a visit, or None.
 
-    def local_image(self, kind: MediaKind, item_id: str) -> Path | None:
-        """Return a stored cover, stool photo, or current avatar, or None."""
+        A stored file that is gone from the disk leaves the index, so the
+        local copy downloads it again.
+        """
+        if self.store is None:
+            return None
+        path = self.store.path(MediaFile.RECORDING, event_id)
+        if path is None or await self._async_exists(path):
+            return path
+        self.store.drop(MediaFile.RECORDING, event_id)
+        return None
+
+    async def async_local_image(self, kind: MediaKind, item_id: str) -> Path | None:
+        """Return a stored cover, stool photo, or current avatar, or None.
+
+        A stored file that is gone from the disk leaves the index, so the
+        local copy downloads it again.
+        """
         if self.store is None:
             return None
         if kind is MediaKind.AVATAR:
             cat = self.coordinator.data.cats.get(item_id)
             if cat is None or not cat.avatar_key:
                 return None
-            return self.store.avatar_path(item_id, cat.avatar_key)
-        return self.store.path(MediaFile(kind.value), item_id)
+            path = self.store.avatar_path(item_id, cat.avatar_key)
+        else:
+            path = self.store.path(MediaFile(kind.value), item_id)
+        if path is None or await self._async_exists(path):
+            return path
+        if kind is MediaKind.AVATAR:
+            self.store.drop_avatar(item_id)
+        else:
+            self.store.drop(MediaFile(kind.value), item_id)
+        return None
 
     async def async_video_url(self, event_id: str) -> str:
-        """Return the local path or a signed S3 URL of the recording of a visit."""
-        if self.local_recording(event_id) is not None:
+        """Return the recording view path or a signed S3 URL of a visit's recording."""
+        if await self.async_local_recording(event_id) is not None:
             return recording_path(event_id)
         visit = await self.async_visit(event_id)
         if not visit.cloud_stored:
@@ -174,6 +196,9 @@ class SiiPetMedia:
     def forget_day(self, day: date) -> None:
         """Drop a day from the older-day cache."""
         self._older_days.pop(day, None)
+
+    async def _async_exists(self, path: Path) -> bool:
+        return await self.hass.async_add_executor_job(path.is_file)
 
     async def _async_presign(self, key: str, lifetime: timedelta) -> str:
         try:

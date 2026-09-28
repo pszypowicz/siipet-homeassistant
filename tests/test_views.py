@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from http import HTTPStatus
 import logging
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 from homeassistant.core import HomeAssistant
@@ -15,11 +16,14 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
 from pytest_homeassistant_custom_component.typing import ClientSessionGenerator
 
 from custom_components.siipet.api import SiiPetConnectionError
+from custom_components.siipet.media_store import key_hash
 
 from .common import (
     COVER,
+    STOOL,
     TODAY,
     VIDEO,
+    day_folder,
     mirror_visit,
     mock_s3,
     s3_gets,
@@ -223,3 +227,86 @@ async def test_image_from_the_local_copy(
     assert response.headers["Content-Type"] == "image/jpeg"
     assert response.headers["Cache-Control"] == "private, max-age=86400"
     assert s3_gets(aioclient_mock, key) == 1
+
+
+async def _refresh(hass: HomeAssistant, entry: MockConfigEntry) -> None:
+    await entry.runtime_data.coordinator.async_refresh()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+
+@pytest.mark.parametrize(
+    ("path", "body", "key", "file"),
+    [
+        (
+            "/api/siipet/image/cover/ev-1",
+            COVER,
+            "events/ev-1/cover.jpg",
+            "2026-09-26/ev-1.cover.jpg",
+        ),
+        (
+            "/api/siipet/image/stool/ev-1",
+            STOOL,
+            "events/ev-1/stool.jpg",
+            "2026-09-26/ev-1.stool.jpg",
+        ),
+        (
+            "/api/siipet/image/avatar/pet-luna",
+            b"luna",
+            "resources/luna.jpg",
+            f"avatars/pet-luna.{key_hash('resources/luna.jpg')}.jpg",
+        ),
+    ],
+)
+async def test_missing_local_image_comes_from_s3(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_client: ClientSessionGenerator,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+    path: str,
+    body: bytes,
+    key: str,
+    file: str,
+) -> None:
+    """A stored image that is gone from the disk comes from S3, then downloads again."""
+    serve_days(mock_client, {TODAY: (mirror_visit(),)})
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7)
+    stored = media_dir / ".siipet" / file
+    stored.unlink()
+
+    client = await hass_client()
+    response = await client.get(path)
+    assert response.status == HTTPStatus.OK
+    assert await response.read() == body
+    assert s3_gets(aioclient_mock, key) == 2
+
+    await _refresh(hass, config_entry)
+    assert stored.read_bytes() == body
+    assert s3_gets(aioclient_mock, key) == 3
+
+
+async def test_missing_local_recording_downloads_again(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_client: ClientSessionGenerator,
+    aioclient_mock: AiohttpClientMocker,
+    media_dir: Path,
+) -> None:
+    """A stored recording that is gone from the disk gives 404, then downloads again."""
+    serve_days(mock_client, {TODAY: (mirror_visit(),)})
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7)
+    (day_folder(media_dir) / "ev-1.mp4").unlink()
+
+    client = await hass_client()
+    response = await client.get("/api/siipet/recording/ev-1")
+    assert response.status == HTTPStatus.NOT_FOUND
+    assert "Cache-Control" not in response.headers
+
+    await _refresh(hass, config_entry)
+    response = await client.get("/api/siipet/recording/ev-1")
+    assert response.status == HTTPStatus.OK
+    assert await response.read() == VIDEO
