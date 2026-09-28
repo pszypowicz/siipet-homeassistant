@@ -11,6 +11,7 @@ from freezegun.api import FrozenDateTimeFactory
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.setup import async_setup_component
 import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -185,6 +186,26 @@ async def test_removed_camera_is_unavailable(
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
     assert hass.states.get("sensor.bathroom_battery").state == STATE_UNAVAILABLE
+
+
+async def test_manual_update_keeps_the_state(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+) -> None:
+    """A manual entity update keeps the device state and its coordinator working."""
+    await _setup(hass, config_entry, shadow_links)
+    assert await async_setup_component(hass, "homeassistant", {})
+    await hass.services.async_call(
+        "homeassistant",
+        "update_entity",
+        {"entity_id": "sensor.bathroom_battery"},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert config_entry.runtime_data.device_state.last_update_success
+    assert hass.states.get("sensor.bathroom_battery").state == "72"
 
 
 async def test_missing_value_is_unknown(
