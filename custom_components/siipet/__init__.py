@@ -14,7 +14,14 @@ from .api import Session, SiiPetClient
 from .api.s3 import S3Signer
 from .calendar_data import SiiPetCalendar
 from .card import async_register_card
-from .const import CONF_CLIENT_ID, CONF_EXPIRE_AT, CONF_TOKEN, DOMAIN, UNKNOWN_CAT_ID
+from .const import (
+    CONF_CLIENT_ID,
+    CONF_EXPIRE_AT,
+    CONF_TOKEN,
+    DOMAIN,
+    SESSION_KEYS,
+    UNKNOWN_CAT_ID,
+)
 from .coordinator import SiiPetConfigEntry, SiiPetCoordinator, SiiPetRuntime
 from .media import SiiPetMedia
 from .services import async_setup_services
@@ -22,7 +29,6 @@ from .views import SiiPetImageView
 from .websocket_api import async_setup_websocket_api
 
 PLATFORMS: list[Platform] = [Platform.EVENT, Platform.SENSOR]
-SESSION_KEYS = (CONF_TOKEN, CONF_EXPIRE_AT, CONF_CLIENT_ID)
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 

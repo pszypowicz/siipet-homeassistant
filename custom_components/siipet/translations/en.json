@@ -28,6 +28,7 @@
     },
     "abort": {
       "already_configured": "This SiiPet account is already configured.",
+      "entry_outdated": "This SiiPet entry is from an old version. Remove the SiiPet entry and add it again.",
       "reauth_successful": "You are signed in again.",
       "reconfigure_successful": "You are signed in again.",
       "single_instance_allowed": "SiiPet is already configured.",

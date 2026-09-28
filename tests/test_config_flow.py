@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 import uuid
 
 from homeassistant.config_entries import SOURCE_USER
@@ -55,6 +55,11 @@ def _suggested(result: dict[str, Any], field: str) -> Any:
     raise AssertionError(f"{field} is not in the form")
 
 
+def _client_ids(mock_client_class: MagicMock) -> set[str]:
+    """Return the client ids that the flow built its clients with."""
+    return {call.kwargs["client_id"] for call in mock_client_class.call_args_list}
+
+
 async def _start(hass: HomeAssistant) -> str:
     """Start a user flow, which opens the email form."""
     result = await hass.config_entries.flow.async_init(
@@ -93,7 +98,9 @@ async def _sign_in(hass: HomeAssistant, flow_id: str) -> dict[str, Any]:
     )
 
 
-async def test_user_flow(hass: HomeAssistant, mock_client: AsyncMock) -> None:
+async def test_user_flow(
+    hass: HomeAssistant, mock_client_class: MagicMock, mock_client: AsyncMock
+) -> None:
     """Email and code create an entry for the account."""
     flow_id = await _start(hass)
     result = await hass.config_entries.flow.async_configure(
@@ -116,6 +123,7 @@ async def test_user_flow(hass: HomeAssistant, mock_client: AsyncMock) -> None:
     assert data[CONF_TOKEN] == LOGIN["Token"]
     assert data[CONF_EXPIRE_AT] == LOGIN["ExpireAt"]
     assert uuid.UUID(data[CONF_CLIENT_ID])
+    assert _client_ids(mock_client_class) == {data[CONF_CLIENT_ID]}
     mock_client.login.assert_awaited_once_with("cat@example.com", "012345")
 
 
@@ -247,7 +255,10 @@ async def test_single_instance(
 
 
 async def test_reauth_email(
-    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+    hass: HomeAssistant,
+    mock_client_class: MagicMock,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
 ) -> None:
     """Email reauth suggests the stored address and keeps the client id."""
     mock_client.login.return_value = Session(NEW_TOKEN, 1_800_000_000_000)
@@ -269,6 +280,7 @@ async def test_reauth_email(
     assert config_entry.data[CONF_EXPIRE_AT] == 1_800_000_000_000
     assert config_entry.data[CONF_CLIENT_ID] == "client-uuid-0001"
     assert config_entry.data[CONF_AUTH_METHOD] == AUTH_EMAIL
+    assert _client_ids(mock_client_class) == {"client-uuid-0001"}
 
 
 async def test_reauth_code_request_error(
@@ -302,7 +314,10 @@ async def test_reauth_wrong_account(
 
 
 async def test_reauth_token_entry(
-    hass: HomeAssistant, mock_client: AsyncMock, token_entry: MockConfigEntry
+    hass: HomeAssistant,
+    mock_client_class: MagicMock,
+    mock_client: AsyncMock,
+    token_entry: MockConfigEntry,
 ) -> None:
     """Reauth of a token entry signs in with email and a new client id."""
     mock_client.login.return_value = Session(NEW_TOKEN, 1_800_000_000_000)
@@ -320,12 +335,15 @@ async def test_reauth_token_entry(
     assert token_entry.data[CONF_AUTH_METHOD] == AUTH_EMAIL
     assert token_entry.data[CONF_EMAIL] == "cat@example.com"
     assert token_entry.data[CONF_TOKEN] == NEW_TOKEN
+    assert token_entry.data[CONF_EXPIRE_AT] == 1_800_000_000_000
     assert token_entry.data[CONF_CLIENT_ID] != PHONE_DEVICE
     assert uuid.UUID(token_entry.data[CONF_CLIENT_ID])
+    assert _client_ids(mock_client_class) == {token_entry.data[CONF_CLIENT_ID]}
 
 
 async def test_reconfigure_email_entry(
     hass: HomeAssistant,
+    mock_client_class: MagicMock,
     mock_client: AsyncMock,
     mock_setup_entry: AsyncMock,
     config_entry: MockConfigEntry,
@@ -345,12 +363,16 @@ async def test_reconfigure_email_entry(
         CONF_EXPIRE_AT: 1_800_000_000_000,
         CONF_CLIENT_ID: "client-uuid-0001",
     }
+    assert _client_ids(mock_client_class) == {"client-uuid-0001"}
     await hass.async_block_till_done()
     mock_setup_entry.assert_awaited_once()
 
 
 async def test_reconfigure_token_entry(
-    hass: HomeAssistant, mock_client: AsyncMock, token_entry: MockConfigEntry
+    hass: HomeAssistant,
+    mock_client_class: MagicMock,
+    mock_client: AsyncMock,
+    token_entry: MockConfigEntry,
 ) -> None:
     """Reconfigure of a token entry signs in with email and a new client id."""
     mock_client.login.return_value = Session(NEW_TOKEN, 1_800_000_000_000)
@@ -363,8 +385,10 @@ async def test_reconfigure_token_entry(
     assert token_entry.data[CONF_AUTH_METHOD] == AUTH_EMAIL
     assert token_entry.data[CONF_EMAIL] == "cat@example.com"
     assert token_entry.data[CONF_TOKEN] == NEW_TOKEN
+    assert token_entry.data[CONF_EXPIRE_AT] == 1_800_000_000_000
     assert token_entry.data[CONF_CLIENT_ID] != PHONE_DEVICE
     assert uuid.UUID(token_entry.data[CONF_CLIENT_ID])
+    assert _client_ids(mock_client_class) == {token_entry.data[CONF_CLIENT_ID]}
 
 
 async def test_reconfigure_wrong_account(
@@ -377,3 +401,20 @@ async def test_reconfigure_wrong_account(
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "wrong_account"
     assert config_entry.data[CONF_TOKEN] == LOGIN["Token"]
+
+
+@pytest.mark.parametrize("key", [CONF_TOKEN, CONF_EXPIRE_AT, CONF_CLIENT_ID])
+async def test_reconfigure_outdated_entry(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    key: str,
+) -> None:
+    """Reconfigure of an entry without a session key aborts before a code request."""
+    hass.config_entries.async_update_entry(
+        config_entry, data={k: v for k, v in config_entry.data.items() if k != key}
+    )
+    result = await config_entry.start_reconfigure_flow(hass)
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "entry_outdated"
+    mock_client.request_email_code.assert_not_awaited()

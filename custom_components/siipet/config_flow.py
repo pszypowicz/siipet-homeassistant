@@ -40,6 +40,7 @@ from .const import (
     CONF_EXPIRE_AT,
     CONF_TOKEN,
     DOMAIN,
+    SESSION_KEYS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -150,6 +151,8 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
         self, entry_data: Mapping[str, Any]
     ) -> ConfigFlowResult:
         """Start the email step with the address and client id of the entry."""
+        if any(key not in entry_data for key in SESSION_KEYS):
+            return self.async_abort(reason="entry_outdated")
         self._email = entry_data.get(CONF_EMAIL, "")
         # A token entry stores the phone's identifier. An email sign-in uses
         # a new identifier, so that it does not act as the phone.
