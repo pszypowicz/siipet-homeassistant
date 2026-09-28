@@ -91,13 +91,21 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         }
         if shadows == self._shadows:
             return
+        # A camera that left the list, or whose shadow names changed, keeps no
+        # old state. Otherwise its entities would stay available with values
+        # the link no longer reports on.
+        stale = {
+            sn for sn, previous in self._shadows.items() if shadows.get(sn) != previous
+        }
         self._shadows = shadows
         self._firmware = {
             sn: firmware for sn, firmware in self._firmware.items() if sn in shadows
         }
         self._link.set_cameras(shadows)
-        if any(sn not in shadows for sn in self.data):
-            self.data = {sn: state for sn, state in self.data.items() if sn in shadows}
+        if any(sn in self.data for sn in stale):
+            self.data = {
+                sn: state for sn, state in self.data.items() if sn not in stale
+            }
             self.async_update_listeners()
 
     def _label(self, sn: str) -> str:

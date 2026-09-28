@@ -49,6 +49,8 @@ DEVICE_STATE = DeviceState(
 class FakeShadowLink:
     """A stand-in for ShadowLink. Tests call its callbacks to push data."""
 
+    keep_running = False
+
     def __init__(
         self,
         websession: Any,
@@ -66,6 +68,7 @@ class FakeShadowLink:
         self.cameras: dict[str, CameraShadows] = {}
         self.running = False
         self.stopped = False
+        self._stopped_event = asyncio.Event()
         self.status = LinkStatus(
             connected=True,
             connected_since=datetime(2026, 9, 26, 11, 0, tzinfo=UTC),
@@ -78,12 +81,17 @@ class FakeShadowLink:
         self.cameras = dict(cameras)
 
     async def run(self) -> None:
-        # The real link runs until stop. The fake returns at once, because the
-        # tests of the local media copy wait for every background task.
+        # By default the fake returns at once, because the tests of the local
+        # media copy wait for every background task. A test that checks the
+        # link runs in the background sets `keep_running`, so this waits
+        # until `stop` sets the event instead, like the real link.
         self.running = True
+        if self.keep_running:
+            await self._stopped_event.wait()
 
     async def stop(self) -> None:
         self.stopped = True
+        self._stopped_event.set()
 
 
 def load_fixture(name: str) -> dict[str, Any]:

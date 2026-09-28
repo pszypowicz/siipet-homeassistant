@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from datetime import timedelta
 from unittest.mock import AsyncMock
@@ -10,6 +11,7 @@ from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
+import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_time_changed,
@@ -18,6 +20,7 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
 )
 
+from custom_components.siipet.api import CameraShadows
 from custom_components.siipet.const import DOMAIN
 
 from .common import (
@@ -206,6 +209,26 @@ async def test_camera_list_change(
     assert "SN0002" not in config_entry.runtime_data.device_state.data
 
 
+async def test_shadow_rename_drops_the_state(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+) -> None:
+    """A camera sync that renames the shadows of a camera drops its old state."""
+    await setup_integration(hass, config_entry)
+    link = shadow_links[0]
+    await _push(hass, link)
+    cameras = dict(mock_client.get_cameras.return_value)
+    new_shadows = CameraShadows(config="next_configInfo", system="next_systemInfo")
+    cameras["SN0001"] = replace(cameras["SN0001"], shadows=new_shadows)
+    mock_client.get_cameras.return_value = cameras
+    await _tick(hass, freezer, timedelta(hours=1))
+    assert "SN0001" not in config_entry.runtime_data.device_state.data
+    assert link.cameras["SN0001"] == new_shadows
+
+
 async def test_firmware_cache_drops_removed_cameras(
     hass: HomeAssistant,
     freezer: FrozenDateTimeFactory,
@@ -250,6 +273,25 @@ async def test_unload_stops_the_link(
     assert await hass.config_entries.async_unload(config_entry.entry_id)
     assert config_entry.state is ConfigEntryState.NOT_LOADED
     assert shadow_links[0].stopped
+
+
+async def test_link_runs_as_a_background_task(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The link runs in the background, so setup never waits for it."""
+    monkeypatch.setattr(FakeShadowLink, "keep_running", True)
+    async with asyncio.timeout(5):
+        await setup_integration(hass, config_entry)
+    link = shadow_links[0]
+    assert link.running
+    assert not link.stopped
+    assert await hass.config_entries.async_unload(config_entry.entry_id)
+    assert link.stopped
+    assert config_entry.state is ConfigEntryState.NOT_LOADED
 
 
 async def test_link_runs_next_to_the_local_media_copy(
