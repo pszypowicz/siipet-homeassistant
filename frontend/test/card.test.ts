@@ -404,7 +404,7 @@ describe("hide_cat_picker", () => {
     expect(find(card, "ha-control-select.cats")).toBeNull();
   });
 
-  it("shows the cat strip again when hide_cat_picker turns off, with no restart", async () => {
+  it("shows the cat strip again when hide_cat_picker turns off, with a restart", async () => {
     const fake = fakeHass();
     const card = await mount(fake, { hide_cat_picker: true });
     expect(find(card, "ha-control-select.cats")).toBeNull();
@@ -412,8 +412,50 @@ describe("hide_cat_picker", () => {
 
     card.setConfig({ type: "custom:siipet-visits-card", hide_cat_picker: false });
     await settle(card);
-    expect(sent(fake)).toEqual([]);
+    expect(sent(fake)).toEqual([
+      { type: "siipet/cats" },
+      { type: "siipet/day", date: "2026-09-27", cat: "dev-luna" },
+      { type: "siipet/calendar", month: "2026-09", cat: "dev-luna" },
+    ]);
     expect(find(card, "ha-control-select.cats")).not.toBeNull();
+  });
+
+  it("restarts and shows the queue when hide_cat_picker turns on for a card that switched away", async () => {
+    const fake = fakeHass({
+      cats: catsResult({ unknown: { device_id: "dev-unknown", waiting: 1 } }),
+      queue: { visits: [] },
+    });
+    const card = await mount(fake, { cat: "dev-unknown" });
+    expect(find(card, "ha-control-select.cats")?.value).toBe("dev-luna");
+    fake.callWS.mockClear();
+
+    card.setConfig({
+      type: "custom:siipet-visits-card",
+      cat: "dev-unknown",
+      hide_cat_picker: true,
+    });
+    await settle(card);
+
+    expect(sent(fake)).toEqual([{ type: "siipet/cats" }, { type: "siipet/queue" }]);
+    expect(find(card, "ha-control-select.cats")).toBeNull();
+    expect(text(find(card, ".empty"))).toBe("No visits are waiting.");
+  });
+
+  it("restarts and selects the first cat when hide_cat_picker turns off for a fixed empty queue", async () => {
+    const fake = fakeHass({ queue: { visits: [] } });
+    const card = await mount(fake, { cat: "dev-unknown", hide_cat_picker: true });
+    expect(text(find(card, ".empty"))).toBe("No visits are waiting.");
+    fake.callWS.mockClear();
+
+    card.setConfig({ type: "custom:siipet-visits-card", cat: "dev-unknown" });
+    await settle(card);
+
+    expect(sent(fake)).toEqual([
+      { type: "siipet/cats" },
+      { type: "siipet/day", date: "2026-09-27", cat: "dev-luna" },
+      { type: "siipet/calendar", month: "2026-09", cat: "dev-luna" },
+    ]);
+    expect(find(card, "ha-control-select.cats")?.value).toBe("dev-luna");
   });
 
   it("stays on the Unknown queue at start when it is empty", async () => {

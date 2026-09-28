@@ -123,7 +123,10 @@ export class SiiPetVisitsCard extends LitElement {
     if (config.hide_cat_picker !== undefined && typeof config.hide_cat_picker !== "boolean") {
       throw new Error("The hide_cat_picker option must be true or false.");
     }
-    const restart = this._started && config.cat !== this._config?.cat;
+    const restart =
+      this._started &&
+      (config.cat !== this._config?.cat ||
+        Boolean(config.hide_cat_picker) !== Boolean(this._config?.hide_cat_picker));
     this._config = config;
     if (restart) {
       this._started = false;
