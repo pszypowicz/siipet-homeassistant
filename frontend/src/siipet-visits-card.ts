@@ -25,8 +25,13 @@ import type {
   QueueResult,
 } from "./types";
 
-// Signed image paths last 1 hour, so a page that was hidden longer than this reads again.
+// The time since the last successful read after which a visible page reads again.
+// Signed image paths last 1 hour, so this margin also covers a card that a
+// dashboard view switch detaches and reattaches while it is stale.
 const STALE_MS = 30 * 60 * 1000;
+// A successful day or queue read schedules another one after this long, so a
+// card left open on screen renews its image paths before they expire.
+const RENEW_MS = 50 * 60 * 1000;
 // The calendar command accepts the current month and the 12 months before it.
 const CALENDAR_MONTHS = 12;
 
@@ -48,6 +53,7 @@ export class SiiPetVisitsCard extends LitElement {
     _date: { state: true },
     _month: { state: true },
     _calendars: { state: true },
+    _first: { state: true },
     _calendarOpen: { state: true },
     _day: { state: true },
     _queue: { state: true },
@@ -64,6 +70,7 @@ export class SiiPetVisitsCard extends LitElement {
   declare _date?: string;
   declare _month?: string;
   declare _calendars: Record<string, CalendarResult>;
+  declare _first?: string;
   declare _calendarOpen: boolean;
   declare _day?: DayResult;
   declare _queue?: QueueResult;
@@ -73,6 +80,7 @@ export class SiiPetVisitsCard extends LitElement {
   private _signature?: string;
   private _lastRead?: number;
   private _connection?: HassConnection;
+  private _renewTimer?: ReturnType<typeof setTimeout>;
 
   constructor() {
     super();
@@ -104,8 +112,11 @@ export class SiiPetVisitsCard extends LitElement {
       this._cats = undefined;
       this._cat = undefined;
       this._calendars = {};
+      this._first = undefined;
+      this._calendarOpen = false;
       this._day = undefined;
       this._queue = undefined;
+      this._error = undefined;
     }
   }
 
@@ -121,6 +132,11 @@ export class SiiPetVisitsCard extends LitElement {
     super.connectedCallback();
     document.addEventListener("visibilitychange", this._onVisibilityChange);
     this._listen();
+    // A dashboard view switch detaches and reattaches the card, which can leave it
+    // stale for longer than a visibility change would ever let it go unnoticed.
+    if (this._lastRead !== undefined && Date.now() - this._lastRead > STALE_MS) {
+      void this._refresh();
+    }
   }
 
   disconnectedCallback(): void {
@@ -128,6 +144,10 @@ export class SiiPetVisitsCard extends LitElement {
     document.removeEventListener("visibilitychange", this._onVisibilityChange);
     this._connection?.removeEventListener("ready", this._onReady);
     this._connection = undefined;
+    if (this._renewTimer !== undefined) {
+      clearTimeout(this._renewTimer);
+      this._renewTimer = undefined;
+    }
   }
 
   protected willUpdate(changed: PropertyValues<this>): void {
@@ -163,6 +183,17 @@ export class SiiPetVisitsCard extends LitElement {
     void this._refresh();
   };
 
+  private _scheduleRenew(): void {
+    if (this._renewTimer !== undefined) {
+      clearTimeout(this._renewTimer);
+    }
+    this._renewTimer = setTimeout(() => {
+      if (document.visibilityState === "visible") {
+        void this._refresh();
+      }
+    }, RENEW_MS);
+  }
+
   private _listen(): void {
     const connection = this.hass?.connection;
     if (!this.isConnected || !connection || connection === this._connection) {
@@ -185,12 +216,18 @@ export class SiiPetVisitsCard extends LitElement {
     return cats.cats[0]?.device_id;
   }
 
+  // The Unknown cat owns every visit without a known cat, so it is the fallback
+  // when the account has no named cat yet, not just when it is asked for by name.
+  private _fallbackCat(cats: CatsResult): string | undefined {
+    return this._firstCat(cats) ?? (cats.unknown.waiting > 0 ? cats.unknown.device_id : undefined);
+  }
+
   private _startCat(cats: CatsResult): string | undefined {
     const wanted = this._config?.cat;
     if (wanted === cats.unknown.device_id && cats.unknown.waiting > 0) {
       return wanted;
     }
-    return cats.cats.find((cat) => cat.device_id === wanted)?.device_id ?? this._firstCat(cats);
+    return cats.cats.find((cat) => cat.device_id === wanted)?.device_id ?? this._fallbackCat(cats);
   }
 
   private async _start(): Promise<void> {
@@ -199,6 +236,11 @@ export class SiiPetVisitsCard extends LitElement {
       this._missing = missing;
       return;
     }
+    await this._readCatsAndInit();
+  }
+
+  /** Read the cats and pick the initial cat and day, as a fresh start does. */
+  private async _readCatsAndInit(): Promise<void> {
     const cats = await this._readCats();
     if (!cats) {
       return;
@@ -242,6 +284,7 @@ export class SiiPetVisitsCard extends LitElement {
       if (current()) {
         this._day = day;
         this._lastRead = Date.now();
+        this._scheduleRenew();
       }
     } catch (err) {
       if (current()) {
@@ -258,10 +301,21 @@ export class SiiPetVisitsCard extends LitElement {
         return;
       }
       this._lastRead = Date.now();
-      const first = this._cats && this._firstCat(this._cats);
-      if (queue.visits.length === 0 && first !== undefined) {
-        this._selectCat(first);
-        return;
+      this._scheduleRenew();
+      // The queue and the waiting count on the cat strip name the same visits,
+      // so a read that finds fewer or more of them updates the strip too.
+      if (this._cats) {
+        this._cats = {
+          ...this._cats,
+          unknown: { ...this._cats.unknown, waiting: queue.visits.length },
+        };
+      }
+      if (queue.visits.length === 0) {
+        const first = this._cats && this._firstCat(this._cats);
+        if (first !== undefined) {
+          this._selectCat(first);
+          return;
+        }
       }
       this._queue = queue;
     } catch (err) {
@@ -277,6 +331,7 @@ export class SiiPetVisitsCard extends LitElement {
       const calendar = await fetchCalendar(this.hass!, month, cat);
       if (cat === this._cat) {
         this._calendars = { ...this._calendars, [month]: calendar };
+        this._first = calendar.first;
       }
     } catch (err) {
       if (cat === this._cat) {
@@ -287,23 +342,41 @@ export class SiiPetVisitsCard extends LitElement {
 
   /** Read the cats and the shown data again. A card on today moves on to a new day. */
   private async _refresh(): Promise<void> {
-    if (!this._cats) {
+    this._error = undefined;
+    if (this._missing?.length) {
       return;
     }
-    const followToday = this._date === this._cats.today;
-    this._error = undefined;
+    if (!this._cats) {
+      // The first read never finished (for example Home Assistant was still starting),
+      // so pick up where a fresh start would: read the cats, then the initial selection.
+      await this._readCatsAndInit();
+      return;
+    }
+    // Keep the date shown before the read, so a day the user picks while this read
+    // is in flight is not undone by a stale comparison once the read comes back.
+    const shownDate = this._date;
+    const followToday = shownDate === this._cats.today;
     const cats = await this._readCats();
     if (!cats) {
       return;
     }
-    if (followToday && this._date !== cats.today) {
+    if (followToday && this._date === shownDate && shownDate !== cats.today) {
       this._date = cats.today;
       this._month = monthOf(cats.today);
     }
-    const first = this._firstCat(cats);
-    if (this._isQueue() && cats.unknown.waiting === 0 && first !== undefined) {
-      this._selectCat(first);
+    if (this._cat === undefined) {
+      const next = this._fallbackCat(cats);
+      if (next !== undefined) {
+        this._selectCat(next);
+      }
       return;
+    }
+    if (this._isQueue() && cats.unknown.waiting === 0) {
+      const next = this._firstCat(cats);
+      if (next !== undefined) {
+        this._selectCat(next);
+        return;
+      }
     }
     await this._loadSelection();
   }
@@ -314,6 +387,7 @@ export class SiiPetVisitsCard extends LitElement {
     }
     this._cat = cat;
     this._calendars = {};
+    this._first = undefined;
     this._calendarOpen = false;
     this._day = undefined;
     this._queue = undefined;
@@ -390,7 +464,7 @@ export class SiiPetVisitsCard extends LitElement {
     const cat = cats.cats.find((entry) => entry.device_id === selected);
     const date = this._date!;
     const month = this._month ?? monthOf(date);
-    const first = Object.values(this._calendars)[0]?.first;
+    const first = this._first;
     const lastMonth = monthOf(cats.today);
     const dateBar = renderDateBar({
       date,

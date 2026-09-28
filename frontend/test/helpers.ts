@@ -161,7 +161,11 @@ export function fakeHass(overrides: Partial<FakeResults> = {}, admin = true): Fa
     user: { is_admin: admin },
     connection: {
       addEventListener: (event: string, listener: () => void) => listeners.set(event, listener),
-      removeEventListener: (event: string) => listeners.delete(event),
+      removeEventListener: (event: string, listener: () => void) => {
+        if (listeners.get(event) === listener) {
+          listeners.delete(event);
+        }
+      },
     },
     callWS,
     callService,

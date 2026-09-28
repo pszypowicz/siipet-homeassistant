@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
+  CALENDAR,
   catsResult,
   fakeHass,
   find,
@@ -22,6 +23,7 @@ beforeAll(async () => {
 afterEach(() => {
   document.body.replaceChildren();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 interface CardClass {
@@ -106,6 +108,22 @@ describe("day view", () => {
       { type: "siipet/day", date: "2026-09-27", cat: "dev-milo" },
       { type: "siipet/calendar", month: "2026-09", cat: "dev-milo" },
     ]);
+  });
+
+  it("clears the error and the open calendar when the editor changes the cat", async () => {
+    const fake = fakeHass({ fail: { "siipet/day": { message: "boom" } } });
+    const card = await mount(fake);
+    find(card, ".date")!.click();
+    await settle(card);
+    expect(find(card, ".error")).not.toBeNull();
+    expect(find(card, ".calendar")).not.toBeNull();
+
+    fake.results.fail = {};
+    card.setConfig({ type: "custom:siipet-visits-card", cat: "dev-milo" });
+    await settle(card);
+
+    expect(find(card, ".error")).toBeNull();
+    expect(find(card, ".calendar")).toBeNull();
   });
 
   it("shows a tile row with a poster for each visit", async () => {
@@ -226,6 +244,27 @@ describe("day view", () => {
     expect(find(card, ".prev-month")?.disabled).toBe(true);
   });
 
+  it("keeps the oldest open day at the latest calendar answer", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    find(card, ".date")!.click();
+    await settle(card);
+    find(card, ".prev-month")!.click();
+    await settle(card);
+    find(card, '.cell[data-date="2026-08-29"]')!.click();
+    await settle(card);
+    expect(find(card, ".prev-day")?.disabled).toBe(false);
+
+    fake.results.calendar = { ...CALENDAR, first: "2026-08-29" };
+    const start = Date.now();
+    const now = vi.spyOn(Date, "now");
+    now.mockReturnValue(start + 31 * 60 * 1000);
+    document.dispatchEvent(new Event("visibilitychange"));
+    await settle(card);
+
+    expect(find(card, ".prev-day")?.disabled).toBe(true);
+  });
+
   it("switches the cat from the cat strip", async () => {
     const fake = fakeHass();
     const card = await mount(fake);
@@ -301,6 +340,15 @@ describe("unknown queue", () => {
     expect(sent(fake)).toEqual([{ type: "siipet/cats" }, { type: "siipet/queue" }]);
   });
 
+  it("uses the Unknown cat when the account has no named cat but has waiting visits", async () => {
+    const fake = fakeHass({
+      cats: catsResult({ cats: [], unknown: { device_id: "dev-unknown", waiting: 1 } }),
+    });
+    const card = await mount(fake);
+    expect(sent(fake)).toEqual([{ type: "siipet/cats" }, { type: "siipet/queue" }]);
+    expect(text(find(card, '.header [slot="primary"]'))).toBe("Unknown");
+  });
+
   it("goes to the first cat when the queue is empty", async () => {
     const fake = fakeHass({ cats: waiting(), queue: { visits: [] } });
     const card = await mount(fake, { cat: "dev-unknown" });
@@ -309,6 +357,8 @@ describe("unknown queue", () => {
       { type: "siipet/calendar", month: "2026-09", cat: "dev-luna" },
     ]);
     expect(find(card, "ha-control-select.cats")?.value).toBe("dev-luna");
+    const options = find(card, "ha-control-select.cats")?.options as { value: string }[];
+    expect(options.map((option) => option.value)).toEqual(["dev-luna", "dev-milo"]);
   });
 });
 
@@ -394,5 +444,82 @@ describe("refresh", () => {
 
     card.remove();
     expect(fake.listeners.has("ready")).toBe(false);
+  });
+
+  it("recovers after a failed first read when the connection comes back", async () => {
+    const fake = fakeHass({ fail: { "siipet/cats": { message: "not_loaded" } } });
+    const card = await mount(fake);
+    expect(sent(fake)).toEqual([{ type: "siipet/cats" }]);
+    expect(text(find(card, ".error"))).toBe("not_loaded");
+
+    fake.results.fail = {};
+    fake.callWS.mockClear();
+    fake.listeners.get("ready")!();
+    await settle(card);
+
+    expect(sent(fake)).toEqual([
+      { type: "siipet/cats" },
+      { type: "siipet/day", date: "2026-09-27", cat: "dev-luna" },
+      { type: "siipet/calendar", month: "2026-09", cat: "dev-luna" },
+    ]);
+    expect(find(card, ".error")).toBeNull();
+  });
+
+  it("keeps the day picked during a refresh instead of jumping to today", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    fake.callWS.mockClear();
+
+    let releaseCats!: (value: unknown) => void;
+    fake.callWS.mockImplementationOnce(() => new Promise((resolve) => (releaseCats = resolve)));
+
+    card.hass = withState(fake.hass, "event.luna_visit", "2026-09-27T19:00:00.000+00:00");
+    await settle(card);
+
+    find(card, ".prev-day")!.click();
+    await settle(card);
+    expect(text(find(card, ".date"))).toBe("Sat 26 Sep");
+
+    releaseCats(fake.results.cats);
+    await settle(card);
+    expect(text(find(card, ".date"))).toBe("Sat 26 Sep");
+  });
+
+  it("renews the read 50 minutes after the last one while the page stays visible", async () => {
+    // Fake timers must be active before the card schedules its renew timer, so
+    // enable them before mount and pump them to let mount's own waits resolve.
+    vi.useFakeTimers();
+    const fake = fakeHass();
+    const mounted = mount(fake);
+    await vi.advanceTimersByTimeAsync(1000);
+    await mounted;
+    fake.callWS.mockClear();
+
+    await vi.advanceTimersByTimeAsync(50 * 60 * 1000);
+
+    expect(sent(fake).map((message) => message.type)).toEqual([
+      "siipet/cats",
+      "siipet/day",
+      "siipet/calendar",
+    ]);
+  });
+
+  it("reads again when reattached more than 30 minutes after the last read", async () => {
+    const fake = fakeHass();
+    const start = Date.now();
+    const card = await mount(fake);
+    fake.callWS.mockClear();
+    const now = vi.spyOn(Date, "now");
+    now.mockReturnValue(start + 31 * 60 * 1000);
+
+    card.remove();
+    document.body.append(card);
+    await settle(card);
+
+    expect(sent(fake).map((message) => message.type)).toEqual([
+      "siipet/cats",
+      "siipet/day",
+      "siipet/calendar",
+    ]);
   });
 });
