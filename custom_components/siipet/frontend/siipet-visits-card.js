@@ -286,6 +286,7 @@ var I=globalThis,B=I.ShadowRoot&&(I.ShadyCSS===void 0||I.ShadyCSS.nativeShadow)&
         max-height: 70vh;
         aspect-ratio: 9 / 16;
         margin: 0 auto;
+        align-self: center;
         border-radius: var(--ha-border-radius-lg, 12px);
         background-color: black;
       }

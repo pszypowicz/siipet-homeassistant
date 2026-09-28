@@ -179,6 +179,7 @@ describe("edit view", () => {
     expect(videoRule).toMatch(/width:\s*auto/);
     expect(videoRule).toMatch(/height:\s*auto/);
     expect(videoRule).toMatch(/margin:\s*0 auto/);
+    expect(videoRule).toMatch(/align-self:\s*center/);
   });
 
   it("renders no stool dialog for a visit without a stool photo", async () => {
