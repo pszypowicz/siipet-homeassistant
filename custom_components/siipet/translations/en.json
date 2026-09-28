@@ -21,8 +21,8 @@
       "code_request_failed": "SiiPet did not send a code. Check the email address and try again.",
       "invalid_code": "The code is not correct or it expired.",
       "invalid_email": "Enter a valid email address.",
-      "login_failed": "SiiPet rejected the sign-in. Go back and request a new code.",
-      "session_rejected": "SiiPet accepted the code, but rejected the new session. Request a new code and try again.",
+      "login_failed": "SiiPet rejected the sign-in. Close this form and start again to get a new code.",
+      "session_rejected": "SiiPet accepted the code, but rejected the new session. Close this form and start again to get a new code.",
       "too_many_requests": "SiiPet allows only a few code requests per day. Try again tomorrow.",
       "unknown": "An unexpected error occurred. Read the log for details."
     },
