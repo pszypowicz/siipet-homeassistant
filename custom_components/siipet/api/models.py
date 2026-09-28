@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from enum import IntEnum
+import math
 import re
-from typing import Any
+from typing import Any, Final
+from urllib.parse import urlsplit
+
+# The two device shadows of a camera.
+CONFIG_SHADOW: Final = "config"
+SYSTEM_SHADOW: Final = "system"
+SHADOW_KINDS: Final = (CONFIG_SHADOW, SYSTEM_SHADOW)
 
 
 def _from_ms(value: Any) -> datetime | None:
@@ -89,6 +96,29 @@ class Cat:
 
 
 @dataclass(frozen=True, slots=True)
+class CameraShadows:
+    """The names of the two device shadows of a camera."""
+
+    config: str = field(repr=False)
+    system: str = field(repr=False)
+
+    @classmethod
+    def from_api(cls, topic: Any) -> CameraShadows | None:
+        """Parse `Topic` of a camera. Return None without both shadow names."""
+        shadow = topic.get("Shadow") if isinstance(topic, Mapping) else None
+        if not isinstance(shadow, Mapping):
+            return None
+        names = (shadow.get("configInfo"), shadow.get("systemInfo"))
+        if not all(isinstance(name, str) and name for name in names):
+            return None
+        return cls(config=str(names[0]), system=str(names[1]))
+
+    def name(self, kind: str) -> str:
+        """Return the shadow name for `CONFIG_SHADOW` or `SYSTEM_SHADOW`."""
+        return self.config if kind == CONFIG_SHADOW else self.system
+
+
+@dataclass(frozen=True, slots=True)
 class Camera:
     """A camera from `user/device/sync`."""
 
@@ -97,6 +127,7 @@ class Camera:
     product_id: str
     role: int
     subscription_expires: datetime | None
+    shadows: CameraShadows | None = field(default=None, repr=False)
 
     @classmethod
     def from_api(cls, data: Mapping[str, Any]) -> Camera:
@@ -108,6 +139,7 @@ class Camera:
             product_id=str(data.get("ProductId") or ""),
             role=int(data.get("Role") or 0),
             subscription_expires=_from_ms(subscription.get("ExpireTime")),
+            shadows=CameraShadows.from_api(data.get("Topic")),
         )
 
 
@@ -306,3 +338,164 @@ class MediaCredentials:
             session_token=str(s3["SessionToken"]),
             expires=expires,
         )
+
+
+def _iot_host(endpoint: str) -> str:
+    """Return the host of `IotCore.Endpoint`, which carries an https scheme."""
+    host = urlsplit(endpoint).hostname if "://" in endpoint else endpoint
+    if not host or "/" in host:
+        raise ValueError("The IoT endpoint has no host")
+    return host.lower()
+
+
+def _iot_region(host: str) -> str:
+    """Return the region of an AWS IoT data endpoint host."""
+    parts = host.split(".")
+    if len(parts) < 5 or parts[-4] != "iot" or parts[-2:] != ["amazonaws", "com"]:
+        raise ValueError("The IoT endpoint has no region")
+    return parts[-3]
+
+
+@dataclass(frozen=True, slots=True)
+class IotCredentials:
+    """Temporary AWS IoT credentials from `Data.IotCore` of `config/aws/auth`."""
+
+    endpoint: str = field(repr=False)
+    region: str
+    access_key_id: str = field(repr=False)
+    secret_access_key: str = field(repr=False)
+    session_token: str = field(repr=False)
+    identity_id: str = field(repr=False)
+    expires: datetime
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> IotCredentials:
+        """Parse `Data` of `config/aws/auth`."""
+        iot = data["IotCore"]
+        host = _iot_host(str(iot["Endpoint"]))
+        expires = _from_ms(iot["ExpireTime"])
+        if expires is None:
+            raise ValueError("The IoT credentials have no expiry")
+        identity_id = str(data["IdentityId"])
+        if not identity_id:
+            raise ValueError("The IoT credentials have no identity")
+        return cls(
+            endpoint=host,
+            region=_iot_region(host),
+            access_key_id=str(iot["AccessKeyId"]),
+            secret_access_key=str(iot["SecretAccessKey"]),
+            session_token=str(iot["SessionToken"]),
+            identity_id=identity_id,
+            expires=expires,
+        )
+
+
+def _dig(data: Any, path: Sequence[str]) -> Any:
+    """Return the value at `path` in nested mappings, or None."""
+    for key in path:
+        if not isinstance(data, Mapping):
+            return None
+        data = data.get(key)
+    return data
+
+
+def _as_bool(value: Any) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
+def _as_int(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _as_percent(value: Any) -> int | None:
+    """Round a battery reading half up, like the app. Reject bools, NaN, infinity."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return math.floor(value + 0.5) if math.isfinite(value) else None
+
+
+def _as_text(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+# For each shadow: DeviceState field -> (path under `state.reported`, converter).
+_SHADOW_FIELDS: Final[
+    Mapping[str, Mapping[str, tuple[tuple[str, ...], Callable[[Any], Any]]]]
+] = {
+    CONFIG_SHADOW: {
+        "battery": (("battery", "SOC"), _as_percent),
+        "charging": (("battery", "charging"), _as_bool),
+        "privacy": (("privacyMode", "active"), _as_bool),
+        "fill_light": (("fillLight", "level"), _as_int),
+        "motion_level": (("pir", "level"), _as_int),
+        "update_mode": (("otaMode", "mode"), _as_int),
+        "cloud_storage": (("cloudMode", "enableCloud"), _as_bool),
+    },
+    SYSTEM_SHADOW: {
+        "online": (("esp32", "connected", "status"), _as_bool),
+        "firmware": (("main", "sysVersion"), _as_text),
+        "rssi": (("main", "rssi"), _as_int),
+    },
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ShadowPart:
+    """The fields that the integration reads from one shadow document."""
+
+    values: Mapping[str, Any]
+    reported_at: datetime | None
+    version: int | None
+
+
+def parse_shadow(kind: str, message: Any) -> ShadowPart | None:
+    """Read a shadow document from `/get/accepted` or `/update/documents`.
+
+    Return None when the message has no `state.reported` object.
+    """
+    if not isinstance(message, Mapping):
+        return None
+    document = message.get("current", message)
+    reported = _dig(document, ("state", "reported"))
+    if not isinstance(reported, Mapping):
+        return None
+    metadata = _dig(document, ("metadata", "reported"))
+    values: dict[str, Any] = {}
+    stamps: list[int] = []
+    for name, (path, convert) in _SHADOW_FIELDS[kind].items():
+        values[name] = convert(_dig(reported, path))
+        stamp = _as_int(_dig(metadata, (*path, "timestamp")))
+        if stamp is not None and stamp > 0:
+            stamps.append(stamp)
+    return ShadowPart(
+        values=values,
+        reported_at=datetime.fromtimestamp(max(stamps), tz=UTC) if stamps else None,
+        version=_as_int(document.get("version")),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceState:
+    """The device state of one camera, from both of its shadows."""
+
+    battery: int | None = None
+    charging: bool | None = None
+    privacy: bool | None = None
+    fill_light: int | None = None
+    motion_level: int | None = None
+    update_mode: int | None = None
+    cloud_storage: bool | None = None
+    online: bool | None = None
+    firmware: str | None = None
+    rssi: int | None = None
+    reported_at: datetime | None = None
+
+    @classmethod
+    def from_parts(
+        cls, config: ShadowPart | None, system: ShadowPart | None
+    ) -> DeviceState:
+        """Merge the parts of both shadows. A missing part leaves its fields None."""
+        parts = [part for part in (config, system) if part is not None]
+        values = {name: value for part in parts for name, value in part.values.items()}
+        stamps = [part.reported_at for part in parts if part.reported_at is not None]
+        return cls(**values, reported_at=max(stamps) if stamps else None)

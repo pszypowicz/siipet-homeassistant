@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
+from datetime import datetime
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
@@ -24,9 +26,14 @@ TO_REDACT = {
     "AccessKeyId",
     "AgoraAuth",
     "Email",
+    "Endpoint",
     "EventId",
     "GroupId",
+    "IdentityId",
+    "IdentityPoolId",
+    "IotCore",
     "Member",
+    "MqttClientId",
     "Owner",
     "PetId",
     "Phone",
@@ -40,6 +47,10 @@ TO_REDACT = {
     "sn",
     "unique_id",
 }
+
+
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
 
 
 async def async_get_config_entry_diagnostics(
@@ -56,6 +67,8 @@ async def async_get_config_entry_diagnostics(
     if mirror is not None:
         files, size = mirror.store.stats()
         media_cache.update(files=files, bytes=size, **mirror.stats())
+    device_state = entry.runtime_data.device_state
+    status = device_state.link_status
     return {
         "entry": async_redact_data(entry.as_dict(), TO_REDACT),
         "last_update_success": coordinator.last_update_success,
@@ -80,4 +93,16 @@ async def async_get_config_entry_diagnostics(
             "event": len(data.labels.event),
         },
         "media_cache": media_cache,
+        "device_state": {
+            "last_update_success": device_state.last_update_success,
+            "connected": status.connected,
+            "connected_since": _iso(status.connected_since),
+            "last_message": _iso(status.last_message),
+            "cameras_with_state": status.cameras_with_state,
+            "denied_cameras": status.denied_cameras,
+            "cameras": [
+                {**asdict(state), "reported_at": _iso(state.reported_at)}
+                for state in device_state.data.values()
+            ],
+        },
     }

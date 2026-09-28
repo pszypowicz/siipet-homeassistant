@@ -39,6 +39,7 @@ from .const import (
 
 if TYPE_CHECKING:
     from .calendar_data import SiiPetCalendar
+    from .device_state import SiiPetDeviceCoordinator
     from .media import SiiPetMedia
     from .media_mirror import SiiPetMirror
 
@@ -57,6 +58,7 @@ class SiiPetRuntime:
     coordinator: SiiPetCoordinator
     media: SiiPetMedia
     calendar: SiiPetCalendar
+    device_state: SiiPetDeviceCoordinator
     mirror: SiiPetMirror | None = None
 
 

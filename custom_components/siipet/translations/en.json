@@ -90,6 +90,9 @@
     "edit_partial": {
       "message": "SiiPet may not have applied the whole change to visit {event_id}: {error}. Check the visit, then call the action again with type {type}."
     },
+    "edit_partial_note": {
+      "message": "SiiPet may not have saved the memo of visit {event_id}: {error}. Check the visit, then call the action again."
+    },
     "edit_unconfirmed": {
       "message": "SiiPet accepted the change to visit {event_id}, but the visit could not be read back: {error}. Check the visit in the SiiPet app."
     },
@@ -98,6 +101,20 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "charging": {
+        "name": "Charging"
+      },
+      "privacy_mode": {
+        "name": "Privacy mode"
+      },
+      "online": {
+        "name": "Online"
+      },
+      "cloud_storage": {
+        "name": "Cloud storage"
+      }
+    },
     "event": {
       "visit": {
         "name": "Visit",
@@ -149,6 +166,37 @@
       },
       "subscription_expires": {
         "name": "Subscription expires"
+      },
+      "battery": {
+        "name": "Battery"
+      },
+      "last_report": {
+        "name": "Last report"
+      },
+      "wifi_signal": {
+        "name": "Wi-Fi signal"
+      },
+      "fill_light": {
+        "name": "Fill light",
+        "state": {
+          "low": "Low",
+          "medium": "Medium",
+          "high": "High"
+        }
+      },
+      "motion_sensitivity": {
+        "name": "Motion sensitivity",
+        "state": {
+          "medium": "Medium",
+          "high": "High"
+        }
+      },
+      "update_mode": {
+        "name": "Firmware update mode",
+        "state": {
+          "automatic": "Automatic",
+          "manual": "Manual"
+        }
       }
     }
   },

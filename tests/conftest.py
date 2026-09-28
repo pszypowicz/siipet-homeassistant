@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from freezegun.api import FrozenDateTimeFactory
@@ -31,12 +32,26 @@ from custom_components.siipet.const import (
     DOMAIN,
 )
 
-from .common import EMPTY_DAY, NOW, TODAY, fixture_day, load_data
+from .common import EMPTY_DAY, NOW, TODAY, FakeShadowLink, fixture_day, load_data
 
 
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
     """Let Home Assistant load the integration from custom_components."""
+
+
+@pytest.fixture(autouse=True)
+def shadow_links() -> Generator[list[FakeShadowLink]]:
+    """Replace the shadow link with a fake. The list holds each fake link."""
+    links: list[FakeShadowLink] = []
+
+    def create(*args: Any, **kwargs: Any) -> FakeShadowLink:
+        link = FakeShadowLink(*args, **kwargs)
+        links.append(link)
+        return link
+
+    with patch("custom_components.siipet.device_state.ShadowLink", side_effect=create):
+        yield links
 
 
 @pytest.fixture(autouse=True)

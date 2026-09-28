@@ -1,0 +1,48 @@
+{
+  "state": {
+    "reported": {
+      "main": {
+        "connected": {
+          "status": false,
+          "timestamp": 1
+        },
+        "sysVersion": "1.2.3",
+        "rssi": -61,
+        "ssid": "example-network",
+        "ip": "192.0.2.10",
+        "mac": "00:00:5e:00:53:01",
+        "bind": true,
+        "runOn": "app"
+      },
+      "esp32": {
+        "connected": {
+          "status": true,
+          "timestamp": 1790423000
+        },
+        "sysVersion": "0.9.1",
+        "bootVersion": "0.1.0"
+      }
+    }
+  },
+  "metadata": {
+    "reported": {
+      "main": {
+        "sysVersion": {
+          "timestamp": 1790410000
+        },
+        "rssi": {
+          "timestamp": 1790423700
+        }
+      },
+      "esp32": {
+        "connected": {
+          "status": {
+            "timestamp": 1790423100
+          }
+        }
+      }
+    }
+  },
+  "version": 40,
+  "timestamp": 1790424000
+}

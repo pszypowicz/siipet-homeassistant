@@ -35,3 +35,5 @@ PAST_DAY_INTERVAL: Final = timedelta(hours=1)
 LABELS_INTERVAL: Final = timedelta(hours=24)
 MIDNIGHT_GRACE: Final = timedelta(hours=1)
 WINDOW_DAYS: Final = 7
+# How long the device state entities keep their values without a connection.
+DEVICE_STATE_GRACE: Final = timedelta(minutes=15)

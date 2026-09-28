@@ -27,9 +27,11 @@ from custom_components.siipet.media_store import key_hash
 
 from .common import (
     COVER,
+    DEVICE_STATE,
     STOOL,
     TODAY,
     VIDEO,
+    FakeShadowLink,
     load_data,
     mirror_visit,
     mock_s3,
@@ -149,3 +151,51 @@ async def test_diagnostics_local_copy_stopped(
         "queued": 0,
         "failing": 0,
     }
+
+
+def test_iot_keys_are_redacted() -> None:
+    """The AWS IoT keys are on the redaction list."""
+    assert {
+        "IotCore",
+        "IdentityId",
+        "IdentityPoolId",
+        "Endpoint",
+        "MqttClientId",
+    } <= TO_REDACT
+
+
+async def test_device_state_diagnostics(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+) -> None:
+    """Diagnostics show the link state and each camera state, with no serial."""
+    await setup_integration(hass, config_entry)
+    shadow_links[0].on_state("SN0001", DEVICE_STATE)
+    await hass.async_block_till_done()
+    result = await async_get_config_entry_diagnostics(hass, config_entry)
+    assert result["device_state"] == {
+        "last_update_success": True,
+        "connected": True,
+        "connected_since": "2026-09-26T11:00:00+00:00",
+        "last_message": "2026-09-26T11:59:00+00:00",
+        "cameras_with_state": 1,
+        "denied_cameras": 1,
+        "cameras": [
+            {
+                "battery": 72,
+                "charging": False,
+                "privacy": False,
+                "fill_light": 2,
+                "motion_level": 3,
+                "update_mode": 0,
+                "cloud_storage": True,
+                "online": True,
+                "firmware": "1.2.3",
+                "rssi": -61,
+                "reported_at": "2026-09-26T11:55:00+00:00",
+            }
+        ],
+    }
+    assert "SN0001" not in json.dumps(result, default=str)

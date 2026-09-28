@@ -1,0 +1,74 @@
+{
+  "state": {
+    "desired": {
+      "battery": {
+        "SOC": 50
+      }
+    },
+    "reported": {
+      "battery": {
+        "SOC": 72.4,
+        "charging": false
+      },
+      "privacyMode": {
+        "active": false
+      },
+      "privacyStatus": false,
+      "fillLight": {
+        "level": 2,
+        "brightness2": 70,
+        "autoLight": true
+      },
+      "pir": {
+        "level": 3,
+        "sense": 60
+      },
+      "otaMode": {
+        "mode": 0
+      },
+      "cloudMode": {
+        "enableCloud": true
+      },
+      "tzName": "Europe/Example"
+    }
+  },
+  "metadata": {
+    "reported": {
+      "battery": {
+        "SOC": {
+          "timestamp": 1790423400
+        },
+        "charging": {
+          "timestamp": 1790423400
+        }
+      },
+      "privacyMode": {
+        "active": {
+          "timestamp": 1790420000
+        }
+      },
+      "fillLight": {
+        "level": {
+          "timestamp": 1790420000
+        }
+      },
+      "pir": {
+        "level": {
+          "timestamp": 1790420000
+        }
+      },
+      "otaMode": {
+        "mode": {
+          "timestamp": 1790420000
+        }
+      },
+      "cloudMode": {
+        "enableCloud": {
+          "timestamp": 1790420000
+        }
+      }
+    }
+  },
+  "version": 12,
+  "timestamp": 1790424000
+}
