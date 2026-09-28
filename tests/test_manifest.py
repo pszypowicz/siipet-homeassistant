@@ -26,6 +26,7 @@ def test_manifest() -> None:
     assert manifest["config_flow"] is True
     assert manifest["requirements"] == []
     assert manifest["dependencies"] == ["http", "media_source", "websocket_api"]
+    assert manifest["after_dependencies"] == ["frontend"]
     assert manifest["version"] == "0.1.0"
 
 
