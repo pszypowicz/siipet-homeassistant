@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import replace
 from datetime import timedelta
 from unittest.mock import AsyncMock
@@ -275,6 +274,9 @@ async def test_unload_stops_the_link(
     assert shadow_links[0].stopped
 
 
+# The frozen clock stops asyncio timers. The signal timer of pytest-timeout
+# still fires, so a setup that waits for the link fails instead of hanging.
+@pytest.mark.timeout(10)
 async def test_link_runs_as_a_background_task(
     hass: HomeAssistant,
     mock_client: AsyncMock,
@@ -284,8 +286,7 @@ async def test_link_runs_as_a_background_task(
 ) -> None:
     """The link runs in the background, so setup never waits for it."""
     monkeypatch.setattr(FakeShadowLink, "keep_running", True)
-    async with asyncio.timeout(5):
-        await setup_integration(hass, config_entry)
+    await setup_integration(hass, config_entry)
     link = shadow_links[0]
     assert link.running
     assert not link.stopped
