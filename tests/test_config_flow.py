@@ -10,7 +10,7 @@ import uuid
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.const import CONF_EMAIL
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.data_entry_flow import FlowResultType, InvalidData
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -27,6 +27,7 @@ from custom_components.siipet.const import (
     CONF_CLIENT_ID,
     CONF_CODE,
     CONF_EXPIRE_AT,
+    CONF_MEDIA_DAYS,
     CONF_TOKEN,
     DOMAIN,
 )
@@ -418,3 +419,52 @@ async def test_reconfigure_outdated_entry(
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "entry_outdated"
     mock_client.request_email_code.assert_not_awaited()
+
+
+async def test_options_flow_sets_the_media_days(
+    hass: HomeAssistant, mock_setup_entry: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """The options flow stores whole days and reloads the entry."""
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "init"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_MEDIA_DAYS: 30}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert config_entry.options == {CONF_MEDIA_DAYS: 30}
+    assert type(config_entry.options[CONF_MEDIA_DAYS]) is int
+    await hass.async_block_till_done()
+    mock_setup_entry.assert_awaited_once()
+
+
+async def test_options_flow_defaults_to_seven_days(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    """Without a stored option, the form submits 7 days."""
+    hass.config_entries.async_update_entry(config_entry, options={})
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    assert result["data_schema"]({}) == {CONF_MEDIA_DAYS: 7}
+
+
+async def test_options_flow_suggests_the_stored_days(
+    hass: HomeAssistant, config_entry: MockConfigEntry
+) -> None:
+    """The form suggests the stored number of days."""
+    hass.config_entries.async_update_entry(config_entry, options={CONF_MEDIA_DAYS: 3})
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    assert _suggested(result, CONF_MEDIA_DAYS) == 3
+
+
+@pytest.mark.parametrize("days", [-1, 31])
+async def test_options_flow_rejects_days_out_of_range(
+    hass: HomeAssistant, config_entry: MockConfigEntry, days: int
+) -> None:
+    """The form accepts 0 to 30 days only."""
+    before = dict(config_entry.options)
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    with pytest.raises(InvalidData):
+        await hass.config_entries.options.async_configure(
+            result["flow_id"], {CONF_MEDIA_DAYS: days}
+        )
+    assert config_entry.options == before

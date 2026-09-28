@@ -11,9 +11,13 @@ CONF_AUTH_METHOD: Final = "auth_method"
 CONF_CLIENT_ID: Final = "client_id"
 CONF_CODE: Final = "code"
 CONF_EXPIRE_AT: Final = "expire_at"
+CONF_MEDIA_DAYS: Final = "media_days"
 CONF_TOKEN: Final = "token"
 # The keys that an entry needs to sign in. Entries from version 0.0.1 have none.
 SESSION_KEYS: Final = (CONF_TOKEN, CONF_EXPIRE_AT, CONF_CLIENT_ID)
+
+DEFAULT_MEDIA_DAYS: Final = 7
+MAX_MEDIA_DAYS: Final = 30
 
 AUTH_EMAIL: Final = "email"
 AUTH_TOKEN: Final = "token"

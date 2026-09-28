@@ -35,6 +35,20 @@
       "wrong_account": "Sign in with the same SiiPet account as before."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Local media",
+        "description": "Home Assistant can keep a copy of the SiiPet recordings and images of the last days, and play them from this copy. Set 0 to turn the copy off and delete it.",
+        "data": {
+          "media_days": "Days to keep"
+        },
+        "data_description": {
+          "media_days": "From 0 to 30. A recording takes about 20 MB. The copy is in the folder .siipet of the media folder."
+        }
+      }
+    }
+  },
   "exceptions": {
     "entry_outdated": {
       "message": "Remove the SiiPet entry and add it again."
