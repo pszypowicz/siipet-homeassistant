@@ -79,7 +79,7 @@ def _rejected_code(payload: bytes) -> object:
     """Return the `code` of a rejected reply. Its message can name the shadow."""
     try:
         return json.loads(payload).get("code")
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         return None
 
 
