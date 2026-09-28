@@ -471,6 +471,76 @@ async def test_rejected_read_logs_code_only(caplog: pytest.LogCaptureFixture) ->
         assert private not in caplog.text
 
 
+async def test_partly_refused_camera_ignores_updates() -> None:
+    """A denied camera ignores an update on a topic that a partial SUBACK still granted."""
+    broker = _broker(
+        deny_topics={shadow_topic("SN0002", "prod_systemInfo", "get/rejected")}
+    )
+    async with _running(broker) as running:
+        await _until(lambda: running.link.status.denied_cameras == 1)
+        await broker.push(
+            shadow_topic("SN0002", "prod_configInfo", "update/documents"),
+            load_fixture("shadow_config_update.json"),
+        )
+        await asyncio.sleep(0.1)
+        assert "SN0002" not in running.recorder.states
+        assert running.link.status.denied_cameras == 1
+
+
+async def test_stop_during_a_start_counts_no_strike(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A start that stop() interrupts is not a real failure, so it counts no strike."""
+    caplog.set_level(logging.DEBUG, logger="custom_components.siipet")
+    broker = _broker(silent_subscribe={"SN0002"})
+    async with _running(broker) as running:
+        await _until(lambda: len(broker.connections) == 2)
+        await asyncio.sleep(0.2)
+        await running.link.stop()
+        assert "refused the device state" not in caplog.text
+        assert running.link.status.denied_cameras == 0
+
+
+async def test_failed_callback_logs_one_warning_per_camera(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A callback that keeps failing warns once per camera, then only at debug level."""
+    caplog.set_level(logging.DEBUG, logger="custom_components.siipet")
+    async with _running(_broker()) as running:
+
+        def fail_always(_sn: str) -> None:
+            raise RuntimeError("callback failed")
+
+        running.recorder.hook = fail_always
+        await _until(lambda: len(running.broker.gets) >= 8)
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 2
+    for name in ("Bathroom", "Hallway"):
+        matching = [r for r in warnings if name in r.getMessage()]
+        assert len(matching) == 1
+        assert "RuntimeError" in matching[0].getMessage()
+    debugs = [r for r in caplog.records if r.levelno == logging.DEBUG]
+    assert any("RuntimeError" in r.getMessage() for r in debugs)
+    assert len(running.broker.connections) == 1
+
+
+async def test_strike_resets_after_a_success() -> None:
+    """A strike from a failed start does not add to one from a later start."""
+    broker = _broker(close_on_get_budget={"SN0002": 1})
+    async with _running(broker) as running:
+        await _until(lambda: len(running.recorder.states) == 2)
+        await _until(lambda: len(broker.connections) == 2)
+        broker.close_on_get_budget["SN0002"] = 1
+        await broker.close_all()
+        await _until(
+            lambda: (
+                len(broker.connections) == 4 and running.recorder.connection[-1] is True
+            )
+        )
+        assert running.link.status.denied_cameras == 0
+        assert "SN0002" in running.recorder.states
+
+
 async def test_stop() -> None:
     """Stop sends DISCONNECT, ends run, and reports no lost connection."""
     broker = _broker()

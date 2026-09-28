@@ -217,3 +217,17 @@ async def test_missing_value_is_unknown(
     """A value that the shadow does not have gives an unknown state."""
     await _setup(hass, config_entry, shadow_links, replace(DEVICE_STATE, battery=None))
     assert hass.states.get("sensor.bathroom_battery").state == STATE_UNKNOWN
+
+
+async def test_dropped_state_turns_entities_unavailable(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+) -> None:
+    """A camera whose state is dropped turns its entities unavailable."""
+    await _setup(hass, config_entry, shadow_links)
+    shadow_links[0].on_state("SN0001", None)
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.bathroom_battery").state == STATE_UNAVAILABLE
+    assert hass.states.get("binary_sensor.bathroom_online").state == STATE_UNAVAILABLE

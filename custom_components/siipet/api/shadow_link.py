@@ -130,6 +130,7 @@ class ShadowLink:
         self._started: set[str] = set()
         self._denied: dict[str, datetime] = {}
         self._denied_logged: set[str] = set()
+        self._callback_warned: set[str] = set()
         self._strikes: dict[str, int] = {}
         self._rejected_logged: set[tuple[str, str]] = set()
         self._session: MqttSession | None = None
@@ -299,11 +300,14 @@ class ShadowLink:
         strike, and `DENY_STRIKES` strikes in a row deny the camera. The error
         still ends the connection.
         """
+        # A retry after the denied wait starts clean, so its replies are read.
+        self._denied.pop(sn, None)
         try:
             await self._subscribe_and_read(session, sn, shadows)
         except MqttError:
-            # A camera that set_cameras replaced or removed gets no strike.
-            if self._cameras.get(sn) == shadows:
+            # A camera that set_cameras replaced or removed gets no strike, and
+            # neither does one that stop() interrupted.
+            if not self._stopping and self._cameras.get(sn) == shadows:
                 self._strike(sn)
             raise
 
@@ -316,7 +320,9 @@ class ShadowLink:
             for suffix in REPLIES
         ]
         if not all(await session.subscribe(topics, self._timings.reply)):
-            self._deny(sn)
+            # A camera that set_cameras renamed during the wait gets no denial.
+            if self._cameras.get(sn) == shadows:
+                self._deny(sn)
             return
         loop = asyncio.get_running_loop()
         replies: list[asyncio.Future[None]] = []
@@ -383,6 +389,11 @@ class ShadowLink:
             return
         sn, kind, suffix = target
         self._last_message = self._clock()
+        if sn in self._denied:
+            # A partial SUBACK can leave a granted topic subscribed, but a
+            # denied camera keeps no state until its retry starts clean.
+            self._resolve(sn, kind)
+            return
         if suffix == REJECTED:
             if (sn, kind) not in self._rejected_logged:
                 self._rejected_logged.add((sn, kind))
@@ -417,6 +428,14 @@ class ShadowLink:
         try:
             self._on_state(sn, state)
         except Exception as err:
+            if sn in self._callback_warned:
+                _LOGGER.debug(
+                    "Could not use the device state of %s: %s",
+                    self._label(sn),
+                    type(err).__name__,
+                )
+                return
+            self._callback_warned.add(sn)
             _LOGGER.warning(
                 "Could not use the device state of %s: %s",
                 self._label(sn),
@@ -465,6 +484,7 @@ class ShadowLink:
         self._started.discard(sn)
         self._denied.pop(sn, None)
         self._denied_logged.discard(sn)
+        self._callback_warned.discard(sn)
         self._strikes.pop(sn, None)
         for kind in SHADOW_KINDS:
             self._versions.pop((sn, kind), None)

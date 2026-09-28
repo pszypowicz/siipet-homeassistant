@@ -66,6 +66,7 @@ class FakeBroker:
     connack_code: int = 0
     answer_ping: bool = True
     deny_subscribe: set[str] = field(default_factory=set)
+    deny_topics: set[str] = field(default_factory=set)
     close_on_get: set[str] = field(default_factory=set)
     close_on_get_budget: dict[str, int] = field(default_factory=dict)
     reject_get: set[str] = field(default_factory=set)
@@ -125,7 +126,7 @@ class FakeBroker:
                 return True
             codes = bytearray()
             for topic in topics:
-                if _serial(topic) in self.deny_subscribe:
+                if _serial(topic) in self.deny_subscribe or topic in self.deny_topics:
                     codes.append(SUBACK_FAILURE)
                 else:
                     connection.subscriptions.add(topic)
