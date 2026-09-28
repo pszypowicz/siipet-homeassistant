@@ -125,6 +125,11 @@ export class SiiPetVisitEditor extends LitElement {
         padding: 0;
         border: none;
         background: black;
+      }
+      .stool-dialog:not([open]) {
+        display: none;
+      }
+      .stool-dialog[open] {
         display: flex;
         align-items: center;
         justify-content: center;
@@ -404,7 +409,7 @@ export class SiiPetVisitEditor extends LitElement {
         ${this._error ? html`<div class="error">${this._error}</div>` : nothing}
         ${this._renderActions(check.data)}
       </div>
-      ${this._renderStoolDialog()}
+      ${current.stool ? this._renderStoolDialog() : nothing}
     `;
   }
 

@@ -1,6 +1,7 @@
 import { render } from "lit";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { SiiPetVisitEditor } from "../src/edit-view";
 import {
   catsResult,
   fakeHass,
@@ -157,6 +158,19 @@ describe("edit view", () => {
     await settle();
 
     expect(dialog.open).toBe(false);
+  });
+
+  it("keeps the stool dialog hidden in its styles until it opens", () => {
+    const cssText = (SiiPetVisitEditor.styles as { cssText?: string }[])
+      .map((style) => style.cssText ?? "")
+      .join("\n");
+    expect(cssText).toMatch(/\.stool-dialog:not\(\[open\]\)\s*\{[^}]*display:\s*none/);
+    expect(cssText).not.toMatch(/\.stool-dialog\s*\{[^}]*display:\s*flex/);
+  });
+
+  it("renders no stool dialog for a visit without a stool photo", async () => {
+    const editor = await openVisit(await mount(fakeHass()), 1);
+    expect(inEditor(editor, ".stool-dialog")).toBeNull();
   });
 
   it("explains a recording that the browser cannot play", async () => {

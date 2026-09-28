@@ -314,6 +314,11 @@ var U=globalThis,I=U.ShadowRoot&&(U.ShadyCSS===void 0||U.ShadyCSS.nativeShadow)&
         padding: 0;
         border: none;
         background: black;
+      }
+      .stool-dialog:not([open]) {
+        display: none;
+      }
+      .stool-dialog[open] {
         display: flex;
         align-items: center;
         justify-content: center;
@@ -393,7 +398,7 @@ ${ge}`)}async _delete(){if(await this._confirmDelete()){this._setBusy(!0),this._
         ${this._error?a`<div class="error">${this._error}</div>`:l}
         ${this._renderActions(o.data)}
       </div>
-      ${this._renderStoolDialog()}
+      ${s.stool?this._renderStoolDialog():l}
     `}_renderHeader(t){let s=T[t.type],n=t.cats.map(r=>r.name).join(", ")||"Unknown",o=[g(t.start.slice(0,10)),s.label,K(t.duration),...t.abnormal_reasons.slice(0,1)].join(" \xB7 ");return a`
       <ha-tile-container class="header" .interactive=${!0} @action=${()=>this._back()}>
         <ha-tile-icon slot="icon" .icon=${"mdi:arrow-left"}></ha-tile-icon>
