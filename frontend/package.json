@@ -1,0 +1,22 @@
+{
+  "name": "siipet-visits-card",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "node build.mjs",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "lit": "3.3.3"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "happy-dom": "20.14.5",
+    "prettier": "3.9.9",
+    "typescript": "7.0.2",
+    "vitest": "5.0.2"
+  }
+}
