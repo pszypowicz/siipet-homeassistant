@@ -85,8 +85,25 @@ Other browsers can fail. The integration does not convert video.
 
 A visit marked **(on camera only)** has no cloud recording, so it cannot play.
 
-Home Assistant fetches the thumbnails from the SiiPet cloud for you.
-A recording plays directly from the SiiPet cloud storage, through a link that expires after one hour.
+Home Assistant serves the thumbnails for you.
+A recording plays from the [local media copy](#local-media-copy) when the copy has it.
+Otherwise it plays directly from the SiiPet cloud storage, through a link that expires after one hour.
+
+## Local media copy
+
+Home Assistant keeps a copy of the recordings and images of the last 7 days.
+The card and the media browser play a recording from this copy.
+A recording that is not in the copy plays from the SiiPet cloud.
+
+To change the number of days, open the SiiPet entry in **Settings > Devices & Services** and choose **Configure**.
+Set a number from 0 to 30. 0 turns the copy off and deletes it.
+
+- SiiPet copies a new visit after the poll that finds it, so within about 5 minutes after the upload.
+- The copy is in the folder `.siipet` of the Home Assistant media folder, for example `/media/.siipet`. The media browser does not list this folder.
+- A recording takes about 30 MB on average. At 8 to 9 visits a day, 7 days take about 1.8 GB, and 30 days take about 7.7 GB.
+- A backup includes the copy only if the backup includes the media folder.
+- If less than 1 GB stays free on the disk, the copy pauses, and a repair shows in **Settings > Repairs**.
+- A deleted visit loses its local files too. When you remove the integration, Home Assistant deletes the folder.
 
 ## Dashboard card
 

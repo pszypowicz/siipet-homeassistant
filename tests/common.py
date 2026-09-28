@@ -2,18 +2,28 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
+from collections.abc import AsyncIterator
+from dataclasses import replace
 from datetime import date
+import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.test_util.aiohttp import (
+    AiohttpClientMocker,
+    AiohttpClientMockResponse,
+)
 
-from custom_components.siipet.api import DayVisits
-from custom_components.siipet.const import DOMAIN
+from custom_components.siipet.api import DayVisits, Visit
+from custom_components.siipet.const import CONF_MEDIA_DAYS, DOMAIN
 
 FIXTURES = Path(__file__).parent / "fixtures"
 NOW = "2026-09-26T12:00:00+00:00"
@@ -64,3 +74,105 @@ async def setup_integration(hass: HomeAssistant, entry: MockConfigEntry) -> None
     """Set up the entry and wait for the platforms."""
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+
+
+S3 = "https://media-bucket.s3.amazonaws.com/"
+VIDEO = b"video-ev-1"
+COVER = b"cover-ev-1"
+STOOL = b"stool-ev-1"
+MIRROR_FILES = {
+    "events/ev-1/video.mp4": VIDEO,
+    "events/ev-1/cover.jpg": COVER,
+    "events/ev-1/stool.jpg": STOOL,
+    "resources/luna.jpg": b"luna",
+    "resources/milo.jpg": b"milo",
+}
+
+
+def md5_hex(data: bytes) -> str:
+    """Return the MD5 of `data` in the format of the API."""
+    return hashlib.md5(data).hexdigest()
+
+
+def mirror_visit(**changes: Any) -> Visit:
+    """Visit ev-1 of the fixture day, with sizes and a hash that match MIRROR_FILES."""
+    base = next(visit for visit in fixture_day().visits if visit.event_id == "ev-1")
+    values: dict[str, Any] = {
+        "video_size": len(VIDEO),
+        "video_md5": md5_hex(VIDEO),
+        "cover_size": len(COVER),
+        "stool_size": len(STOOL),
+    }
+    values.update(changes)
+    return replace(base, **values)
+
+
+def serve_days(mock_client: AsyncMock, days: dict[date, tuple[Visit, ...]]) -> None:
+    """Let the client return these visits for these days, and none for others."""
+    base = fixture_day()
+    mock_client.get_day.side_effect = lambda requested, **_: (
+        replace(base, visits=days[requested]) if requested in days else EMPTY_DAY
+    )
+
+
+def mock_s3(aioclient_mock: AiohttpClientMocker, **extra: bytes) -> None:
+    """Serve MIRROR_FILES and `extra` from the mocked S3 bucket."""
+    for key, body in {**MIRROR_FILES, **extra}.items():
+        aioclient_mock.get(S3 + key, content=body)
+
+
+class StalledResponse(AiohttpClientMockResponse):
+    """An S3 response that sends its first byte, then waits for `release`."""
+
+    def __init__(
+        self,
+        method: str,
+        url: Any,
+        body: bytes,
+        started: asyncio.Event,
+        release: asyncio.Event,
+    ) -> None:
+        """Create the response. `started` is set once the first byte is out."""
+        super().__init__(method, url, response=body)
+        self._started = started
+        self._release = release
+
+    @property
+    def content(self) -> Any:
+        """Return a body that stalls after its first byte."""
+        return SimpleNamespace(iter_chunked=lambda size: self._chunks())
+
+    async def _chunks(self) -> AsyncIterator[bytes]:
+        yield self.response[:1]
+        self._started.set()
+        await self._release.wait()
+        yield self.response[1:]
+
+
+def s3_gets(aioclient_mock: AiohttpClientMocker, key: str) -> int:
+    """Count the S3 requests for one key."""
+    return sum(1 for call in aioclient_mock.mock_calls if call[1].path == f"/{key}")
+
+
+def day_folder(media_dir: Path, day: date = TODAY) -> Path:
+    """Return the folder of the local copy for one day."""
+    return media_dir / ".siipet" / day.isoformat()
+
+
+async def setup_mirror(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    days: int | None,
+    *,
+    wait_for_downloads: bool = True,
+) -> None:
+    """Set up the entry with local media for `days` days, and wait for the downloads.
+
+    None leaves the option out, so the default applies. A test that pauses a
+    download mid-flight passes `wait_for_downloads=False` and waits itself.
+    """
+    options = {} if days is None else {CONF_MEDIA_DAYS: days}
+    hass.config_entries.async_update_entry(entry, options=options)
+    await setup_integration(hass, entry)
+    if wait_for_downloads:
+        await hass.async_block_till_done(wait_background_tasks=True)

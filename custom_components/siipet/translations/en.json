@@ -35,6 +35,30 @@
       "wrong_account": "Sign in with the same SiiPet account as before."
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Local media",
+        "description": "Home Assistant can keep a copy of the SiiPet recordings and images of recent days, and play them from this copy. Set 0 to turn the copy off and delete it.",
+        "data": {
+          "media_days": "Days to keep"
+        },
+        "data_description": {
+          "media_days": "From 0 to 30. A recording takes about 30 MB on average. The copy is in the folder .siipet of the media folder."
+        }
+      }
+    }
+  },
+  "issues": {
+    "media_disk_full": {
+      "title": "SiiPet paused the local media copy",
+      "description": "The disk of the media folder has less than 1 GB free, so SiiPet stopped copying recordings and images. Recordings and images that are not copied yet play from the SiiPet cloud until space is free again. Free some space, or set fewer days in the SiiPet options."
+    },
+    "media_folder_unavailable": {
+      "title": "SiiPet cannot use the media folder",
+      "description": "SiiPet cannot write its local copy of recordings and images to the media folder, so playback uses the SiiPet cloud. Check the media folder, then reload the SiiPet integration. To stop the local copy, set 0 days in the SiiPet options."
+    }
+  },
   "exceptions": {
     "entry_outdated": {
       "message": "Remove the SiiPet entry and add it again."
