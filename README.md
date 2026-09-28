@@ -131,6 +131,8 @@ If a Home Assistant update removes one of these parts, the card names the missin
 
 The recordings use H.265 video, so the limits in [Recordings](#recordings) apply to the card too.
 
+The integration also adds the icon `siipet:logo`, for example for a dashboard view.
+
 ### One card per cat
 
 To show each cat in its own card, set `cat` and `hide_cat_picker: true` on each card.

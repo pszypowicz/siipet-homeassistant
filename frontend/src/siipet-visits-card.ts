@@ -25,6 +25,7 @@ import {
 import "./edit-view";
 import type { BusyDetail, CloseDetail } from "./edit-view";
 import { dayLabel, monthOf, shiftDay, shiftMonth, timeOf } from "./format";
+import "./icons";
 import { cardStyles } from "./styles";
 import { loadTileParts } from "./tile-parts";
 import type {
