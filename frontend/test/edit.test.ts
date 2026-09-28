@@ -80,7 +80,29 @@ describe("edit view", () => {
     expect(video.getAttribute("src")).toBe("https://video.example/ev-1.mp4");
     expect(video.getAttribute("poster")).toBe(POOP.cover);
     expect(inEditor(editor, ".stool-photo")?.getAttribute("src")).toBe(POOP.stool);
+    expect(text(inEditor(editor, ".stool-label"))).toBe("Stool photo");
     expect(text(inEditor(editor, ".reasons"))).toBe("Soft stool");
+  });
+
+  it("labels the stool photo even when the visit has no abnormal reasons", async () => {
+    const day = { summary: { visits: 1, pee: 0, poop: 1, abnormal: 0 } };
+    const fake = fakeHass({
+      day: { ...day, visits: [{ ...POOP, abnormal: false, abnormal_reasons: [] }] },
+    });
+    const editor = await openVisit(await mount(fake));
+    expect(inEditor(editor, ".stool-photo")?.getAttribute("src")).toBe(POOP.stool);
+    expect(text(inEditor(editor, ".stool-label"))).toBe("Stool photo");
+    expect(text(inEditor(editor, ".reasons"))).toBe("");
+  });
+
+  it("shows the stool photo whole instead of cropping it to a square", async () => {
+    const editor = await openVisit(await mount(fakeHass()));
+    const photo = inEditor(editor, ".stool-photo") as unknown as HTMLElement;
+    const computed = getComputedStyle(photo);
+    expect(computed.aspectRatio).not.toBe("1 / 1");
+    expect(computed.objectFit).toBe("contain");
+    expect(computed.height).toBe("auto");
+    expect(computed.width).toBe("40%");
   });
 
   it("explains a recording that the browser cannot play", async () => {

@@ -85,9 +85,14 @@ export class SiiPetVisitEditor extends LitElement {
       }
       .stool-photo {
         width: 40%;
-        aspect-ratio: 1;
-        object-fit: cover;
+        height: auto;
+        object-fit: contain;
         border-radius: var(--ha-border-radius-lg, 12px);
+      }
+      .stool-label {
+        color: var(--primary-text-color);
+        font-size: var(--ha-font-size-m, 14px);
+        font-weight: var(--ha-font-weight-medium, 500);
       }
       ha-control-button.cat img {
         width: 20px;
@@ -455,7 +460,10 @@ export class SiiPetVisitEditor extends LitElement {
     return html`
       <div class="stool-row">
         ${stool ? html`<img class="stool-photo" src=${stool} alt="Stool photo" />` : nothing}
-        <span class="reasons">${visit.abnormal_reasons.join(", ")}</span>
+        <div>
+          ${stool ? html`<div class="stool-label">Stool photo</div>` : nothing}
+          <span class="reasons">${visit.abnormal_reasons.join(", ")}</span>
+        </div>
       </div>
     `;
   }
