@@ -98,13 +98,25 @@ export class SiiPetVisitEditor extends LitElement {
         display: flex;
         align-items: center;
         gap: 12px;
+        --mdc-icon-size: 20px;
+      }
+      .stool-row[role="button"] {
+        cursor: zoom-in;
+      }
+      .stool-row ha-icon {
+        color: var(--secondary-text-color);
+      }
+      .stool-text {
+        flex: 1;
+        min-width: 0;
       }
       .stool-photo {
-        width: 40%;
-        height: auto;
+        display: block;
+        height: 56px;
+        width: auto;
+        max-width: 40%;
         object-fit: contain;
-        border-radius: var(--ha-border-radius-lg, 12px);
-        cursor: zoom-in;
+        border-radius: var(--ha-border-radius-md, 8px);
       }
       .stool-label {
         color: var(--primary-text-color);
@@ -528,32 +540,31 @@ export class SiiPetVisitEditor extends LitElement {
   }
 
   private _renderStool(visit: Visit, stool: string | null): TemplateResult | typeof nothing {
-    if (!stool && visit.abnormal_reasons.length === 0) {
-      return nothing;
+    const reasons = html`<span class="reasons">${visit.abnormal_reasons.join(", ")}</span>`;
+    if (!stool) {
+      return visit.abnormal_reasons.length === 0
+        ? nothing
+        : html`<div class="stool-row">${reasons}</div>`;
     }
-    const photo = stool
-      ? html`<img
-          class="stool-photo"
-          src=${stool}
-          alt="Stool photo"
-          role="button"
-          tabindex="0"
-          @click=${() => this._openStoolDialog(stool)}
-          @keydown=${(ev: KeyboardEvent) => {
-            if (ev.key === "Enter" || ev.key === " ") {
-              ev.preventDefault();
-              this._openStoolDialog(stool);
-            }
-          }}
-        />`
-      : nothing;
     return html`
-      <div class="stool-row">
-        ${photo}
-        <div>
-          ${stool ? html`<div class="stool-label">Stool photo</div>` : nothing}
-          <span class="reasons">${visit.abnormal_reasons.join(", ")}</span>
+      <div
+        class="stool-row"
+        role="button"
+        tabindex="0"
+        @click=${() => this._openStoolDialog(stool)}
+        @keydown=${(ev: KeyboardEvent) => {
+          if (ev.key === "Enter" || ev.key === " ") {
+            ev.preventDefault();
+            this._openStoolDialog(stool);
+          }
+        }}
+      >
+        <ha-icon icon="mdi:camera-outline"></ha-icon>
+        <div class="stool-text">
+          <div class="stool-label">Stool photo</div>
+          ${reasons}
         </div>
+        <img class="stool-photo" src=${stool} alt="Stool photo" />
       </div>
     `;
   }

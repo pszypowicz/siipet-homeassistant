@@ -104,40 +104,58 @@ describe("edit view", () => {
     expect(text(inEditor(editor, ".reasons"))).toBe("");
   });
 
-  it("shows the stool photo whole instead of cropping it to a square", async () => {
+  it("shows the stool photo whole as a small thumbnail to the right of its label", async () => {
     const editor = await openVisit(await mount(fakeHass()));
+    const row = inEditor(editor, ".stool-row")!;
     const photo = inEditor(editor, ".stool-photo") as unknown as HTMLElement;
+    expect(row.lastElementChild).toBe(photo);
+    expect(
+      inEditor(editor, ".stool-label")!.compareDocumentPosition(photo) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     const computed = getComputedStyle(photo);
-    expect(computed.aspectRatio).not.toBe("1 / 1");
     expect(computed.objectFit).toBe("contain");
-    expect(computed.height).toBe("auto");
-    expect(computed.width).toBe("40%");
+    expect(computed.height).toBe("56px");
+    expect(computed.width).toBe("auto");
   });
 
-  it("opens the stool photo full screen on a tap", async () => {
+  it("opens the stool photo full screen on a tap anywhere on its row", async () => {
     const editor = await openVisit(await mount(fakeHass()));
     const dialog = inEditor(editor, ".stool-dialog") as unknown as HTMLDialogElement;
     expect(dialog.open).toBe(false);
+    expect(inEditor(editor, ".stool-row")?.getAttribute("role")).toBe("button");
 
-    inEditor(editor, ".stool-photo")!.dispatchEvent(new Event("click"));
+    inEditor(editor, ".stool-label")!.dispatchEvent(new Event("click", { bubbles: true }));
     await settle();
 
     expect(dialog.open).toBe(true);
     expect(inEditor(editor, ".stool-dialog-photo")?.getAttribute("src")).toBe(POOP.stool);
   });
 
-  it("opens the stool photo full screen on Enter", async () => {
+  it("opens the stool photo full screen on Enter on its row", async () => {
     const editor = await openVisit(await mount(fakeHass()));
-    inEditor(editor, ".stool-photo")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    inEditor(editor, ".stool-row")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
     await settle();
 
     const dialog = inEditor(editor, ".stool-dialog") as unknown as HTMLDialogElement;
     expect(dialog.open).toBe(true);
   });
 
+  it("shows the reasons of a visit without a stool photo in a row that opens nothing", async () => {
+    const day = { summary: { visits: 1, pee: 0, poop: 1, abnormal: 1 } };
+    const fake = fakeHass({ day: { ...day, visits: [{ ...POOP, stool: null }] } });
+    const editor = await openVisit(await mount(fake));
+    const row = inEditor(editor, ".stool-row")!;
+    expect(text(inEditor(editor, ".reasons"))).toBe("Soft stool");
+    expect(row.getAttribute("role")).toBeNull();
+    expect(row.getAttribute("tabindex")).toBeNull();
+    expect(inEditor(editor, ".stool-label")).toBeNull();
+    expect(inEditor(editor, ".stool-photo")).toBeNull();
+  });
+
   it("closes the full screen stool photo on a tap on the close button", async () => {
     const editor = await openVisit(await mount(fakeHass()));
-    inEditor(editor, ".stool-photo")!.dispatchEvent(new Event("click"));
+    inEditor(editor, ".stool-row")!.dispatchEvent(new Event("click"));
     await settle();
     const dialog = inEditor(editor, ".stool-dialog") as unknown as HTMLDialogElement;
     expect(dialog.open).toBe(true);
@@ -150,9 +168,10 @@ describe("edit view", () => {
 
   it("closes the full screen stool photo on a tap on the enlarged photo or the backdrop", async () => {
     const editor = await openVisit(await mount(fakeHass()));
-    inEditor(editor, ".stool-photo")!.dispatchEvent(new Event("click"));
+    inEditor(editor, ".stool-row")!.dispatchEvent(new Event("click"));
     await settle();
     const dialog = inEditor(editor, ".stool-dialog") as unknown as HTMLDialogElement;
+    expect(dialog.open).toBe(true);
 
     dialog.dispatchEvent(new Event("click", { bubbles: true }));
     await settle();
