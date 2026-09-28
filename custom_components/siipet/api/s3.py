@@ -5,16 +5,14 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
-import hashlib
-import hmac
 from urllib.parse import quote
 
 from .errors import SiiPetError
 from .models import MediaCredentials
+from .sigv4 import presigned_query
 
 REGION = "us-east-1"
 SERVICE = "s3"
-ALGORITHM = "AWS4-HMAC-SHA256"
 # Credentials are renewed this long before they expire, so that a new URL
 # stays valid for at least this long.
 REFRESH_MARGIN = timedelta(minutes=10)
@@ -24,41 +22,23 @@ def presign_get(
     credentials: MediaCredentials, key: str, *, now: datetime, expires_in: int
 ) -> str:
     """Return a SigV4 query-string presigned GET URL for one object."""
-    now = now.astimezone(UTC)
     host = f"{credentials.bucket}.s3.amazonaws.com"
-    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
-    datestamp = now.strftime("%Y%m%d")
-    scope = f"{datestamp}/{REGION}/{SERVICE}/aws4_request"
-    params = {
-        "X-Amz-Algorithm": ALGORITHM,
-        "X-Amz-Credential": f"{credentials.access_key_id}/{scope}",
-        "X-Amz-Date": amz_date,
-        "X-Amz-Expires": str(expires_in),
-        "X-Amz-SignedHeaders": "host",
-    }
+    params = {"X-Amz-Expires": str(expires_in)}
     if credentials.session_token:
         params["X-Amz-Security-Token"] = credentials.session_token
-    query = "&".join(
-        f"{_encode(name)}={_encode(value)}" for name, value in sorted(params.items())
-    )
     path = "/" + quote(key.lstrip("/"), safe="/-_.~")
-    canonical = "\n".join(
-        ("GET", path, query, f"host:{host}\n", "host", "UNSIGNED-PAYLOAD")
+    query = presigned_query(
+        host=host,
+        path=path,
+        region=REGION,
+        service=SERVICE,
+        access_key_id=credentials.access_key_id,
+        secret_access_key=credentials.secret_access_key,
+        now=now,
+        params=params,
+        payload_hash="UNSIGNED-PAYLOAD",
     )
-    string_to_sign = "\n".join(
-        (ALGORITHM, amz_date, scope, hashlib.sha256(canonical.encode()).hexdigest())
-    )
-    signing_key = f"AWS4{credentials.secret_access_key}".encode()
-    for part in (datestamp, REGION, SERVICE, "aws4_request"):
-        signing_key = hmac.new(signing_key, part.encode(), hashlib.sha256).digest()
-    signature = hmac.new(
-        signing_key, string_to_sign.encode(), hashlib.sha256
-    ).hexdigest()
-    return f"https://{host}{path}?{query}&X-Amz-Signature={signature}"
-
-
-def _encode(value: str) -> str:
-    return quote(value, safe="-_.~")
+    return f"https://{host}{path}?{query}"
 
 
 class S3Signer:

@@ -1,0 +1,49 @@
+{
+  "previous": {
+    "state": {
+      "reported": {
+        "battery": {
+          "SOC": 72.4,
+          "charging": false
+        }
+      }
+    },
+    "metadata": {
+      "reported": {
+        "battery": {
+          "SOC": {
+            "timestamp": 1790423400
+          }
+        }
+      }
+    },
+    "version": 12
+  },
+  "current": {
+    "state": {
+      "reported": {
+        "battery": {
+          "SOC": 80.6,
+          "charging": true
+        },
+        "privacyMode": {
+          "active": true
+        }
+      }
+    },
+    "metadata": {
+      "reported": {
+        "battery": {
+          "SOC": {
+            "timestamp": 1790424060
+          },
+          "charging": {
+            "timestamp": 1790424060
+          }
+        }
+      }
+    },
+    "version": 13
+  },
+  "timestamp": 1790424060
+}

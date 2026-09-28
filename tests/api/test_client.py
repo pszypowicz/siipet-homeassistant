@@ -167,6 +167,19 @@ async def test_get_media_credentials(
     assert headers["authorization"] == f"Bearer {TOKEN}"
 
 
+async def test_get_iot_credentials(
+    websession: aiohttp.ClientSession, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """The IoT credentials call sends an empty body with the bearer token."""
+    aioclient_mock.post(url("config/aws/auth"), json=load_fixture("aws_auth.json"))
+    credentials = await make_client(websession).get_iot_credentials()
+    assert credentials.endpoint == "example-ats.iot.us-east-1.amazonaws.com"
+    assert credentials.identity_id == "us-east-1:identity-0001"
+    [(body, headers)] = calls(aioclient_mock, "config/aws/auth")
+    assert body == {}
+    assert headers["authorization"] == f"Bearer {TOKEN}"
+
+
 async def test_get_calendar(
     websession: aiohttp.ClientSession, aioclient_mock: AiohttpClientMocker
 ) -> None:
@@ -387,6 +400,11 @@ def _envelope(data: Any) -> dict[str, Any]:
             "config/aws/auth",
             _envelope({"S3": {"S3Bucket": "media-bucket"}}),
             lambda c: c.get_media_credentials(),
+        ),
+        (
+            "config/aws/auth",
+            _envelope({"IdentityId": "id", "IotCore": {"Endpoint": "https://x"}}),
+            lambda c: c.get_iot_credentials(),
         ),
         (
             "pet/toilet/data/calendar",

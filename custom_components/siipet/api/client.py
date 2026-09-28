@@ -21,6 +21,7 @@ from .models import (
     Camera,
     Cat,
     DayVisits,
+    IotCredentials,
     MediaCredentials,
     Visit,
 )
@@ -225,6 +226,13 @@ class SiiPetClient:
         data = await self._post(path, {})
         with _parsing(path):
             return MediaCredentials.from_api(data)
+
+    async def get_iot_credentials(self) -> IotCredentials:
+        """Return temporary credentials for the device shadows on AWS IoT."""
+        path = "/api/v1/config/aws/auth"
+        data = await self._post(path, {})
+        with _parsing(path):
+            return IotCredentials.from_api(data)
 
     async def _post(self, path: str, body: dict[str, Any]) -> Any:
         """Send an authenticated request. Renew the session first when due."""
