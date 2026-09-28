@@ -90,6 +90,9 @@
     "edit_partial": {
       "message": "SiiPet may not have applied the whole change to visit {event_id}: {error}. Check the visit, then call the action again with type {type}."
     },
+    "edit_partial_note": {
+      "message": "SiiPet may not have saved the memo of visit {event_id}: {error}. Check the visit, then call the action again."
+    },
     "edit_unconfirmed": {
       "message": "SiiPet accepted the change to visit {event_id}, but the visit could not be read back: {error}. Check the visit in the SiiPet app."
     },

@@ -140,6 +140,17 @@ async def test_list_visits_older_day(
     assert mock_client.get_day.await_args_list[-1].args[0] == day
 
 
+async def test_list_visits_stops_at_history_limit(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A window that ends near the 30-day limit reads no older day."""
+    await setup_integration(hass, config_entry)
+    calls = mock_client.get_day.await_count
+    await _list(hass, date=(TODAY - timedelta(days=29)).isoformat(), days=7)
+    read = [call.args[0] for call in mock_client.get_day.await_args_list[calls:]]
+    assert read == [TODAY - timedelta(days=29), TODAY - timedelta(days=30)]
+
+
 async def test_list_visits_older_day_failure(
     hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
 ) -> None:
@@ -451,6 +462,19 @@ async def test_update_first_call_connection_error(
     assert info.value.translation_key == "edit_partial"
     assert info.value.translation_placeholders["type"] == "pee"
     assert mock_client.get_day.await_count == reads + 1
+
+
+async def test_update_memo_connection_error_names_no_type(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A failed memo edit of an unknown visit asks for no type."""
+    await setup_integration(hass, config_entry)
+    mock_client.get_visit.side_effect = [_detail(type=VisitType.UNKNOWN)]
+    mock_client.set_note.side_effect = SiiPetConnectionError("timeout")
+    with pytest.raises(HomeAssistantError) as info:
+        await _update(hass, event_id="ev-1", note="checked")
+    assert info.value.translation_key == "edit_partial_note"
+    assert "type" not in info.value.translation_placeholders
 
 
 async def test_update_read_back_fails(
