@@ -901,7 +901,7 @@ The integration reads the device state as described in "Read the battery shadow"
 - It reads both shadows of each camera again every 5 minutes, because the rate of update messages is not known.
 - It connects again with new credentials 10 minutes before the credentials expire.
 - It ignores a document with a lower `version` than the last one of the same shadow.
-- A camera that the account may not read is tried again after one hour. The other cameras keep working.
+- A camera is skipped for one hour when AWS IoT refuses its subscription, or when its start fails twice in a row. Its entities become unavailable, and the other cameras keep working.
 - If the connection stays down for 15 minutes, the device state entities become unavailable.
 - It never publishes to `update`, so it never changes a camera setting.
 

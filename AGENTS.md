@@ -16,7 +16,7 @@ custom_components/siipet/
     client.py          SiiPetClient: headers, envelope, one method per endpoint
     auth.py            challenge encryption, token payload, renewal rule
     challenge_key.py   AES key for the sign-in challenge
-    models.py          models: Cat, Camera, CameraShadows, Visit, VisitType, DayVisits, DaySummary, CalendarDay, AbnormalLabels, MediaCredentials, IotCredentials, DeviceState
+    models.py          Cat, Camera, CameraShadows, Visit, VisitType, DayVisits, DaySummary, CalendarDay, AbnormalLabels, MediaCredentials, IotCredentials, DeviceState
     edits.py           plan_edit: the annotate and memo calls for one visit edit
     errors.py          SiiPetError and its subclasses
     s3.py              SigV4 presigned GET URLs, credential cache
@@ -46,7 +46,7 @@ custom_components/siipet/
   icons.json           icons of the device state entities
   brand/               icon.png and icon@2x.png, loaded by Home Assistant 2026.3 and later
 tests/
-  api/                 client tests, with the Home Assistant HTTP mocker
+  api/                 client, MQTT, and shadow link tests, with the HTTP mocker and a fake broker
   fixtures/            JSON responses with fake values only
 docs/api.md            SiiPet cloud API reference
 frontend/              source of the dashboard card: TypeScript, Lit, esbuild, vitest
@@ -77,7 +77,7 @@ frontend/              source of the dashboard card: TypeScript, Lit, esbuild, v
 - The card reuses internal tile parts of the Home Assistant frontend. `frontend/src/tile-parts.ts` lists them.
   If a part is missing, the card names it and shows nothing else.
 - Only `api/shadow_link.py` talks to AWS IoT. It reads the shadows and never writes them.
-- The device state entities read only `SiiPetDeviceCoordinator.data`. The shadow link runs as a background task, so setup never waits for it.
+- The device state entities read `SiiPetDeviceCoordinator.data`, and the camera list of the main coordinator for availability. The shadow link runs as a background task, so setup never waits for it.
 
 ## API facts that are easy to get wrong
 
