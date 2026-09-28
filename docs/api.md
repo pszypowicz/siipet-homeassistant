@@ -1002,6 +1002,7 @@ These results come from tests against a real account.
 - A token from an email-code sign-in works from another client that sends the same `x-device-identifier` and an accepted model.
 - After an email-code sign-in from another client, the phone app's session kept working for at least one hour. Then the phone's calls failed with -2, although the phone sent an accepted model. The cause is not known.
 - After another client renewed the phone's token, the previous token kept working on the phone for about 70 minutes, until the failure above. The new token also worked.
+- After an email-code sign-in from Home Assistant, the phone app kept its old session. Both sessions worked for about one hour, and the check stopped then. Home Assistant probably sent its own `x-device-identifier`. The check does not show whether the phone fails later, as in the check above.
 - The baseline fields change with the time in `Date`. For one day, `BaselineTimes` was 0.03 to 0.13 with 00:00:00, 1.46 to 1.69 with 06:00:00 and 12:00:00, and 2.04 to 3.13 with 23:59:59. `BaselineAvgTime` changed too. The visit list was the same.
 - `Connected.Status` was false for every camera in every sample, also while the cameras recorded visits and during a live stream. Between a read during a live stream and a read after it, only the `AgoraAuth` tokens and expiry times changed, and they changed for every camera. `user/device/sync` has no field that shows a camera online or streaming.
 - The email code request is rate limited per day: `Code` 10010, `Msg` "Too many request today. Please try again tomorrow."
@@ -1062,7 +1063,7 @@ These results come from tests against a real account.
 - Whether the server checks `x-device-os`. `iOS 27.0` works with both model prefixes.
 - Whether an account allows more than one active session. The earlier -2 results
   came from the model header, so they do not answer this.
-- Whether a sign-in from Home Assistant ends the session of the phone app once
-  Home Assistant uses its token.
+- Whether the session of the phone app lasts longer than one hour after an
+  email-code sign-in from Home Assistant.
 - Whether a renewal ends the other session when Home Assistant and the phone app
   use the same token and `x-device-identifier`, in either direction.
