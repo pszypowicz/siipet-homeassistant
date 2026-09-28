@@ -282,8 +282,9 @@ Android defines model codes `LC01`, `LC02`, and `JOY1` in `DeviceProductType`.
 These codes match `ProductId`. Preserve the separate `ProductType` family value.
 
 Android `RoleType` defines `1` as owner, `2` as invitee, and `999` as other.
-Only the owner role appears in the inspected responses.
-Shared-account permissions remain untested.
+An invited account reads `Role` 2 on each camera and each cat of the owner.
+Its `UserGroupList` has its own group with `Role` 1 and the owner's group with `Role` 2.
+The server accepts a type edit of the owner's visit from an invited account. See "Invited accounts".
 The zero `Connected.Timestamp` samples do not establish its timestamp unit or update behavior.
 
 Embedded `Pet` records include `PetId`, `Name`, `PetType`, `Type`, `Gender`, `Birth`, and `Breed`.
@@ -937,6 +938,14 @@ The integration sends the header set of the captured iOS app with an Android-sty
 - `POST /api/v1/pet/toilet/event/feces/image/delete` with `{"EventId"}` deletes only the stool image.
 - `POST /api/v1/device/replay/delete` is for behavior replays. The app does not call it.
 
+### Invited accounts
+
+- `PottyRepository.isMyMedia` compares the visit `GroupId` with the `GroupId` of the account.
+  If both are set and they differ, the app shows `shared_device_tip` and stops.
+- The edit button, the stool photo upload, and the delete use this check.
+  For an invited account, the owner's visits fail it. "Memo edit" has the same `GroupId` rule.
+- The check runs in the app. A live test shows that the server accepts operation 3 from an invited account. See Live checks.
+
 ### Annotate operations
 
 - Operation 1 (`MultiPet`) sends `{"PetIds"}` from the multi-pet dialog.
@@ -1020,6 +1029,10 @@ These results come from tests against a real account.
   - The calendar returned every day since the first day with data, about 75 days before the check.
     The day list keeps only 31 days. A month before the first day with data returned no entries.
 - The day list returns visits for today and the 30 days before it. An older day returns an empty list, although the cat summaries report 55 to 63 days of collected data.
+- An invited account (`Role` 2) changed a poop visit of the owner to pee through `siipet.update_visit`.
+  - The integration sent operation 3 with `{"Type": 3}`. The server returned `Code` 0.
+  - The detail read of the owner account then showed the visit as pee, with `FecesError` true.
+  - The Android app blocks the same edit for that account. See "Invited accounts".
 
 ## Open questions
 
@@ -1042,9 +1055,9 @@ These results come from tests against a real account.
 - Whether S3 removes the media of a deleted visit later.
 - Complete meanings of stool and event abnormality codes.
 - Access to recordings stored only on the device.
-- Whether the server enforces the shared-user restriction, or whether the app hides
-  the reassignment button on the client side only. This decides whether a second
-  account can be used instead of the admin account.
+- Whether the server accepts operations 1 and 2, a memo edit, and a delete from an
+  invited account. Operation 3 works (see Live checks). The answer decides whether
+  an invited account can replace the owner account for all edits.
 - Which envelope codes the server returns for an expired or invalid token. The
   app treats -2 and -4 as an ended session.
 - Whether the server checks `x-device-os`. `iOS 27.0` works with both model prefixes.
