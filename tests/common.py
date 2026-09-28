@@ -73,18 +73,17 @@ class FakeShadowLink:
             cameras_with_state=1,
             denied_cameras=1,
         )
-        self._stop = asyncio.Event()
 
     def set_cameras(self, cameras: Mapping[str, CameraShadows]) -> None:
         self.cameras = dict(cameras)
 
     async def run(self) -> None:
+        # The real link runs until stop. The fake returns at once, because the
+        # tests of the local media copy wait for every background task.
         self.running = True
-        await self._stop.wait()
 
     async def stop(self) -> None:
         self.stopped = True
-        self._stop.set()
 
 
 def load_fixture(name: str) -> dict[str, Any]:

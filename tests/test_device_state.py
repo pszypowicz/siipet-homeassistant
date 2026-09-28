@@ -14,10 +14,23 @@ from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_time_changed,
 )
+from pytest_homeassistant_custom_component.test_util.aiohttp import (
+    AiohttpClientMocker,
+)
 
 from custom_components.siipet.const import DOMAIN
 
-from .common import DEVICE_STATE, SHADOWS, FakeShadowLink, setup_integration
+from .common import (
+    DEVICE_STATE,
+    SHADOWS,
+    TODAY,
+    FakeShadowLink,
+    mirror_visit,
+    mock_s3,
+    serve_days,
+    setup_integration,
+    setup_mirror,
+)
 
 
 async def _push(hass: HomeAssistant, link: FakeShadowLink, sn: str = "SN0001") -> None:
@@ -237,3 +250,26 @@ async def test_unload_stops_the_link(
     assert await hass.config_entries.async_unload(config_entry.entry_id)
     assert config_entry.state is ConfigEntryState.NOT_LOADED
     assert shadow_links[0].stopped
+
+
+async def test_link_runs_next_to_the_local_media_copy(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    shadow_links: list[FakeShadowLink],
+) -> None:
+    """With the local media copy on, setup starts both, and unload stops both."""
+    serve_days(mock_client, {TODAY: (mirror_visit(),)})
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7)
+    [link] = shadow_links
+    assert link.running
+    mirror = config_entry.runtime_data.mirror
+    assert mirror is not None
+    assert mirror.running
+    await _push(hass, link)
+    assert config_entry.runtime_data.device_state.data == {"SN0001": DEVICE_STATE}
+    assert await hass.config_entries.async_unload(config_entry.entry_id)
+    assert link.stopped
+    assert not mirror.running
