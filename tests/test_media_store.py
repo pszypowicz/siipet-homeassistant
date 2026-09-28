@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, date, datetime
 import hashlib
@@ -311,3 +312,58 @@ async def test_visit_day_is_the_local_day(hass: HomeAssistant) -> None:
         }
     )
     assert visit_day(visit) == date(2026, 9, 26)
+
+
+async def test_write_passes_source_errors_through(
+    hass: HomeAssistant, tmp_path: Path
+) -> None:
+    """An error of the download source is not a folder error, and no partial file stays."""
+    store = await _store(hass, tmp_path)
+
+    async def failing_chunks() -> AsyncIterator[bytes]:
+        yield b"ab"
+        raise TimeoutError
+
+    with pytest.raises(TimeoutError):
+        await store.async_write(
+            MediaFile.RECORDING,
+            "ev-1",
+            DAY,
+            failing_chunks(),
+            size=4,
+            md5=None,
+            keep=lambda: True,
+        )
+    assert store.path(MediaFile.RECORDING, "ev-1") is None
+    assert list((tmp_path / ".siipet").rglob("*.*")) == []
+
+
+async def test_write_cancelled_leaves_no_partial_file(
+    hass: HomeAssistant, tmp_path: Path
+) -> None:
+    """A canceled download leaves no partial file."""
+    store = await _store(hass, tmp_path)
+    started = asyncio.Event()
+
+    async def stalled_chunks() -> AsyncIterator[bytes]:
+        yield b"ab"
+        started.set()
+        await asyncio.Event().wait()
+        yield b"never"
+
+    task = hass.async_create_task(
+        store.async_write(
+            MediaFile.RECORDING,
+            "ev-1",
+            DAY,
+            stalled_chunks(),
+            size=None,
+            md5=None,
+            keep=lambda: True,
+        )
+    )
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert list((tmp_path / ".siipet").rglob("*.*")) == []

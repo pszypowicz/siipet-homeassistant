@@ -12,7 +12,7 @@ import hashlib
 from pathlib import Path
 import re
 import shutil
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
@@ -220,25 +220,25 @@ class MediaStore:
         size: int | None,
         md5: str | None,
     ) -> int:
-        """Write the chunks to the partial file of `target` and check them."""
+        """Write the chunks to the partial file of `target` and check them.
+
+        Only file errors become MediaStoreError. An error of the chunk source,
+        for example a network timeout, passes through.
+        """
         part = _part(target)
         digest = hashlib.md5()
         written = 0
         try:
-            handle = await self.hass.async_add_executor_job(_open_part, part)
+            handle = await self._async_file_op(_open_part, part)
             try:
                 async for chunk in chunks:
                     digest.update(chunk)
                     written += len(chunk)
-                    await self.hass.async_add_executor_job(handle.write, chunk)
+                    await self._async_file_op(handle.write, chunk)
             finally:
-                await self.hass.async_add_executor_job(handle.close)
-        except OSError as err:
-            await self._async_unlink(part)
-            raise MediaStoreError(
-                f"Cannot write a media file ({type(err).__name__})"
-            ) from None
-        except Exception:
+                await self._async_file_op(handle.close)
+        except BaseException:
+            # Also on cancellation, so that no partial file stays behind.
             await self._async_unlink(part)
             raise
         if (
@@ -258,6 +258,15 @@ class MediaStore:
             await self._async_unlink(part)
             raise MediaStoreError(
                 f"Cannot store a media file ({type(err).__name__})"
+            ) from None
+
+    async def _async_file_op[T](self, func: Callable[..., T], *args: Any) -> T:
+        """Run a file operation in the executor. A file error becomes MediaStoreError."""
+        try:
+            return await self.hass.async_add_executor_job(func, *args)
+        except OSError as err:
+            raise MediaStoreError(
+                f"Cannot write a media file ({type(err).__name__})"
             ) from None
 
     async def _async_unlink(self, path: Path) -> None:
