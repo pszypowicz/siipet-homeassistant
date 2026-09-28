@@ -17,6 +17,13 @@ export interface SaveCheck {
   reason: SaveBlock | null;
 }
 
+export interface ChangedFieldsOptions {
+  /** Force `type` into the data even when the form's type matches the visit's.
+   * A save that failed with a partial edit left the server's type out of step
+   * with the visit the card still shows, so a retry needs to state it again. */
+  sendType?: boolean;
+}
+
 export function initialForm(visit: Visit): EditForm {
   return {
     cats: visit.cats.flatMap((cat) => (cat.device_id ? [cat.device_id] : [])),
@@ -30,7 +37,11 @@ function sameCats(a: string[], b: string[]): boolean {
 }
 
 /** Return the update_visit data for the changed fields, or why Save stays off. */
-export function changedFields(visit: Visit, form: EditForm): SaveCheck {
+export function changedFields(
+  visit: Visit,
+  form: EditForm,
+  options: ChangedFieldsOptions = {},
+): SaveCheck {
   const start = initialForm(visit);
   const data: Record<string, unknown> = { event_id: visit.event_id };
   const catsChanged = !sameCats(start.cats, form.cats);
@@ -40,7 +51,7 @@ export function changedFields(visit: Visit, form: EditForm): SaveCheck {
     }
     data.cats = form.cats;
   }
-  if (form.type !== start.type && form.type !== null) {
+  if (form.type !== null && (options.sendType || form.type !== start.type)) {
     data.type = form.type;
   }
   if (catsChanged && visit.type === "unknown" && data.type === undefined) {

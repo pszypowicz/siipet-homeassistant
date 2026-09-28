@@ -48,6 +48,14 @@ function messageOf(value: unknown): string | undefined {
   return undefined;
 }
 
+function translationKeyOf(value: unknown): string | undefined {
+  if (typeof value === "object" && value !== null && "translation_key" in value) {
+    const { translation_key } = value as { translation_key: unknown };
+    return typeof translation_key === "string" ? translation_key : undefined;
+  }
+  return undefined;
+}
+
 /** Return the text of a rejected call. A call that fails mid-reconnect nests it under `error`. */
 export function errorMessage(err: unknown): string {
   const nested =
@@ -55,4 +63,15 @@ export function errorMessage(err: unknown): string {
       ? messageOf((err as { error: unknown }).error)
       : undefined;
   return messageOf(err) ?? nested ?? "The request failed.";
+}
+
+// A pee visit reassign runs an operation that assumes poop, then one that
+// reverts it. If the revert fails, `update_visit` fails with this key and the
+// server keeps the assumed type, so a retry must send the type explicitly.
+export function isPartialEdit(err: unknown): boolean {
+  const nested =
+    typeof err === "object" && err !== null && "error" in err
+      ? translationKeyOf((err as { error: unknown }).error)
+      : undefined;
+  return (translationKeyOf(err) ?? nested) === "edit_partial";
 }

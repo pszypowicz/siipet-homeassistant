@@ -88,4 +88,11 @@ describe("changedFields", () => {
       reason: null,
     });
   });
+
+  it("sends the type again after a partial edit, even without a change", () => {
+    expect(changedFields(VISIT, initialForm(VISIT), { sendType: true })).toEqual({
+      data: { event_id: "ev-1", type: "poop" },
+      reason: null,
+    });
+  });
 });

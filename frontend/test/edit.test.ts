@@ -5,6 +5,7 @@ import {
   fakeHass,
   find,
   findAll,
+  LINGERING,
   mount,
   POOP,
   sent,
@@ -258,5 +259,179 @@ describe("edit view", () => {
     expect(sent(fake)).toEqual([]);
     expect(scroll).toHaveBeenCalledOnce();
     expect(scroll.mock.contexts[0]).toBe(find(card, '.visit[data-event="ev-2"]'));
+  });
+
+  it("keeps the editor open for a back tap during a held save", async () => {
+    const fake = fakeHass();
+    let release!: (value?: unknown) => void;
+    fake.callService.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+    pickType(editor, "pee");
+    await settle();
+
+    inEditor(editor, ".save")!.click();
+    await settle();
+
+    inEditor(editor, ".header")!.dispatchEvent(
+      new CustomEvent("action", { detail: { action: "tap" } }),
+    );
+    await settle(card);
+    expect(find(card, "siipet-visit-editor")).toBe(editor);
+
+    release();
+    await settle(card);
+    expect(find(card, "siipet-visit-editor")).toBeNull();
+  });
+
+  it("disables the cats, the type, and the memo while a save is pending", async () => {
+    const fake = fakeHass();
+    let release!: (value?: unknown) => void;
+    fake.callService.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+    pickType(editor, "pee");
+    await settle();
+
+    inEditor(editor, ".save")!.click();
+    await settle();
+
+    expect(inEditor(editor, ".save")?.disabled).toBe(true);
+    expect(inEditor(editor, ".delete")?.disabled).toBe(true);
+    const [luna, milo] = allInEditor(editor, "ha-control-button.cat");
+    expect(luna.disabled).toBe(true);
+    expect(inEditor(editor, "ha-control-select.type")?.disabled).toBe(true);
+    expect((inEditor(editor, ".memo-input") as unknown as HTMLInputElement).disabled).toBe(true);
+
+    // The guard on the handler matters as much as the `disabled` property: the
+    // stubbed tile parts do not enforce it themselves.
+    milo.click();
+    await settle();
+    expect(milo.classList.contains("on")).toBe(false);
+
+    release();
+    await settle(card);
+  });
+
+  it("ignores a close event for a visit other than the one shown", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+    fake.callWS.mockClear();
+
+    editor.dispatchEvent(
+      new CustomEvent("siipet-close", { detail: { changed: true, eventId: "ev-2" } }),
+    );
+    await settle(card);
+
+    expect(find(card, "siipet-visit-editor")).toBe(editor);
+    expect(sent(fake).map((message) => message.type)).toEqual([
+      "siipet/cats",
+      "siipet/day",
+      "siipet/calendar",
+    ]);
+  });
+
+  it("sends the type again after a save fails with a partial edit", async () => {
+    const fake = fakeHass();
+    fake.callService.mockRejectedValueOnce({
+      code: "home_assistant_error",
+      message: "SiiPet could not finish the edit",
+      translation_key: "edit_partial",
+    });
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+    const [, milo] = allInEditor(editor, "ha-control-button.cat");
+    milo.click();
+    await settle();
+
+    inEditor(editor, ".save")!.click();
+    await settle(card);
+    expect(find(card, "siipet-visit-editor")).toBe(editor);
+    expect(text(inEditor(editor, ".error"))).toBe("SiiPet could not finish the edit");
+    expect(inEditor(editor, ".save")?.disabled).toBe(false);
+
+    inEditor(editor, ".save")!.click();
+    await settle(card);
+    expect(fake.callService).toHaveBeenLastCalledWith(
+      "siipet",
+      "update_visit",
+      { event_id: "ev-1", cats: ["dev-luna", "dev-milo"], type: "poop" },
+      undefined,
+      false,
+    );
+  });
+
+  it("resets an armed delete when the editor detaches and reattaches", async () => {
+    const fake = fakeHass();
+    const editor = document.createElement("siipet-visit-editor") as HTMLElement &
+      Record<string, unknown>;
+    editor.hass = fake.hass;
+    editor.visit = POOP;
+    editor.cats = catsResult().cats;
+    document.body.append(editor);
+    await settle();
+
+    inEditor(editor, ".delete")!.click();
+    await settle();
+    expect(text(inEditor(editor, ".delete"))).toBe("Tap again to delete");
+
+    editor.remove();
+    document.body.append(editor);
+    await settle();
+
+    inEditor(editor, ".delete")!.click();
+    await settle();
+    expect(fake.callService).not.toHaveBeenCalled();
+    expect(text(inEditor(editor, ".delete"))).toBe("Tap again to delete");
+  });
+
+  it("keeps the form when a refresh brings a new visit object for the same event", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+    await typeMemo(editor, "note");
+
+    const refreshed = {
+      ...POOP,
+      cover: "/api/siipet/image/cover/ev-1?authSig=z",
+      stool: "/api/siipet/image/stool/ev-1?authSig=z",
+    };
+    fake.results.day = { ...fake.results.day, visits: [refreshed, LINGERING] };
+    fake.listeners.get("ready")!();
+    await settle(card);
+
+    const reopened = find(card, "siipet-visit-editor");
+    expect(reopened).toBe(editor);
+    const video = inEditor(reopened!, "video") as unknown as HTMLVideoElement;
+    expect(video.getAttribute("poster")).toBe(refreshed.cover);
+    expect(inEditor(reopened!, ".stool-photo")?.getAttribute("src")).toBe(refreshed.stool);
+    expect((inEditor(reopened!, ".memo-input") as unknown as HTMLInputElement).value).toBe("note");
+  });
+
+  it("shows the message of a failed video resolve", async () => {
+    const fake = fakeHass({
+      fail: { "media_source/resolve_media": { message: "Media not found" } },
+    });
+    const editor = await openVisit(await mount(fake));
+    expect(text(inEditor(editor, ".video-note"))).toBe("Media not found");
+  });
+
+  it("shows the error of a failed delete and keeps the editor open", async () => {
+    const fake = fakeHass();
+    fake.callService.mockRejectedValue({
+      code: "home_assistant_error",
+      message: "SiiPet could not delete the visit",
+    });
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+
+    inEditor(editor, ".delete")!.click();
+    await settle();
+    inEditor(editor, ".delete")!.click();
+    await settle(card);
+
+    expect(find(card, "siipet-visit-editor")).toBe(editor);
+    expect(text(inEditor(editor, ".error"))).toBe("SiiPet could not delete the visit");
   });
 });

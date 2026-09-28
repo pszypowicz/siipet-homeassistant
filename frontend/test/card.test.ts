@@ -690,3 +690,35 @@ describe("refresh", () => {
     ]);
   });
 });
+
+describe("edit view", () => {
+  it("clears the editing visit on a config restart", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    findAll(card, ".visit")[0].dispatchEvent(
+      new CustomEvent("action", { detail: { action: "tap" } }),
+    );
+    await settle(card);
+    expect(find(card, "siipet-visit-editor")).not.toBeNull();
+
+    card.setConfig({ type: "custom:siipet-visits-card", cat: "dev-milo" });
+    await settle(card);
+    expect(find(card, "siipet-visit-editor")).toBeNull();
+
+    // The visit does not reopen once the new cat's day has loaded either.
+    await settle(card);
+    expect(find(card, "siipet-visit-editor")).toBeNull();
+  });
+
+  it("shows the error when the account has no cats and a later read fails", async () => {
+    const fake = fakeHass({ cats: catsResult({ cats: [] }) });
+    const card = await mount(fake);
+    expect(find(card, ".message")).not.toBeNull();
+
+    fake.results.fail = { "siipet/cats": { message: "boom" } };
+    fake.listeners.get("ready")!();
+    await settle(card);
+
+    expect(text(find(card, ".error"))).toBe("boom");
+  });
+});

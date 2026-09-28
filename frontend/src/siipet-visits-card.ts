@@ -124,6 +124,7 @@ export class SiiPetVisitsCard extends LitElement {
       this._day = undefined;
       this._queue = undefined;
       this._error = undefined;
+      this._editing = undefined;
     }
   }
 
@@ -254,6 +255,19 @@ export class SiiPetVisitsCard extends LitElement {
     this._connection = connection;
   }
 
+  // A renewal or a reconnect can replace `_day` or `_queue` while the editor is
+  // open, so the open visit's image paths and recording renew with it instead
+  // of staying on paths that are about to expire.
+  private _refreshEditing(visits: Visit[]): void {
+    if (!this._editing) {
+      return;
+    }
+    const updated = visits.find((visit) => visit.event_id === this._editing!.event_id);
+    if (updated) {
+      this._editing = updated;
+    }
+  }
+
   private _isQueue(): boolean {
     return this._cat !== undefined && this._cat === this._cats?.unknown.device_id;
   }
@@ -339,6 +353,7 @@ export class SiiPetVisitsCard extends LitElement {
         this._day = day;
         this._lastRead = Date.now();
         this._scheduleRenew();
+        this._refreshEditing(day.visits);
       }
     } catch (err) {
       if (current()) {
@@ -372,6 +387,7 @@ export class SiiPetVisitsCard extends LitElement {
         }
       }
       this._queue = queue;
+      this._refreshEditing(queue.visits);
     } catch (err) {
       if (cat === this._cat) {
         this._error = errorMessage(err);
@@ -466,12 +482,21 @@ export class SiiPetVisitsCard extends LitElement {
     void this._loadCalendar(this._month);
   }
 
-  /** Return to the day view. After an edit, read again. Then bring the visit into view. */
-  private async _closeEditor(changed: boolean): Promise<void> {
-    const eventId = this._editing?.event_id;
-    this._editing = undefined;
+  /** Return to the day view for the visit this close is about. After an edit, read
+   * again either way: a save or a delete for a visit that is no longer the one
+   * shown (a stale close from a detached editor) still changed the server's data.
+   * Close and scroll only when the ids match, so that stale close does not drop
+   * the visit the card has moved on to. */
+  private async _closeEditor({ changed, eventId }: CloseDetail): Promise<void> {
+    const matches = this._editing?.event_id === eventId;
+    if (matches) {
+      this._editing = undefined;
+    }
     if (changed) {
       await this._run(() => this._refresh());
+    }
+    if (!matches) {
+      return;
     }
     await this.updateComplete;
     const rows = this.shadowRoot?.querySelectorAll<HTMLElement>(".visit") ?? [];
@@ -495,13 +520,14 @@ export class SiiPetVisitsCard extends LitElement {
     }
     const cats = this._cats;
     const selected = this._cat;
+    const mainShown = cats !== undefined && selected !== undefined;
     const noCats = html`<div class="message alone">The SiiPet account has no cats.</div>`;
     return html`
       <ha-card style="--tile-color: var(--state-icon-color)">
         ${cats && !cats.available ? this._renderNotice(cats) : nothing}
         ${cats && selected === undefined ? noCats : nothing}
         ${cats && selected !== undefined ? this._renderMain(cats, selected) : nothing}
-        ${!cats && this._error ? html`<div class="error">${this._error}</div>` : nothing}
+        ${!mainShown && this._error ? html`<div class="error">${this._error}</div>` : nothing}
       </ha-card>
     `;
   }
@@ -522,7 +548,7 @@ export class SiiPetVisitsCard extends LitElement {
           .hass=${this.hass}
           .visit=${this._editing}
           .cats=${cats.cats}
-          @siipet-close=${(ev: CustomEvent<CloseDetail>) => this._closeEditor(ev.detail.changed)}
+          @siipet-close=${(ev: CustomEvent<CloseDetail>) => this._closeEditor(ev.detail)}
         ></siipet-visit-editor>
       `;
     }

@@ -2,7 +2,7 @@
 
 import { css, html, LitElement, nothing, type PropertyValues, type TemplateResult } from "lit";
 
-import { deleteVisit, errorMessage, resolveVideo, updateVisit } from "./api";
+import { deleteVisit, errorMessage, isPartialEdit, resolveVideo, updateVisit } from "./api";
 import { changedFields, type EditForm, initialForm } from "./changes";
 import { dayLabel, durationText, timeOf, TYPE_STYLE } from "./format";
 import { cardStyles } from "./styles";
@@ -14,6 +14,10 @@ const TYPES = ["pee", "poop", "lingering"] as const;
 
 export interface CloseDetail {
   changed: boolean;
+  /** The event id of the visit this editor showed, so a card that opened another
+   * visit while this close was pending (a stale save or delete) can tell the two
+   * apart. */
+  eventId: string;
 }
 
 export class SiiPetVisitEditor extends LitElement {
@@ -27,6 +31,7 @@ export class SiiPetVisitEditor extends LitElement {
     _error: { state: true },
     _busy: { state: true },
     _armed: { state: true },
+    _partialEdit: { state: true },
   };
 
   static styles = [
@@ -123,6 +128,7 @@ export class SiiPetVisitEditor extends LitElement {
   declare _error?: string;
   declare _busy: boolean;
   declare _armed: boolean;
+  declare _partialEdit: boolean;
 
   private _disarm?: ReturnType<typeof setTimeout>;
 
@@ -131,22 +137,40 @@ export class SiiPetVisitEditor extends LitElement {
     this.cats = [];
     this._busy = false;
     this._armed = false;
+    this._partialEdit = false;
   }
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
     clearTimeout(this._disarm);
+    // A view switch detaches the card (and this editor with it) without a user
+    // tap on Delete, so an arm from before the detach must not survive it.
+    this._armed = false;
   }
 
   protected willUpdate(changed: PropertyValues<this>): void {
-    if (changed.has("visit") && this.visit) {
-      this._form = initialForm(this.visit);
-      this._video = undefined;
-      this._videoNote = this.visit.has_video ? undefined : "Recording is on the camera only.";
-      this._error = undefined;
-      if (this.visit.has_video) {
+    if (!changed.has("visit") || !this.visit) {
+      return;
+    }
+    const previous = changed.get("visit") as Visit | undefined;
+    if (previous?.event_id === this.visit.event_id) {
+      // A refreshed visit object for the same event: the image paths render
+      // straight from `visit`, so they renew on their own. Keep the form, the
+      // error, and the busy and armed state, and resolve the recording again
+      // only when it has not resolved yet, so a video already playing is not
+      // interrupted by a new source.
+      if (this.visit.has_video && this._video === undefined) {
         void this._resolveVideo(this.visit.event_id);
       }
+      return;
+    }
+    this._form = initialForm(this.visit);
+    this._video = undefined;
+    this._videoNote = this.visit.has_video ? undefined : "Recording is on the camera only.";
+    this._error = undefined;
+    this._partialEdit = false;
+    if (this.visit.has_video) {
+      void this._resolveVideo(this.visit.event_id);
     }
   }
 
@@ -164,10 +188,21 @@ export class SiiPetVisitEditor extends LitElement {
   }
 
   private _close(changed: boolean): void {
-    this.dispatchEvent(new CustomEvent<CloseDetail>("siipet-close", { detail: { changed } }));
+    const detail: CloseDetail = { changed, eventId: this.visit!.event_id };
+    this.dispatchEvent(new CustomEvent<CloseDetail>("siipet-close", { detail }));
+  }
+
+  private _back(): void {
+    if (this._busy) {
+      return;
+    }
+    this._close(false);
   }
 
   private _toggleCat(deviceId: string): void {
+    if (this._busy) {
+      return;
+    }
     const form = this._form!;
     const on = form.cats.includes(deviceId);
     if (on && form.cats.length === 1) {
@@ -185,6 +220,7 @@ export class SiiPetVisitEditor extends LitElement {
       this._close(true);
     } catch (err) {
       this._error = errorMessage(err);
+      this._partialEdit = isPartialEdit(err);
     } finally {
       this._busy = false;
     }
@@ -218,7 +254,7 @@ export class SiiPetVisitEditor extends LitElement {
     if (!visit || !form) {
       return nothing;
     }
-    const check = changedFields(visit, form);
+    const check = changedFields(visit, form, { sendType: this._partialEdit });
     const hint = check.reason === "type_required" ? "Pick a type as well." : undefined;
     return html`
       ${this._renderHeader(visit)}
@@ -242,7 +278,7 @@ export class SiiPetVisitEditor extends LitElement {
       ...visit.abnormal_reasons.slice(0, 1),
     ].join(" · ");
     return html`
-      <ha-tile-container class="header" .interactive=${true} @action=${() => this._close(false)}>
+      <ha-tile-container class="header" .interactive=${true} @action=${() => this._back()}>
         <ha-tile-icon slot="icon" .icon=${"mdi:arrow-left"}></ha-tile-icon>
         <ha-tile-info slot="info">
           <span slot="primary">${timeOf(visit.start)} · ${names}</span>
@@ -264,7 +300,11 @@ export class SiiPetVisitEditor extends LitElement {
         .options=${options}
         .value=${form.type ?? undefined}
         .label=${"Type"}
+        .disabled=${this._busy}
         @value-changed=${(ev: CustomEvent<{ value: EditForm["type"] }>) => {
+          if (this._busy) {
+            return;
+          }
           this._form = { ...form, type: ev.detail.value };
         }}
       ></ha-control-select>
@@ -281,7 +321,11 @@ export class SiiPetVisitEditor extends LitElement {
           placeholder="Memo"
           aria-label="Memo"
           .value=${form.note}
+          .disabled=${this._busy}
           @input=${(ev: Event) => {
+            if (this._busy) {
+              return;
+            }
             this._form = { ...form, note: (ev.target as HTMLInputElement).value };
           }}
         />
@@ -362,6 +406,7 @@ export class SiiPetVisitEditor extends LitElement {
             <ha-control-button
               class="cat ${form.cats.includes(cat.device_id) ? "on" : ""}"
               .label=${cat.name}
+              .disabled=${this._busy}
               @click=${() => this._toggleCat(cat.device_id)}
             >
               ${cat.avatar ? html`<img src=${cat.avatar} alt="" />` : nothing}
