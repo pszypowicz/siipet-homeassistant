@@ -5,9 +5,13 @@
 
 import { html, type TemplateResult } from "lit";
 
+// ha-control-select sets `.option .content span { display: block; width: 100% }`
+// in its own shadow styles, which would stretch and center both spans below.
+// The inline `width: auto` overrides it, so the row keeps its content width.
 export const OPTION_ROW_STYLE =
-  "display: inline-flex; align-items: center; gap: 6px; max-width: 100%; white-space: nowrap";
-export const OPTION_NAME_STYLE = "overflow: hidden; text-overflow: ellipsis; min-width: 0";
+  "display: inline-flex; align-items: center; gap: 6px; max-width: 100%; width: auto; white-space: nowrap";
+export const OPTION_NAME_STYLE =
+  "overflow: hidden; text-overflow: ellipsis; min-width: 0; width: auto";
 
 export function optionRow(icon: TemplateResult, name: string): TemplateResult {
   return html`<span style=${OPTION_ROW_STYLE}
