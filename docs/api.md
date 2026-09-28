@@ -825,6 +825,7 @@ When `FecesImage` exists, `FecesImage.Url` identifies the stool image.
 `ToiletVideo.RawInfo` also contains `CreateTime`, `Duration`, `Height`, `Width`, `Md5`, and `Size`.
 The tested video size matches `Size` in bytes.
 `Md5` is the lowercase hexadecimal MD5 of the whole file. A live download of a recording matched both `Md5` and `Size`.
+`ToiletVideo.Cover.Size` and `FecesImage.Size` match the byte count of the image.
 Both event `Duration` and video `Duration` match the decoded clip length when interpreted as milliseconds.
 
 ### Access media
@@ -1003,6 +1004,8 @@ These results come from tests against a real account.
 - A token from an email-code sign-in works from another client that sends the same `x-device-identifier` and an accepted model.
 - After an email-code sign-in from another client, the phone app's session kept working for at least one hour. Then the phone's calls failed with -2, although the phone sent an accepted model. The cause is not known.
 - After another client renewed the phone's token, the previous token kept working on the phone for about 70 minutes, until the failure above. The new token also worked.
+- A 7-day local copy downloaded 52 recordings, 52 covers, and 12 stool photos. Every recording matched its `Size` and `Md5`, and every cover and stool photo matched its `Size`.
+- An email-code session of a second client, neither Home Assistant nor the phone app, returned -2 about two days after its sign-in, while its `ExpireAt` was still in the future. The cause is not known.
 - After an email-code sign-in from Home Assistant, the phone app kept its old session. Both sessions worked for about one hour, and the check stopped then. An email-code sign-in from Home Assistant always sends an `x-device-identifier` that Home Assistant made. The check does not show whether the phone fails later, as in the check above.
 - The baseline fields change with the time in `Date`. For one day, `BaselineTimes` was 0.03 to 0.13 with 00:00:00, 1.46 to 1.69 with 06:00:00 and 12:00:00, and 2.04 to 3.13 with 23:59:59. `BaselineAvgTime` changed too. The visit list was the same.
 - `Connected.Status` was false for every camera in every sample, also while the cameras recorded visits and during a live stream. Between a read during a live stream and a read after it, only the `AgoraAuth` tokens and expiry times changed, and they changed for every camera. `user/device/sync` has no field that shows a camera online or streaming.
