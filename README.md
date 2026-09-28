@@ -1,16 +1,250 @@
 # siipet-homeassistant
 
-A Home Assistant custom integration for [SiiPet](https://siipet.com) pet health devices.
+A Home Assistant custom integration for [SiiPet](https://siipet.com) LitterLens litter box cameras.
 
 ## Status
 
-The integration is in early development. You can add it in Home Assistant, but it does not connect to a SiiPet account and does not create entities.
+The integration is in early development. It signs in to your SiiPet account and polls the SiiPet cloud every 5 minutes.
+It gives statistics and visit events for each cat, and it shows the cloud recordings in the media browser.
+Its actions list, edit, and delete visits. A dashboard card shows the visits of each day.
+
+## Requirements
+
+- Home Assistant 2026.9.0 or later.
+- A SiiPet account with at least one camera.
 
 ## Install
 
+Option 1: Install with HACS.
+
+1. In Home Assistant, go to **HACS > Integrations**, open the three-dot menu, and choose **Custom repositories**.
+2. Add `https://github.com/pszypowicz/siipet-homeassistant` with category **Integration**.
+3. Find **SiiPet** in HACS and install it.
+4. Restart Home Assistant.
+
+Option 2: Copy the files by hand.
+
 1. Copy `custom_components/siipet/` from this repo into your Home Assistant config, so that the path is `/config/custom_components/siipet/`.
 2. Restart Home Assistant.
-3. Go to **Settings > Devices & Services > Add Integration** and search for **SiiPet**.
+
+Then, for either option:
+
+1. Go to **Settings > Devices & Services > Add Integration** and search for **SiiPet**.
+2. Enter the email address of your SiiPet account.
+3. Enter the code that SiiPet sends to that address.
+
+If you added SiiPet 0.0.1 before, remove that entry and add the integration again.
+
+The session renews automatically. If SiiPet ends the session, Home Assistant asks you to sign in again with an email code.
+
+To sign in again at any other time, open the SiiPet entry in **Settings > Devices & Services** and choose **Reconfigure**.
+Use the same SiiPet account. The devices, entities, and dashboards stay as they are.
+
+SiiPet limits how many sign-in codes it sends per day. If it refuses, try again the next day.
+
+## Devices and entities
+
+### Cats
+
+Each cat is a device. A virtual device named **Unknown cat** collects visits that the camera did not recognize.
+
+| Entity                                   | Description                                                                                                |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Visits today                             | Pee and poop visits today.                                                                                 |
+| Pee today, Poop today, Lingering today   | Visits of each type today.                                                                                 |
+| Abnormal visits today                    | Pee and poop visits that SiiPet marks as abnormal.                                                         |
+| Average visit duration today             | The mean duration of today's pee and poop visits.                                                          |
+| Baseline visits, Baseline visit duration | The values that SiiPet expects for the cat from midnight until now, from what it learned.                  |
+| Baseline progress                        | How much of the learning period is complete.                                                               |
+| Last visit                               | The start of the newest visit. Its attributes show the type, duration, camera, and abnormal reasons.       |
+| Visit                                    | An event entity. It fires once for each new visit, with the type `pee`, `poop`, `lingering`, or `unknown`. |
+| Unassigned visits                        | Unknown cat only. The number of unrecognized visits in the last 7 days.                                    |
+
+The Unknown cat has no baseline entities.
+
+### Cameras
+
+| Entity               | Description                         |
+| -------------------- | ----------------------------------- |
+| Subscription expires | The end of the camera subscription. |
+
+### Removed cats and cameras
+
+When a cat or a camera leaves your SiiPet account, its entities become unavailable.
+To remove it, open its device page in Home Assistant and choose **Delete**.
+Home Assistant does not let you delete a cat or a camera that is still in the account.
+The delete works only while the SiiPet integration is loaded.
+
+## Recordings
+
+Open **Media** in the Home Assistant sidebar and choose **SiiPet**.
+The list shows the last 30 days. Each day lists its visits, newest first, with the time, the cats, the type, and the duration.
+
+The recordings use H.265 video. Safari and the Home Assistant app on macOS and iOS can play them.
+Other browsers can fail. The integration does not convert video.
+
+A visit marked **(on camera only)** has no cloud recording, so it cannot play.
+
+Home Assistant fetches the thumbnails from the SiiPet cloud for you.
+A recording plays directly from the SiiPet cloud storage, through a link that expires after one hour.
+
+## Dashboard card
+
+The integration adds the **SiiPet visits** card to your dashboards. You do not add a resource.
+
+1. Edit a dashboard and choose **Add card**.
+2. Search for **SiiPet visits** and add it.
+3. Optional: pick a cat. Without a cat, the card starts with your first cat.
+
+```yaml
+type: custom:siipet-visits-card
+cat: <device id of a cat> # optional
+hide_cat_picker: true # optional, keeps the card on one cat
+```
+
+The card shows the visits of one cat on one day, newest first:
+
+- The header shows the cat and the visit counts of the day.
+- Tap the date to open the month calendar. A red dot marks a day with an abnormal visit or a warning.
+  Only today and the 30 days before it open.
+- The cat strip changes the cat. **Unknown** shows while visits of the last 7 days have no cat.
+- Tap a visit to open it. You can play the recording, change the cats, the type, and the memo, and save.
+- Administrators can also delete a visit. Tap **Delete** and confirm in the dialog that follows.
+
+The card uses the tile parts of the Home Assistant frontend, so it looks like the tile cards around it.
+If a Home Assistant update removes one of these parts, the card names the missing part.
+
+The recordings use H.265 video, so the limits in [Recordings](#recordings) apply to the card too.
+
+The integration also adds the icon `siipet:logo`, for example for a dashboard view.
+
+### One card per cat
+
+To show each cat in its own card, set `cat` and `hide_cat_picker: true` on each card.
+The card then shows no cat picker and stays on its cat.
+
+```yaml
+type: custom:siipet-visits-card
+cat: <device id of a cat>
+hide_cat_picker: true
+```
+
+A card fixed on the Unknown cat shows the visits that have no cat, also when none are waiting.
+If the account no longer has the cat of a fixed card, the card says so and shows no other cat.
+
+### Open a visit from a notification
+
+A dashboard link with `?siipet_visit=<event id>` opens that visit in the card.
+A card fixed on a cat opens only the visits of its cat.
+A card with the cat picker changes to the cat and the day of the visit.
+The card finds the visits of the last 7 days.
+While you save or delete a visit, the link waits, so you see the result.
+If the save or the delete fails, the linked visit opens when you go back.
+
+This automation sends a notification after each visit of one cat. A tap opens the visit.
+Replace the entity, the notify action, and the dashboard path with your own.
+The Home Assistant app on iOS reads `url`, and the app on Android reads `clickAction`.
+
+```yaml
+triggers:
+  - trigger: state
+    entity_id: event.luna_visit
+    not_from: unavailable
+    not_to: unavailable
+actions:
+  - action: notify.mobile_app_phone
+    data:
+      message: "Luna used the litter box: {{ trigger.to_state.attributes.event_type }}."
+      data:
+        url: "/dashboard-cats/cats?siipet_visit={{ trigger.to_state.attributes.event_id }}"
+        clickAction: "/dashboard-cats/cats?siipet_visit={{ trigger.to_state.attributes.event_id }}"
+```
+
+## Actions
+
+Use the actions in scripts and automations, or in **Developer tools > Actions**.
+
+### List visits
+
+`siipet.list_visits` returns the visits of up to 7 days, newest first.
+
+| Field  | Description                                                                         |
+| ------ | ----------------------------------------------------------------------------------- |
+| `date` | The last day in the list. The default is today. It must be one of the last 31 days. |
+| `days` | The number of days, from 1 to 7. The default is 1.                                  |
+| `cat`  | A cat device. The list then shows only the visits of that cat.                      |
+
+The response has two lists.
+`cats` gives the name and the device id of each cat, and of the Unknown cat.
+`visits` gives the `event_id`, `start`, `duration` in seconds, `type`, `cats`, `camera`, `note`, `abnormal`, `abnormal_reasons`, `has_video`, and `has_stool_image` of each visit.
+
+### Update visit
+
+`siipet.update_visit` changes a visit in the SiiPet cloud. The SiiPet app shows the change too.
+
+| Field      | Description                                                                               |
+| ---------- | ----------------------------------------------------------------------------------------- |
+| `event_id` | Required. The `event_id` from the list response, or from the attributes of a Visit event. |
+| `cats`     | The cats that used the box, at least one. The Unknown cat is not valid here.              |
+| `type`     | `pee`, `poop`, or `lingering`.                                                            |
+| `note`     | The memo, up to 200 characters. An empty memo clears it.                                  |
+
+Give at least one of `cats`, `type`, or `note`.
+If the visit has the type `unknown`, give a `type` together with the cats.
+A pee visit that you change to poop has no stool shape or color.
+
+The integration reads the visit again after the change. If SiiPet did not apply the change, the action fails.
+If an update fails partway, the error names the type to use. Check the visit, then call the action again with that type.
+An edit does not fire a Visit event.
+
+### Delete visit
+
+`siipet.delete_visit` deletes the visit with the given `event_id`. Only an administrator can use it.
+
+You cannot undo a delete.
+
+## Example: notify on an unrecognized visit
+
+A tap on the notification opens the visit in a card fixed on the Unknown cat, where you can pick the cat and the type.
+
+```yaml
+triggers:
+  - trigger: state
+    entity_id: event.unknown_cat_visit
+    not_from: unavailable
+    not_to: unavailable
+actions:
+  - action: notify.mobile_app_phone
+    data:
+      message: "A visit has no cat. Tap to assign it."
+      data:
+        url: "/dashboard-cats/unknown?siipet_visit={{ trigger.to_state.attributes.event_id }}"
+        clickAction: "/dashboard-cats/unknown?siipet_visit={{ trigger.to_state.attributes.event_id }}"
+```
+
+## Example: assign unrecognized visits to your cat
+
+If you have one cat, this automation gives it each visit that the camera did not recognize.
+It skips visits of the type `unknown`, because those need a type too.
+Replace `sensor.luna_visits_today` with a sensor of your cat.
+
+```yaml
+mode: queued
+triggers:
+  - trigger: state
+    entity_id: event.unknown_cat_visit
+    not_from: unavailable
+    not_to: unavailable
+conditions:
+  - condition: template
+    value_template: "{{ trigger.to_state.attributes.event_type != 'unknown' }}"
+actions:
+  - action: siipet.update_visit
+    data:
+      event_id: "{{ trigger.to_state.attributes.event_id }}"
+      cats:
+        - "{{ device_id('sensor.luna_visits_today') }}"
+```
 
 ## License
 

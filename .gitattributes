@@ -1,0 +1,2 @@
+# The card bundle is built from frontend/ by npm run build.
+custom_components/siipet/frontend/siipet-visits-card.js linguist-generated=true -diff

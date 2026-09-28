@@ -1,0 +1,51 @@
+list_visits:
+  fields:
+    date:
+      selector:
+        date:
+    days:
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 7
+          mode: box
+    cat:
+      selector:
+        device:
+          filter:
+            integration: siipet
+            model: Cat
+
+update_visit:
+  fields:
+    event_id:
+      required: true
+      selector:
+        text:
+    cats:
+      selector:
+        device:
+          multiple: true
+          filter:
+            integration: siipet
+            model: Cat
+    type:
+      selector:
+        select:
+          options:
+            - pee
+            - poop
+            - lingering
+          translation_key: visit_type
+    note:
+      selector:
+        text:
+          multiline: true
+
+delete_visit:
+  fields:
+    event_id:
+      required: true
+      selector:
+        text:

@@ -1,0 +1,296 @@
+{
+  "Code": 0,
+  "Msg": "success",
+  "Data": {
+    "More": false,
+    "Track": "",
+    "TodaySummary": [
+      {
+        "PetId": "pet-luna",
+        "PottyTimes": 2,
+        "PottyAvgTime": 140000,
+        "BaselineTimes": 3.5,
+        "BaselineAvgTime": 95000.0,
+        "NeededTotalDays": 7,
+        "CurrentTotalDays": 7
+      },
+      {
+        "PetId": "pet-milo",
+        "PottyTimes": 2,
+        "PottyAvgTime": 67500,
+        "BaselineTimes": 4.0,
+        "BaselineAvgTime": 60000.0,
+        "NeededTotalDays": 7,
+        "CurrentTotalDays": 3
+      }
+    ],
+    "List": [
+      {
+        "EventId": "ev-1",
+        "PetId": "pet-luna",
+        "PetIds": [
+          "pet-luna"
+        ],
+        "GroupId": "group-0001",
+        "SN": "SN0001",
+        "EventTimestamp": 1790405280000,
+        "Duration": 80000,
+        "Type": 2,
+        "Note": "",
+        "CloudStorageStatus": true,
+        "LocalStorageStatus": true,
+        "TimestampAccurate": true,
+        "EventAbnormal": 0,
+        "FecesAbnormal": [
+          0,
+          0
+        ],
+        "LabelPetIds": null,
+        "ToiletVideo": {
+          "Cover": {
+            "Url": "events/ev-1/cover.jpg",
+            "Width": 1280,
+            "Height": 720,
+            "Size": 51200
+          },
+          "RawInfo": {
+            "CreateTime": 1790405280000,
+            "Duration": 80000,
+            "Height": 720,
+            "Width": 1280,
+            "Md5": "00000000000000000000000000000000",
+            "Size": 1048576,
+            "Url": "events/ev-1/video.mp4"
+          }
+        },
+        "FecesImage": {
+          "Url": "events/ev-1/stool.jpg",
+          "Width": 1280,
+          "Height": 720,
+          "Size": 40960
+        },
+        "UserAnnotation": {
+          "FecesError": false,
+          "MultiPet": false,
+          "ToiletError": false
+        }
+      },
+      {
+        "EventId": "ev-2",
+        "PetId": "pet-milo",
+        "PetIds": [
+          "pet-milo"
+        ],
+        "GroupId": "group-0001",
+        "SN": "SN0002",
+        "EventTimestamp": 1790399520000,
+        "Duration": 45000,
+        "Type": 3,
+        "Note": "",
+        "CloudStorageStatus": true,
+        "LocalStorageStatus": true,
+        "TimestampAccurate": true,
+        "EventAbnormal": 0,
+        "FecesAbnormal": null,
+        "LabelPetIds": null,
+        "ToiletVideo": {
+          "Cover": {
+            "Url": "events/ev-2/cover.jpg",
+            "Width": 1280,
+            "Height": 720,
+            "Size": 51200
+          },
+          "RawInfo": {
+            "CreateTime": 1790399520000,
+            "Duration": 45000,
+            "Height": 720,
+            "Width": 1280,
+            "Md5": "00000000000000000000000000000000",
+            "Size": 1048576,
+            "Url": "events/ev-2/video.mp4"
+          }
+        },
+        "FecesImage": null,
+        "UserAnnotation": {
+          "FecesError": false,
+          "MultiPet": false,
+          "ToiletError": false
+        }
+      },
+      {
+        "EventId": "ev-3",
+        "PetId": "pet-luna",
+        "PetIds": [
+          "pet-luna"
+        ],
+        "GroupId": "group-0001",
+        "SN": "SN0001",
+        "EventTimestamp": 1790386200000,
+        "Duration": 20000,
+        "Type": 1,
+        "Note": "",
+        "CloudStorageStatus": true,
+        "LocalStorageStatus": true,
+        "TimestampAccurate": true,
+        "EventAbnormal": 0,
+        "FecesAbnormal": null,
+        "LabelPetIds": null,
+        "ToiletVideo": {
+          "Cover": {
+            "Url": "events/ev-3/cover.jpg",
+            "Width": 1280,
+            "Height": 720,
+            "Size": 51200
+          },
+          "RawInfo": {
+            "CreateTime": 1790386200000,
+            "Duration": 20000,
+            "Height": 720,
+            "Width": 1280,
+            "Md5": "00000000000000000000000000000000",
+            "Size": 1048576,
+            "Url": "events/ev-3/video.mp4"
+          }
+        },
+        "FecesImage": null,
+        "UserAnnotation": {
+          "FecesError": false,
+          "MultiPet": false,
+          "ToiletError": false
+        }
+      },
+      {
+        "EventId": "ev-4",
+        "PetId": "",
+        "PetIds": [],
+        "GroupId": "group-0001",
+        "SN": "SN0001",
+        "EventTimestamp": 1790406600000,
+        "Duration": 30000,
+        "Type": 3,
+        "Note": "",
+        "CloudStorageStatus": true,
+        "LocalStorageStatus": true,
+        "TimestampAccurate": true,
+        "EventAbnormal": 0,
+        "FecesAbnormal": null,
+        "LabelPetIds": null,
+        "ToiletVideo": {
+          "Cover": {
+            "Url": "events/ev-4/cover.jpg",
+            "Width": 1280,
+            "Height": 720,
+            "Size": 51200
+          },
+          "RawInfo": {
+            "CreateTime": 1790406600000,
+            "Duration": 30000,
+            "Height": 720,
+            "Width": 1280,
+            "Md5": "00000000000000000000000000000000",
+            "Size": 1048576,
+            "Url": "events/ev-4/video.mp4"
+          }
+        },
+        "FecesImage": null,
+        "UserAnnotation": {
+          "FecesError": false,
+          "MultiPet": false,
+          "ToiletError": false
+        }
+      },
+      {
+        "EventId": "ev-5",
+        "PetId": "pet-milo",
+        "PetIds": [
+          "pet-milo"
+        ],
+        "GroupId": "group-0001",
+        "SN": "SN0002",
+        "EventTimestamp": 1790409600000,
+        "Duration": 90000,
+        "Type": 2,
+        "Note": "",
+        "CloudStorageStatus": true,
+        "LocalStorageStatus": true,
+        "TimestampAccurate": true,
+        "EventAbnormal": 0,
+        "FecesAbnormal": [
+          104,
+          0
+        ],
+        "LabelPetIds": null,
+        "ToiletVideo": {
+          "Cover": {
+            "Url": "events/ev-5/cover.jpg",
+            "Width": 1280,
+            "Height": 720,
+            "Size": 51200
+          },
+          "RawInfo": {
+            "CreateTime": 1790409600000,
+            "Duration": 90000,
+            "Height": 720,
+            "Width": 1280,
+            "Md5": "00000000000000000000000000000000",
+            "Size": 1048576,
+            "Url": "events/ev-5/video.mp4"
+          }
+        },
+        "FecesImage": {
+          "Url": "events/ev-5/stool.jpg",
+          "Width": 1280,
+          "Height": 720,
+          "Size": 40960
+        },
+        "UserAnnotation": {
+          "FecesError": false,
+          "MultiPet": false,
+          "ToiletError": false
+        }
+      },
+      {
+        "EventId": "ev-6",
+        "PetId": "pet-luna",
+        "PetIds": [
+          "pet-luna"
+        ],
+        "GroupId": "group-0001",
+        "SN": "SN0001",
+        "EventTimestamp": 1790413200000,
+        "Duration": 200000,
+        "Type": 3,
+        "Note": "Long visit",
+        "CloudStorageStatus": true,
+        "LocalStorageStatus": true,
+        "TimestampAccurate": true,
+        "EventAbnormal": 301,
+        "FecesAbnormal": null,
+        "LabelPetIds": null,
+        "ToiletVideo": {
+          "Cover": {
+            "Url": "events/ev-6/cover.jpg",
+            "Width": 1280,
+            "Height": 720,
+            "Size": 51200
+          },
+          "RawInfo": {
+            "CreateTime": 1790413200000,
+            "Duration": 200000,
+            "Height": 720,
+            "Width": 1280,
+            "Md5": "00000000000000000000000000000000",
+            "Size": 1048576,
+            "Url": "events/ev-6/video.mp4"
+          }
+        },
+        "FecesImage": null,
+        "UserAnnotation": {
+          "FecesError": false,
+          "MultiPet": false,
+          "ToiletError": false
+        }
+      }
+    ]
+  }
+}

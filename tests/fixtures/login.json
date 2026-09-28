@@ -1,0 +1,8 @@
+{
+  "Code": 0,
+  "Msg": "success",
+  "Data": {
+    "Token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJVc2VySWQiOiJ1c2VyLTAwMDEiLCJleHAiOjE3OTI5NzI4MDB9.fake-signature",
+    "ExpireAt": 1791676800000
+  }
+}
