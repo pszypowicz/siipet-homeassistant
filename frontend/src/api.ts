@@ -1,5 +1,6 @@
 // Typed calls to the SiiPet websocket commands and actions.
 
+import type { Localization } from "./localize";
 import type {
   CalendarResult,
   CatsResult,
@@ -51,55 +52,51 @@ export function deleteVisit(hass: HomeAssistant, eventId: string): Promise<unkno
   return hass.callService("siipet", "delete_visit", { event_id: eventId }, undefined, false);
 }
 
-function messageOf(value: unknown): string | undefined {
-  if (typeof value === "object" && value !== null && "message" in value) {
-    const { message } = value as { message: unknown };
-    return typeof message === "string" && message !== "" ? message : undefined;
+/** Return a field of a rejected call. A call that fails mid-reconnect nests it under `error`. */
+function errorField(err: unknown, name: string): unknown {
+  if (typeof err !== "object" || err === null) {
+    return undefined;
   }
-  return undefined;
-}
-
-function translationKeyOf(value: unknown): string | undefined {
-  if (typeof value === "object" && value !== null && "translation_key" in value) {
-    const { translation_key } = value as { translation_key: unknown };
-    return typeof translation_key === "string" ? translation_key : undefined;
+  if (name in err) {
+    return (err as Record<string, unknown>)[name];
   }
-  return undefined;
+  const nested = (err as { error?: unknown }).error;
+  return typeof nested === "object" && nested !== null && name in nested
+    ? (nested as Record<string, unknown>)[name]
+    : undefined;
 }
 
-function codeOf(value: unknown): string | undefined {
-  if (typeof value === "object" && value !== null && "code" in value) {
-    const { code } = value as { code: unknown };
-    return typeof code === "string" ? code : undefined;
-  }
-  return undefined;
+function stringField(err: unknown, name: string): string | undefined {
+  const value = errorField(err, name);
+  return typeof value === "string" && value !== "" ? value : undefined;
 }
 
-/** Return the code of a rejected call, also when it is nested under `error`. */
-function errorCode(err: unknown): string | undefined {
-  const nested =
-    typeof err === "object" && err !== null && "error" in err
-      ? codeOf((err as { error: unknown }).error)
-      : undefined;
-  return codeOf(err) ?? nested;
-}
-
-/** Return the text of a rejected call. A call that fails mid-reconnect nests it under `error`. */
-export function errorMessage(err: unknown): string {
-  const nested =
-    typeof err === "object" && err !== null && "error" in err
-      ? messageOf((err as { error: unknown }).error)
-      : undefined;
-  return messageOf(err) ?? nested ?? "The request failed.";
-}
-
-/** Return the translation key of a rejected call, also when it is nested under `error`. */
 function errorTranslationKey(err: unknown): string | undefined {
-  const nested =
-    typeof err === "object" && err !== null && "error" in err
-      ? translationKeyOf((err as { error: unknown }).error)
-      : undefined;
-  return translationKeyOf(err) ?? nested;
+  return stringField(err, "translation_key");
+}
+
+/** A failed call. The card keeps the whole error, so its text follows the language of the card. */
+export interface Failure {
+  error: unknown;
+}
+
+/** Return the text of a rejected call: the SiiPet translation of its key in the language of
+ * the card, else its message, else the fallback text of the card. */
+export function errorText(err: unknown, l10n: Localization): string {
+  const key = errorTranslationKey(err);
+  if (key !== undefined && l10n.exceptions && stringField(err, "translation_domain") === "siipet") {
+    const placeholders = errorField(err, "translation_placeholders");
+    const text = l10n.exceptions(
+      `component.siipet.exceptions.${key}.message`,
+      typeof placeholders === "object" && placeholders !== null
+        ? (placeholders as Record<string, unknown>)
+        : undefined,
+    );
+    if (text) {
+      return text;
+    }
+  }
+  return stringField(err, "message") ?? l10n.text.requestFailed;
 }
 
 // A pee visit reassign runs an operation that assumes poop, then one that
@@ -118,5 +115,8 @@ export function isOutsideWindow(err: unknown): boolean {
 // or a cat the account no longer has, so a retry never recovers from it. `not_loaded`
 // is the exception: the entry is still starting up and clears it once it loads.
 export function isPermanentFailure(err: unknown): boolean {
-  return errorCode(err) === "service_validation_error" && errorTranslationKey(err) !== "not_loaded";
+  return (
+    stringField(err, "code") === "service_validation_error" &&
+    errorTranslationKey(err) !== "not_loaded"
+  );
 }

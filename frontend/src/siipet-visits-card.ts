@@ -4,12 +4,13 @@ import { html, LitElement, nothing, type PropertyValues, type TemplateResult } f
 import { keyed } from "lit/directives/keyed.js";
 
 import {
-  errorMessage,
+  errorText,
   fetchCalendar,
   fetchCats,
   fetchDay,
   fetchQueue,
   fetchVisit,
+  type Failure,
   isOutsideWindow,
   isPermanentFailure,
 } from "./api";
@@ -141,7 +142,7 @@ export class SiiPetVisitsCard extends LitElement {
   declare _calendarOpen: boolean;
   declare _day?: DayResult;
   declare _queue?: QueueResult;
-  declare _error?: string;
+  declare _error?: Failure;
   declare _editing?: Visit;
   declare _l10n: Localization;
 
@@ -179,6 +180,9 @@ export class SiiPetVisitsCard extends LitElement {
   // The localization key of the last `hass`. A profile change replaces `hass`
   // and changes this key, so the card renders again with the new locale.
   private _l10nKey?: string;
+  // The language whose exception texts the card asked for. A failed load
+  // leaves the English messages until the language changes.
+  private _exceptionsFor?: string;
 
   constructor() {
     super();
@@ -295,7 +299,13 @@ export class SiiPetVisitsCard extends LitElement {
       const key = localizationKey(this.hass);
       if (key !== this._l10nKey) {
         this._l10nKey = key;
-        this._l10n = localization(this.hass);
+        const next = localization(this.hass);
+        // A new time format keeps the loaded exception texts of the same language.
+        this._l10n =
+          next.locale.language === this._l10n.locale.language
+            ? { ...next, exceptions: this._l10n.exceptions }
+            : next;
+        this._loadExceptions();
         relocalized = true;
       }
     }
@@ -320,6 +330,25 @@ export class SiiPetVisitsCard extends LitElement {
     }
     const onlyHass = changed.size === 1 && changed.has("hass");
     return ran || relocalized || !this.hasUpdated || !onlyHass;
+  }
+
+  private _loadExceptions(): void {
+    const load = this.hass?.loadBackendTranslation;
+    const language = this._l10n.locale.language;
+    if (!load || this._exceptionsFor === language) {
+      return;
+    }
+    this._exceptionsFor = language;
+    load.call(this.hass, "exceptions", "siipet").then(
+      (exceptions) => {
+        if (this._l10n.locale.language === language) {
+          this._l10n = { ...this._l10n, exceptions };
+        }
+      },
+      () => {
+        // The errors keep their English messages.
+      },
+    );
   }
 
   private _onVisibilityChange = (): void => {
@@ -379,7 +408,7 @@ export class SiiPetVisitsCard extends LitElement {
     try {
       await action();
     } catch (err) {
-      this._error = errorMessage(err);
+      this._error = { error: err };
     } finally {
       this._active = undefined;
       if (this._trailing) {
@@ -538,7 +567,7 @@ export class SiiPetVisitsCard extends LitElement {
     try {
       missing = await loadTileParts();
     } catch (err) {
-      this._error = errorMessage(err);
+      this._error = { error: err };
       return false;
     }
     if (missing.length > 0) {
@@ -572,7 +601,7 @@ export class SiiPetVisitsCard extends LitElement {
       this._catsRead = Date.now();
       return this._cats;
     } catch (err) {
-      this._error = errorMessage(err);
+      this._error = { error: err };
       this._scheduleRetry(err);
       return undefined;
     }
@@ -607,7 +636,7 @@ export class SiiPetVisitsCard extends LitElement {
       }
     } catch (err) {
       if (current()) {
-        this._error = errorMessage(err);
+        this._error = { error: err };
         this._scheduleRetry(err);
       }
     }
@@ -643,7 +672,7 @@ export class SiiPetVisitsCard extends LitElement {
       this._refreshEditing(queue.visits);
     } catch (err) {
       if (current()) {
-        this._error = errorMessage(err);
+        this._error = { error: err };
         this._scheduleRetry(err);
       }
     }
@@ -662,7 +691,7 @@ export class SiiPetVisitsCard extends LitElement {
       }
     } catch (err) {
       if (current()) {
-        this._error = errorMessage(err);
+        this._error = { error: err };
       }
     }
   }
@@ -811,7 +840,7 @@ export class SiiPetVisitsCard extends LitElement {
       this._linkEvent = undefined;
     }
     if (linkedEventId() === eventId) {
-      this._error = errorMessage(err);
+      this._error = { error: err };
     }
   }
 
@@ -927,7 +956,11 @@ export class SiiPetVisitsCard extends LitElement {
         ${cats && !cats.available ? this._renderNotice(cats) : nothing}
         ${cats && selected === undefined ? this._renderNoCat(cats) : nothing}
         ${cats && selected !== undefined ? this._renderMain(cats, selected) : nothing}
-        ${!mainShown && this._error ? html`<div class="error">${this._error}</div>` : nothing}
+        ${
+          !mainShown && this._error
+            ? html`<div class="error">${errorText(this._error.error, this._l10n)}</div>`
+            : nothing
+        }
       </ha-card>
     `;
   }
@@ -967,7 +1000,11 @@ export class SiiPetVisitsCard extends LitElement {
     }
     return html`
       ${this._renderView(cats, selected)}
-      ${this._error ? html`<div class="error">${this._error}</div>` : nothing}
+      ${
+        this._error
+          ? html`<div class="error">${errorText(this._error.error, this._l10n)}</div>`
+          : nothing
+      }
       ${this._renderVisits()}
     `;
   }

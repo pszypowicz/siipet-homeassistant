@@ -120,6 +120,7 @@ export interface FakeHass {
   results: FakeResults;
   callWS: ReturnType<typeof vi.fn>;
   callService: ReturnType<typeof vi.fn>;
+  loadBackendTranslation: ReturnType<typeof vi.fn>;
   listeners: Map<string, () => void>;
 }
 
@@ -157,6 +158,24 @@ export function fakeHass(overrides: Partial<FakeResults> = {}, admin = true): Fa
     throw new Error(`unexpected ${type}`);
   });
   const callService = vi.fn().mockResolvedValue(undefined);
+  // Polish texts for two SiiPet exceptions, as Home Assistant loads them for a
+  // Polish user. The card calls the loader with its `hass` as `this`. Other
+  // languages get no texts, so the tests keep the English messages of the errors.
+  const loadBackendTranslation = vi.fn(async function (this: HomeAssistant | undefined) {
+    const polish = this?.language === "pl";
+    return (key: string, values?: Record<string, unknown>) => {
+      if (!polish) {
+        return "";
+      }
+      switch (key) {
+        case "component.siipet.exceptions.date_out_of_range.message":
+          return `Wybierz datę od ${values?.first} do ${values?.last}.`;
+        case "component.siipet.exceptions.edit_partial.message":
+          return `SiiPet mógł nie zastosować całej zmiany wizyty ${values?.event_id}: ${values?.error}. Sprawdź wizytę, a potem wywołaj akcję ponownie z typem ${values?.type}.`;
+      }
+      return "";
+    };
+  });
   const hass = {
     states: {
       "event.luna_visit": {
@@ -189,8 +208,9 @@ export function fakeHass(overrides: Partial<FakeResults> = {}, admin = true): Fa
     },
     callWS,
     callService,
+    loadBackendTranslation,
   } as unknown as HomeAssistant;
-  return { hass, results, callWS, callService, listeners };
+  return { hass, results, callWS, callService, loadBackendTranslation, listeners };
 }
 
 /** A copy of `hass` with a new state for one entity, as Home Assistant sends it. */

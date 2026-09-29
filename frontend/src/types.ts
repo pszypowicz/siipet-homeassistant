@@ -99,6 +99,9 @@ export interface FrontendLocale {
   first_weekday?: string;
 }
 
+/** A Home Assistant localize function. A missing key gives "". */
+export type LocalizeFunc = (key: string, values?: Record<string, unknown>) => string;
+
 export interface HomeAssistant {
   states: Record<string, HassEntity>;
   entities: Record<string, HassEntityRegistryEntry>;
@@ -114,6 +117,7 @@ export interface HomeAssistant {
     target?: Record<string, unknown>,
     notifyOnError?: boolean,
   ): Promise<unknown>;
+  loadBackendTranslation?(category: string, integration?: string): Promise<LocalizeFunc>;
 }
 
 export interface CardConfig {

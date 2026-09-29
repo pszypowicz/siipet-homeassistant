@@ -4,6 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { SiiPetVisitEditor } from "../src/edit-view";
 import {
   catsResult,
+  DAY,
   fakeHass,
   find,
   findAll,
@@ -644,6 +645,43 @@ describe("edit view", () => {
     );
   });
 
+  it("shows a partial edit in the language of the profile", async () => {
+    const fake = fakeHass();
+    fake.hass = withLocale(fake.hass, { language: "pl" });
+    fake.callService.mockRejectedValueOnce({
+      code: "home_assistant_error",
+      message: "SiiPet could not finish the edit",
+      translation_domain: "siipet",
+      translation_key: "edit_partial",
+      translation_placeholders: {
+        event_id: "ev-1",
+        error: "timeout",
+        type: "poop",
+      },
+    });
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+    const [, milo] = allInEditor(editor, "ha-control-button.cat");
+    milo.click();
+    await settle();
+
+    inEditor(editor, ".save")!.click();
+    await settle(card);
+    expect(text(inEditor(editor, ".error"))).toBe(
+      "SiiPet mógł nie zastosować całej zmiany wizyty ev-1: timeout. Sprawdź wizytę, a potem wywołaj akcję ponownie z typem poop.",
+    );
+
+    inEditor(editor, ".save")!.click();
+    await settle(card);
+    expect(fake.callService).toHaveBeenLastCalledWith(
+      "siipet",
+      "update_visit",
+      { event_id: "ev-1", cats: ["dev-luna", "dev-milo"], type: "poop" },
+      undefined,
+      false,
+    );
+  });
+
   it.each([
     { action: "save", fails: false },
     { action: "save", fails: true },
@@ -994,5 +1032,17 @@ describe("locale", () => {
       dismissText: "Anuluj",
       destructive: true,
     });
+  });
+
+  it("translates the video note again after a language change", async () => {
+    const fake = fakeHass({ day: { ...DAY, visits: [{ ...POOP, has_video: false }] } });
+    fake.hass = withLocale(fake.hass, { language: "pl" });
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+    expect(text(inEditor(editor, ".video-note"))).toBe("Nagranie jest tylko w kamerze.");
+
+    card.hass = withLocale(fake.hass, { language: "en" });
+    await settle(card);
+    expect(text(inEditor(editor, ".video-note"))).toBe("Recording is on the camera only.");
   });
 });

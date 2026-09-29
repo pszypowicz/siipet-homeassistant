@@ -2,7 +2,14 @@
 
 import { css, html, LitElement, nothing, type PropertyValues, type TemplateResult } from "lit";
 
-import { deleteVisit, errorMessage, isPartialEdit, resolveVideo, updateVisit } from "./api";
+import {
+  deleteVisit,
+  errorText,
+  type Failure,
+  isPartialEdit,
+  resolveVideo,
+  updateVisit,
+} from "./api";
 import { changedFields, type EditForm, initialForm } from "./changes";
 import { defineElement } from "./define";
 import { dayLabel, durationText, timeLabel, TYPE_STYLE } from "./format";
@@ -46,6 +53,9 @@ export interface CloseDetail {
 export interface BusyDetail {
   busy: boolean;
 }
+
+/** Why the editor shows a note in place of the recording. */
+type VideoNote = "camera_only" | "cannot_play" | Failure;
 
 export class SiiPetVisitEditor extends LitElement {
   static properties = {
@@ -222,8 +232,8 @@ export class SiiPetVisitEditor extends LitElement {
   declare _baseline?: Visit;
   declare _form?: EditForm;
   declare _video?: string;
-  declare _videoNote?: string;
-  declare _error?: string;
+  declare _videoNote?: VideoNote;
+  declare _error?: Failure;
   declare _busy: boolean;
   declare _partialEdit: boolean;
   /** The photo shown full screen in `.stool-dialog`, or unset while it is closed. */
@@ -277,7 +287,7 @@ export class SiiPetVisitEditor extends LitElement {
     this._baseline = this.visit;
     this._form = initialForm(this.visit);
     this._video = undefined;
-    this._videoNote = this.visit.has_video ? undefined : this.l10n.text.recordingOnCamera;
+    this._videoNote = this.visit.has_video ? undefined : "camera_only";
     this._error = undefined;
     this._partialEdit = false;
     this._stoolDialog()?.close();
@@ -316,7 +326,7 @@ export class SiiPetVisitEditor extends LitElement {
       this._videoNote = undefined;
     } catch (err) {
       if (this.visit?.event_id === eventId && seq === this._resolveSeq && !isRenewal) {
-        this._videoNote = errorMessage(err);
+        this._videoNote = { error: err };
       }
     }
   }
@@ -360,7 +370,7 @@ export class SiiPetVisitEditor extends LitElement {
       this._partialEdit = false;
       this._close(true);
     } catch (err) {
-      this._error = errorMessage(err);
+      this._error = { error: err };
       // A later failure for another reason (for example a dropped connection)
       // must not clear a flag an earlier partial edit set: the server's type
       // is still out of step with the visit until a save succeeds.
@@ -398,7 +408,7 @@ export class SiiPetVisitEditor extends LitElement {
       await deleteVisit(this.hass!, this.visit!.event_id);
       this._close(true);
     } catch (err) {
-      this._error = errorMessage(err);
+      this._error = { error: err };
     } finally {
       this._setBusy(false);
     }
@@ -419,7 +429,11 @@ export class SiiPetVisitEditor extends LitElement {
         ${this._renderVideo(current.cover)} ${this._renderStool(baseline, current.stool)}
         ${this._renderCats(form)} ${this._renderType(form)} ${this._renderMemo(form)}
         ${hint ? html`<div class="hint">${hint}</div>` : nothing}
-        ${this._error ? html`<div class="error">${this._error}</div>` : nothing}
+        ${
+          this._error
+            ? html`<div class="error">${errorText(this._error.error, this.l10n)}</div>`
+            : nothing
+        }
         ${this._renderActions(check.data)}
       </div>
       ${current.stool ? this._renderStoolDialog() : nothing}
@@ -526,9 +540,19 @@ export class SiiPetVisitEditor extends LitElement {
     `;
   }
 
+  private _videoNoteText(note: VideoNote): string {
+    if (note === "camera_only") {
+      return this.l10n.text.recordingOnCamera;
+    }
+    if (note === "cannot_play") {
+      return this.l10n.text.cannotPlay;
+    }
+    return errorText(note.error, this.l10n);
+  }
+
   private _renderVideo(cover: string | null): TemplateResult {
     if (this._videoNote !== undefined) {
-      return html`<div class="video-note">${this._videoNote}</div>`;
+      return html`<div class="video-note">${this._videoNoteText(this._videoNote)}</div>`;
     }
     // The recordings use H.265, which only some browsers play.
     return html`
@@ -539,7 +563,7 @@ export class SiiPetVisitEditor extends LitElement {
         poster=${cover ?? nothing}
         src=${this._video ?? nothing}
         @error=${() => {
-          this._videoNote = this.l10n.text.cannotPlay;
+          this._videoNote = "cannot_play";
         }}
       ></video>
     `;

@@ -2122,6 +2122,50 @@ describe("locale", () => {
     expect(text(find(card, '.header [slot="secondary"]'))).toBe("1 wizyta do przypisania");
   });
 
+  it("shows a SiiPet error in the language of the profile", async () => {
+    const fake = fakeHass({
+      fail: {
+        "siipet/day": {
+          code: "service_validation_error",
+          message: "Choose a date from 2026-08-28 to 2026-09-27",
+          translation_domain: "siipet",
+          translation_key: "date_out_of_range",
+          translation_placeholders: { first: "2026-08-28", last: "2026-09-27" },
+        },
+      },
+    });
+    fake.hass = withLocale(fake.hass, { language: "pl" });
+    const card = await mount(fake);
+    expect(fake.loadBackendTranslation).toHaveBeenCalledWith("exceptions", "siipet");
+    expect(text(find(card, ".error"))).toBe("Wybierz datę od 2026-08-28 do 2026-09-27.");
+  });
+
+  it("loads the exception texts once per language", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    card.hass = withState(fake.hass, "sensor.outside", "13");
+    await settle(card);
+    expect(fake.loadBackendTranslation).toHaveBeenCalledTimes(1);
+
+    card.hass = withLocale(fake.hass, { language: "pl" });
+    await settle(card);
+    expect(fake.loadBackendTranslation).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows the English message without exception texts", async () => {
+    const fake = fakeHass({
+      fail: {
+        "siipet/day": {
+          code: "home_assistant_error",
+          message: "SiiPet could not read",
+        },
+      },
+    });
+    fake.hass = { ...fake.hass, loadBackendTranslation: undefined };
+    const card = await mount(fake);
+    expect(text(find(card, ".error"))).toBe("SiiPet could not read");
+  });
+
   describe("with a Polish page", () => {
     afterEach(() => {
       document.documentElement.lang = "";

@@ -1,10 +1,12 @@
 // The card text in English and Polish, and the language and locale settings of the card.
 
-import type { FrontendLocale, HomeAssistant, VisitType } from "./types";
+import type { FrontendLocale, HomeAssistant, LocalizeFunc, VisitType } from "./types";
 
 export interface Localization {
   locale: FrontendLocale;
   text: CardText;
+  /** The exception texts of the integration, once they are loaded. */
+  exceptions?: LocalizeFunc;
 }
 
 /** Every text of the card. Functions build the texts with values or plural forms. */
