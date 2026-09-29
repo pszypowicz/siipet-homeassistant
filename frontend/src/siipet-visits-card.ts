@@ -4,12 +4,13 @@ import { html, LitElement, nothing, type PropertyValues, type TemplateResult } f
 import { keyed } from "lit/directives/keyed.js";
 
 import {
-  errorMessage,
+  errorText,
   fetchCalendar,
   fetchCats,
   fetchDay,
   fetchQueue,
   fetchVisit,
+  type Failure,
   isOutsideWindow,
   isPermanentFailure,
 } from "./api";
@@ -25,8 +26,15 @@ import {
 import { defineElement } from "./define";
 import "./edit-view";
 import type { BusyDetail, CloseDetail } from "./edit-view";
-import { dayLabel, monthOf, shiftDay, shiftMonth, timeOf } from "./format";
+import { dayLabel, monthOf, shiftDay, shiftMonth, timeLabel } from "./format";
 import "./icons";
+import {
+  cardText,
+  localization,
+  localizationKey,
+  type Localization,
+  pageLanguage,
+} from "./localize";
 import { cardStyles } from "./styles";
 import { loadTileParts } from "./tile-parts";
 import type {
@@ -117,6 +125,7 @@ export class SiiPetVisitsCard extends LitElement {
     _queue: { state: true },
     _error: { state: true },
     _editing: { state: true },
+    _l10n: { state: true },
   };
 
   static styles = cardStyles;
@@ -133,8 +142,9 @@ export class SiiPetVisitsCard extends LitElement {
   declare _calendarOpen: boolean;
   declare _day?: DayResult;
   declare _queue?: QueueResult;
-  declare _error?: string;
+  declare _error?: Failure;
   declare _editing?: Visit;
+  declare _l10n: Localization;
 
   private _started = false;
   private _partsLoaded = false;
@@ -167,11 +177,19 @@ export class SiiPetVisitsCard extends LitElement {
   // The editor that was busy when a link came. The link waits while that
   // editor stays open, so a failed save keeps its error and its inputs in view.
   private _holdingEditor?: EventTarget;
+  // The localization key of the last `hass`. A profile change replaces `hass`
+  // and changes this key, so the card renders again with the new locale.
+  private _l10nKey?: string;
+  // The language whose exception texts the card asked Home Assistant for.
+  // Home Assistant forgets integration loads on a language change, so the
+  // card asks again for each language.
+  private _exceptionsRequested?: string;
 
   constructor() {
     super();
     this._calendars = {};
     this._calendarOpen = false;
+    this._l10n = localization(undefined);
   }
 
   static getConfigForm() {
@@ -180,27 +198,33 @@ export class SiiPetVisitsCard extends LitElement {
         { name: "cat", selector: { device: { filter: { integration: "siipet", model: "Cat" } } } },
         { name: "hide_cat_picker", selector: { boolean: {} } },
       ],
-      computeLabel: (schema: { name: string }) =>
-        schema.name === "cat"
-          ? "Cat"
+      // The form passes no language, so the labels follow the language of the page.
+      computeLabel: (schema: { name: string }) => {
+        const text = cardText(pageLanguage());
+        return schema.name === "cat"
+          ? text.configCat
           : schema.name === "hide_cat_picker"
-            ? "Hide the cat picker"
-            : undefined,
-      computeHelper: (schema: { name: string }) =>
-        schema.name === "cat"
-          ? "Optional. Without a cat, the card starts with the first cat."
+            ? text.configHideCatPicker
+            : undefined;
+      },
+      computeHelper: (schema: { name: string }) => {
+        const text = cardText(pageLanguage());
+        return schema.name === "cat"
+          ? text.configCatHelper
           : schema.name === "hide_cat_picker"
-            ? "Keep the card on one cat."
-            : undefined,
+            ? text.configHideCatPickerHelper
+            : undefined;
+      },
     };
   }
 
   setConfig(config: CardConfig): void {
+    const text = cardText(pageLanguage());
     if (config.cat !== undefined && (typeof config.cat !== "string" || config.cat === "")) {
-      throw new Error("The cat option must be a device ID.");
+      throw new Error(text.configCatInvalid);
     }
     if (config.hide_cat_picker !== undefined && typeof config.hide_cat_picker !== "boolean") {
-      throw new Error("The hide_cat_picker option must be true or false.");
+      throw new Error(text.configHideCatPickerInvalid);
     }
     const restart =
       this._started &&
@@ -266,10 +290,23 @@ export class SiiPetVisitsCard extends LitElement {
   }
 
   // Home Assistant sets `hass` on every state change in the house, and the card
-  // renders nothing from it. An update that changes only `hass` does the hass
-  // work here and skips the render. The editor keeps the `hass` of its last
-  // render, which is enough for its calls.
+  // renders only the locale settings of the user and the translator of Home
+  // Assistant from it. An update that changes only `hass` does the hass work
+  // here and skips the render unless the locale settings or the translator
+  // changed. Home Assistant replaces `hass.localize` only when translations
+  // load. The editor keeps the `hass` of its last render, which is enough for
+  // its calls.
   protected shouldUpdate(changed: PropertyValues<this>): boolean {
+    let relocalized = false;
+    if (changed.has("hass")) {
+      const key = localizationKey(this.hass);
+      if (key !== this._l10nKey || this.hass?.localize !== this._l10n.localize) {
+        this._l10nKey = key;
+        this._l10n = localization(this.hass);
+        relocalized = true;
+      }
+      this._requestExceptions();
+    }
     // A run can change state before its first await. Lit drops a change made
     // here when this returns false, so an update that starts a run renders.
     let ran = false;
@@ -290,7 +327,25 @@ export class SiiPetVisitsCard extends LitElement {
       }
     }
     const onlyHass = changed.size === 1 && changed.has("hass");
-    return ran || !this.hasUpdated || !onlyHass;
+    return ran || relocalized || !this.hasUpdated || !onlyHass;
+  }
+
+  /** Ask Home Assistant to load the exception texts of the integration for the
+   * language of the user. Home Assistant then replaces `hass.localize`, and the
+   * card translates its errors through that. */
+  private _requestExceptions(): void {
+    const hass = this.hass;
+    const language = this._l10n.locale.language;
+    if (!hass?.loadBackendTranslation || this._exceptionsRequested === language) {
+      return;
+    }
+    this._exceptionsRequested = language;
+    hass.loadBackendTranslation("exceptions", "siipet").catch(() => {
+      // The errors keep their messages, and a later update asks again.
+      if (this._exceptionsRequested === language) {
+        this._exceptionsRequested = undefined;
+      }
+    });
   }
 
   private _onVisibilityChange = (): void => {
@@ -350,7 +405,7 @@ export class SiiPetVisitsCard extends LitElement {
     try {
       await action();
     } catch (err) {
-      this._error = errorMessage(err);
+      this._error = { error: err };
     } finally {
       this._active = undefined;
       if (this._trailing) {
@@ -509,7 +564,7 @@ export class SiiPetVisitsCard extends LitElement {
     try {
       missing = await loadTileParts();
     } catch (err) {
-      this._error = errorMessage(err);
+      this._error = { error: err };
       return false;
     }
     if (missing.length > 0) {
@@ -543,7 +598,7 @@ export class SiiPetVisitsCard extends LitElement {
       this._catsRead = Date.now();
       return this._cats;
     } catch (err) {
-      this._error = errorMessage(err);
+      this._error = { error: err };
       this._scheduleRetry(err);
       return undefined;
     }
@@ -578,7 +633,7 @@ export class SiiPetVisitsCard extends LitElement {
       }
     } catch (err) {
       if (current()) {
-        this._error = errorMessage(err);
+        this._error = { error: err };
         this._scheduleRetry(err);
       }
     }
@@ -614,7 +669,7 @@ export class SiiPetVisitsCard extends LitElement {
       this._refreshEditing(queue.visits);
     } catch (err) {
       if (current()) {
-        this._error = errorMessage(err);
+        this._error = { error: err };
         this._scheduleRetry(err);
       }
     }
@@ -633,7 +688,7 @@ export class SiiPetVisitsCard extends LitElement {
       }
     } catch (err) {
       if (current()) {
-        this._error = errorMessage(err);
+        this._error = { error: err };
       }
     }
   }
@@ -782,7 +837,7 @@ export class SiiPetVisitsCard extends LitElement {
       this._linkEvent = undefined;
     }
     if (linkedEventId() === eventId) {
-      this._error = errorMessage(err);
+      this._error = { error: err };
     }
   }
 
@@ -885,7 +940,7 @@ export class SiiPetVisitsCard extends LitElement {
       return html`
         <ha-card>
           <div class="message alone missing">
-            The card cannot start. The Home Assistant frontend has no ${this._missing.join(", ")}.
+            ${this._l10n.text.missingParts(this._missing.join(", "))}
           </div>
         </ha-card>
       `;
@@ -898,23 +953,25 @@ export class SiiPetVisitsCard extends LitElement {
         ${cats && !cats.available ? this._renderNotice(cats) : nothing}
         ${cats && selected === undefined ? this._renderNoCat(cats) : nothing}
         ${cats && selected !== undefined ? this._renderMain(cats, selected) : nothing}
-        ${!mainShown && this._error ? html`<div class="error">${this._error}</div>` : nothing}
+        ${
+          !mainShown && this._error
+            ? html`<div class="error">${errorText(this._error.error, this._l10n)}</div>`
+            : nothing
+        }
       </ha-card>
     `;
   }
 
   private _renderNoCat(cats: CatsResult): TemplateResult {
-    const message = this._catGone(cats)
-      ? "The cat of this card is not in the SiiPet account."
-      : "The SiiPet account has no cats.";
+    const message = this._catGone(cats) ? this._l10n.text.catGone : this._l10n.text.noCats;
     return html`<div class="message alone">${message}</div>`;
   }
 
   private _renderNotice(cats: CatsResult): TemplateResult {
-    const day = dayLabel(cats.updated_at.slice(0, 10));
+    const day = dayLabel(cats.updated_at.slice(0, 10), this._l10n.locale);
     return html`
       <div class="notice">
-        SiiPet is not updating. Last update: ${day} ${timeOf(cats.updated_at)}.
+        ${this._l10n.text.notUpdating(`${day} ${timeLabel(cats.updated_at, this._l10n.locale)}`)}
       </div>
     `;
   }
@@ -931,6 +988,7 @@ export class SiiPetVisitsCard extends LitElement {
             .hass=${this.hass}
             .visit=${this._editing}
             .cats=${cats.cats}
+            .l10n=${this._l10n}
             @siipet-busy=${(ev: CustomEvent<BusyDetail>) => this._onEditorBusy(ev)}
             @siipet-close=${(ev: CustomEvent<CloseDetail>) => this._closeEditor(ev)}
           ></siipet-visit-editor>
@@ -939,18 +997,28 @@ export class SiiPetVisitsCard extends LitElement {
     }
     return html`
       ${this._renderView(cats, selected)}
-      ${this._error ? html`<div class="error">${this._error}</div>` : nothing}
+      ${
+        this._error
+          ? html`<div class="error">${errorText(this._error.error, this._l10n)}</div>`
+          : nothing
+      }
       ${this._renderVisits()}
     `;
   }
 
   private _renderView(cats: CatsResult, selected: string): TemplateResult {
-    const strip = renderCatStrip(cats, selected, this._fixed(), (cat) => this._selectCat(cat));
+    const strip = renderCatStrip(
+      cats,
+      selected,
+      this._fixed(),
+      (cat) => this._selectCat(cat),
+      this._l10n,
+    );
     if (this._isQueue()) {
       return renderHeader({
         icon: "mdi:help",
-        primary: "Unknown",
-        secondary: queueSummaryText(this._queue?.visits.length ?? cats.unknown.waiting),
+        primary: this._l10n.text.unknown,
+        secondary: queueSummaryText(this._queue?.visits.length ?? cats.unknown.waiting, this._l10n),
         features: html`${strip}`,
       });
     }
@@ -964,6 +1032,7 @@ export class SiiPetVisitsCard extends LitElement {
       canGoBack: first === undefined || shiftDay(date, -1) >= first,
       canGoForward: date < cats.today,
       marked: this._calendars[monthOf(date)]?.days[date]?.marked ?? false,
+      l10n: this._l10n,
       onShift: (delta) => this._goToDay(shiftDay(date, delta)),
       onToggle: () => this._toggleCalendar(),
     });
@@ -974,6 +1043,7 @@ export class SiiPetVisitsCard extends LitElement {
           selected: date,
           canGoBack: month > shiftMonth(lastMonth, -CALENDAR_MONTHS),
           canGoForward: month < lastMonth,
+          l10n: this._l10n,
           onShiftMonth: (delta) => this._shiftMonth(delta),
           onOpenDay: (day) => this._goToDay(day),
         })
@@ -982,7 +1052,9 @@ export class SiiPetVisitsCard extends LitElement {
       imageUrl: cat?.avatar ?? undefined,
       icon: cat?.avatar ? undefined : "mdi:cat",
       primary: cat?.name ?? "",
-      secondary: this._day ? daySummaryText(date, this._day.summary) : dayLabel(date),
+      secondary: this._day
+        ? daySummaryText(date, this._day.summary, this._l10n)
+        : dayLabel(date, this._l10n.locale),
       features: html`${dateBar} ${calendar} ${strip}`,
     });
   }
@@ -992,8 +1064,8 @@ export class SiiPetVisitsCard extends LitElement {
       this._editing = visit;
     };
     return this._isQueue()
-      ? renderTimeline(this._queue?.visits, true, open)
-      : renderTimeline(this._day?.visits, false, open);
+      ? renderTimeline(this._queue?.visits, true, open, this._l10n)
+      : renderTimeline(this._day?.visits, false, open, this._l10n);
   }
 }
 
@@ -1009,10 +1081,15 @@ interface CustomCardEntry {
 const cardWindow = window as { customCards?: CustomCardEntry[] };
 cardWindow.customCards = cardWindow.customCards ?? [];
 if (!cardWindow.customCards.some((entry) => entry.type === "siipet-visits-card")) {
+  // Getters, so the picker shows the language of the page each time it opens.
   cardWindow.customCards.push({
     type: "siipet-visits-card",
-    name: "SiiPet visits",
-    description: "The litter box visits of each cat, day by day.",
+    get name() {
+      return cardText(pageLanguage()).pickerName;
+    },
+    get description() {
+      return cardText(pageLanguage()).pickerDescription;
+    },
     preview: true,
   });
 }

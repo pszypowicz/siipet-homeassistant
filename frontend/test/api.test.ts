@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   deleteVisit,
-  errorMessage,
+  errorText,
   fetchCalendar,
   fetchCats,
   fetchDay,
@@ -13,6 +13,7 @@ import {
   resolveVideo,
   updateVisit,
 } from "../src/api";
+import { EN, localization, PL } from "../src/localize";
 import type { HomeAssistant } from "../src/types";
 
 function fakeHass(result: unknown = {}) {
@@ -57,15 +58,6 @@ describe("api", () => {
     ]);
   });
 
-  it("finds the message of a rejected call", () => {
-    expect(errorMessage({ code: "home_assistant_error", message: "SiiPet could not" })).toBe(
-      "SiiPet could not",
-    );
-    expect(errorMessage({ error: { code: "x", message: "nested" } })).toBe("nested");
-    expect(errorMessage(new Error("plain"))).toBe("plain");
-    expect(errorMessage(undefined)).toBe("The request failed.");
-  });
-
   it("tells a visit outside the window from other failures", () => {
     const outside = { code: "service_validation_error", translation_key: "visit_not_in_window" };
     expect(isOutsideWindow(outside)).toBe(true);
@@ -91,5 +83,47 @@ describe("api", () => {
     ).toBe(false);
     expect(isPermanentFailure({ code: "home_assistant_error", message: "boom" })).toBe(false);
     expect(isPermanentFailure(new Error("down"))).toBe(false);
+  });
+});
+
+describe("errorText", () => {
+  const polish = {
+    ...localization(undefined),
+    text: PL,
+    localize: (key: string, values?: Record<string, unknown>) =>
+      key === "component.siipet.exceptions.date_out_of_range.message"
+        ? `Wybierz datę od ${values?.first} do ${values?.last}.`
+        : "",
+  };
+  const outOfRange = {
+    code: "service_validation_error",
+    message: "Choose a date from 2026-08-28 to 2026-09-27",
+    translation_domain: "siipet",
+    translation_key: "date_out_of_range",
+    translation_placeholders: { first: "2026-08-28", last: "2026-09-27" },
+  };
+
+  it("translates a SiiPet error with its placeholders", () => {
+    expect(errorText(outOfRange, polish)).toBe("Wybierz datę od 2026-08-28 do 2026-09-27.");
+    expect(errorText({ error: outOfRange }, polish)).toBe(
+      "Wybierz datę od 2026-08-28 do 2026-09-27.",
+    );
+  });
+
+  it("falls back to the message, then to the text of the card", () => {
+    const english = localization(undefined);
+    expect(english.text).toBe(EN);
+    expect(errorText(outOfRange, english)).toBe("Choose a date from 2026-08-28 to 2026-09-27");
+    expect(errorText({ ...outOfRange, translation_key: "not_loaded" }, polish)).toBe(
+      "Choose a date from 2026-08-28 to 2026-09-27",
+    );
+    expect(errorText({ ...outOfRange, translation_domain: "homeassistant" }, polish)).toBe(
+      "Choose a date from 2026-08-28 to 2026-09-27",
+    );
+    expect(errorText({ code: "x", message: "SiiPet could not" }, english)).toBe("SiiPet could not");
+    expect(errorText({ error: { code: "x", message: "nested" } }, english)).toBe("nested");
+    expect(errorText(new Error("plain"), english)).toBe("plain");
+    expect(errorText(undefined, english)).toBe("The request failed.");
+    expect(errorText(undefined, polish)).toBe("Żądanie nie powiodło się.");
   });
 });

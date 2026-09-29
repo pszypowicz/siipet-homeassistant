@@ -42,7 +42,7 @@ custom_components/siipet/
   views.py             authenticated views: images, and recordings from the local media copy
   card.py              serving of the card file, with a content version in its URL
   frontend/            siipet-visits-card.js, the card bundle built from frontend/ at the repo root
-  translations/en.json
+  translations/        en.json and pl.json, with the same keys and placeholders
   icons.json           icons of the device state entities
   brand/               icon.png and icon@2x.png, loaded by Home Assistant 2026.3 and later
 tests/
@@ -50,7 +50,7 @@ tests/
   fixtures/            JSON responses with fake values only
 docs/api.md            SiiPet cloud API reference
 frontend/              source of the dashboard card: TypeScript, Lit, esbuild, vitest
-  src/                 card element, day view, edit view, API calls, date and text helpers
+  src/                 card element, day view, edit view, API calls, date helpers, card texts in localize.ts
   test/                card tests with happy-dom and stub tile parts
 ```
 
@@ -101,6 +101,21 @@ Read `docs/api.md` before you change `api/`. These points cause most mistakes:
 - Email code requests are limited per day (`Code` 10010).
 - `Data.IotCore.Endpoint` of `config/aws/auth` is an `https://` URL. The WebSocket host is its host part.
 - AWS IoT signs the WebSocket URL without the session token. The token goes after the signature.
+
+## Translations
+
+- `translations/en.json` and `translations/pl.json` have the same keys and the same `{placeholders}`.
+  Change both files together. `tests/test_translations.py` checks it.
+- Write every string in full. Home Assistant does not resolve `[%key:...%]` references in a custom integration,
+  and hassfest does not catch them.
+- An entity whose name is the name of its device class has no `name` in the translations.
+  Home Assistant then gives the name in every language.
+- Entity names follow the server language. Entity states, the config flow, the options, the actions, the repairs,
+  and the errors follow the language of each user.
+- The card texts are in `frontend/src/localize.ts`. The Polish table has the type `CardText`,
+  so a missing text fails the type check.
+- The card formats dates and times with `Intl` and `hass.locale`, with the options of the Home Assistant date formats.
+- The card shows an integration error through the `exceptions` translations. It keeps no copy of an error text.
 
 ## Privacy
 
@@ -156,6 +171,7 @@ CI fails when the committed file differs from a new build.
 - The entry fixtures turn the local media copy off. Tests of the copy use `setup_mirror` in `tests/common.py`.
 - Integration tests replace `ShadowLink` with `FakeShadowLink` from `tests/common.py`. A test calls its callbacks to push a state or a connection change.
 - The MQTT and shadow link tests run a fake broker on localhost. They use `socket_enabled` and replace the frozen clock, because a frozen clock stops asyncio timers.
+- Card tests run with an English profile, 24-hour times, and Monday first. A test that needs another locale uses `withLocale` from `frontend/test/helpers.ts`.
 
 ## Style
 

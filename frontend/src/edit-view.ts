@@ -2,18 +2,24 @@
 
 import { css, html, LitElement, nothing, type PropertyValues, type TemplateResult } from "lit";
 
-import { deleteVisit, errorMessage, isPartialEdit, resolveVideo, updateVisit } from "./api";
+import {
+  deleteVisit,
+  errorText,
+  type Failure,
+  isPartialEdit,
+  resolveVideo,
+  updateVisit,
+} from "./api";
 import { changedFields, type EditForm, initialForm } from "./changes";
 import { defineElement } from "./define";
-import { dayLabel, durationText, timeOf, TYPE_STYLE } from "./format";
+import { dayLabel, durationText, timeLabel, TYPE_STYLE } from "./format";
+import { localization, type Localization } from "./localize";
 import { optionRow } from "./option-row";
 import { cardStyles } from "./styles";
 import type { Cat, HomeAssistant, Visit } from "./types";
 
 const MEMO_LENGTH = 200;
 const TYPES = ["pee", "poop", "lingering"] as const;
-const DELETE_TITLE = "Delete this visit?";
-const DELETE_TEXT = "SiiPet deletes the visit and its recording. You cannot undo this.";
 
 interface ConfirmationDialogParams {
   title?: string;
@@ -48,11 +54,15 @@ export interface BusyDetail {
   busy: boolean;
 }
 
+/** Why the editor shows a note in place of the recording. */
+type VideoNote = "camera_only" | "cannot_play" | Failure;
+
 export class SiiPetVisitEditor extends LitElement {
   static properties = {
     hass: { attribute: false },
     visit: { attribute: false },
     cats: { attribute: false },
+    l10n: { attribute: false },
     _baseline: { state: true },
     _form: { state: true },
     _video: { state: true },
@@ -215,14 +225,15 @@ export class SiiPetVisitEditor extends LitElement {
   declare hass?: HomeAssistant;
   declare visit?: Visit;
   declare cats: Cat[];
+  declare l10n: Localization;
   /** The visit this editor opened with. Save compares the form with this, not
    * with a refreshed `visit`, so a field changed elsewhere between opens does
    * not look like a change the form itself made. */
   declare _baseline?: Visit;
   declare _form?: EditForm;
   declare _video?: string;
-  declare _videoNote?: string;
-  declare _error?: string;
+  declare _videoNote?: VideoNote;
+  declare _error?: Failure;
   declare _busy: boolean;
   declare _partialEdit: boolean;
   /** The photo shown full screen in `.stool-dialog`, or unset while it is closed. */
@@ -233,6 +244,7 @@ export class SiiPetVisitEditor extends LitElement {
   constructor() {
     super();
     this.cats = [];
+    this.l10n = localization(undefined);
     this._busy = false;
     this._partialEdit = false;
   }
@@ -275,7 +287,7 @@ export class SiiPetVisitEditor extends LitElement {
     this._baseline = this.visit;
     this._form = initialForm(this.visit);
     this._video = undefined;
-    this._videoNote = this.visit.has_video ? undefined : "Recording is on the camera only.";
+    this._videoNote = this.visit.has_video ? undefined : "camera_only";
     this._error = undefined;
     this._partialEdit = false;
     this._stoolDialog()?.close();
@@ -314,7 +326,7 @@ export class SiiPetVisitEditor extends LitElement {
       this._videoNote = undefined;
     } catch (err) {
       if (this.visit?.event_id === eventId && seq === this._resolveSeq && !isRenewal) {
-        this._videoNote = errorMessage(err);
+        this._videoNote = { error: err };
       }
     }
   }
@@ -358,7 +370,7 @@ export class SiiPetVisitEditor extends LitElement {
       this._partialEdit = false;
       this._close(true);
     } catch (err) {
-      this._error = errorMessage(err);
+      this._error = { error: err };
       // A later failure for another reason (for example a dropped connection)
       // must not clear a flag an earlier partial edit set: the server's type
       // is still out of step with the visit until a save succeeds.
@@ -371,18 +383,19 @@ export class SiiPetVisitEditor extends LitElement {
   }
 
   private async _confirmDelete(): Promise<boolean> {
+    const text = this.l10n.text;
     const win = window as unknown as HelperWindow;
     const helpers = await win.loadCardHelpers?.();
     if (helpers?.showConfirmationDialog) {
       return helpers.showConfirmationDialog(this, {
-        title: DELETE_TITLE,
-        text: DELETE_TEXT,
-        confirmText: "Delete",
-        dismissText: "Cancel",
+        title: text.deleteTitle,
+        text: text.deleteText,
+        confirmText: text.delete,
+        dismissText: text.cancel,
         destructive: true,
       });
     }
-    return win.confirm(`${DELETE_TITLE}\n${DELETE_TEXT}`);
+    return win.confirm(`${text.deleteTitle}\n${text.deleteText}`);
   }
 
   private async _delete(): Promise<void> {
@@ -395,7 +408,7 @@ export class SiiPetVisitEditor extends LitElement {
       await deleteVisit(this.hass!, this.visit!.event_id);
       this._close(true);
     } catch (err) {
-      this._error = errorMessage(err);
+      this._error = { error: err };
     } finally {
       this._setBusy(false);
     }
@@ -409,14 +422,18 @@ export class SiiPetVisitEditor extends LitElement {
       return nothing;
     }
     const check = changedFields(baseline, form, { sendType: this._partialEdit });
-    const hint = check.reason === "type_required" ? "Pick a type as well." : undefined;
+    const hint = check.reason === "type_required" ? this.l10n.text.pickType : undefined;
     return html`
       ${this._renderHeader(baseline)}
       <div class="editor">
         ${this._renderVideo(current.cover)} ${this._renderStool(baseline, current.stool)}
         ${this._renderCats(form)} ${this._renderType(form)} ${this._renderMemo(form)}
         ${hint ? html`<div class="hint">${hint}</div>` : nothing}
-        ${this._error ? html`<div class="error">${this._error}</div>` : nothing}
+        ${
+          this._error
+            ? html`<div class="error">${errorText(this._error.error, this.l10n)}</div>`
+            : nothing
+        }
         ${this._renderActions(check.data)}
       </div>
       ${current.stool ? this._renderStoolDialog() : nothing}
@@ -424,11 +441,10 @@ export class SiiPetVisitEditor extends LitElement {
   }
 
   private _renderHeader(visit: Visit): TemplateResult {
-    const style = TYPE_STYLE[visit.type];
-    const names = visit.cats.map((cat) => cat.name).join(", ") || "Unknown";
+    const names = visit.cats.map((cat) => cat.name).join(", ") || this.l10n.text.unknown;
     const secondary = [
-      dayLabel(visit.start.slice(0, 10)),
-      style.label,
+      dayLabel(visit.start.slice(0, 10), this.l10n.locale),
+      this.l10n.text.types[visit.type],
       durationText(visit.duration),
       ...visit.abnormal_reasons.slice(0, 1),
       // Last, so a long camera name cuts off before the reason.
@@ -438,7 +454,7 @@ export class SiiPetVisitEditor extends LitElement {
       <ha-tile-container class="header" .interactive=${true} @action=${() => this._back()}>
         <ha-tile-icon slot="icon" .icon=${"mdi:arrow-left"}></ha-tile-icon>
         <ha-tile-info slot="info">
-          <span slot="primary">${timeOf(visit.start)} · ${names}</span>
+          <span slot="primary">${timeLabel(visit.start, this.l10n.locale)} · ${names}</span>
           <span slot="secondary">${secondary}</span>
         </ha-tile-info>
       </ha-tile-container>
@@ -448,10 +464,10 @@ export class SiiPetVisitEditor extends LitElement {
   private _renderType(form: EditForm): TemplateResult {
     const options = TYPES.map((type) => ({
       value: type,
-      ariaLabel: TYPE_STYLE[type].label,
+      ariaLabel: this.l10n.text.types[type],
       icon: optionRow(
         html`<ha-icon icon=${TYPE_STYLE[type].icon}></ha-icon>`,
-        TYPE_STYLE[type].label,
+        this.l10n.text.types[type],
       ),
     }));
     return html`
@@ -459,7 +475,7 @@ export class SiiPetVisitEditor extends LitElement {
         class="type"
         .options=${options}
         .value=${form.type ?? undefined}
-        .label=${"Type"}
+        .label=${this.l10n.text.type}
         .disabled=${this._busy}
         @value-changed=${(ev: CustomEvent<{ value: EditForm["type"] }>) => {
           // As in the tile features, the event does not leave the editor.
@@ -480,8 +496,8 @@ export class SiiPetVisitEditor extends LitElement {
           class="memo-input"
           type="text"
           maxlength=${MEMO_LENGTH}
-          placeholder="Memo"
-          aria-label="Memo"
+          placeholder=${this.l10n.text.memo}
+          aria-label=${this.l10n.text.memo}
           .value=${form.note}
           .disabled=${this._busy}
           @input=${(ev: Event) => {
@@ -501,11 +517,11 @@ export class SiiPetVisitEditor extends LitElement {
       ? html`
           <ha-control-button
             class="delete"
-            .label=${"Delete"}
+            .label=${this.l10n.text.delete}
             .disabled=${this._busy}
             @click=${() => this._delete()}
           >
-            <span>Delete</span>
+            <span>${this.l10n.text.delete}</span>
           </ha-control-button>
         `
       : nothing;
@@ -513,20 +529,30 @@ export class SiiPetVisitEditor extends LitElement {
       <ha-control-button-group class="actions">
         <ha-control-button
           class="save"
-          .label=${"Save"}
+          .label=${this.l10n.text.save}
           .disabled=${data === null || this._busy}
           @click=${() => data && this._save(data)}
         >
-          <span>Save</span>
+          <span>${this.l10n.text.save}</span>
         </ha-control-button>
         ${remove}
       </ha-control-button-group>
     `;
   }
 
+  private _videoNoteText(note: VideoNote): string {
+    if (note === "camera_only") {
+      return this.l10n.text.recordingOnCamera;
+    }
+    if (note === "cannot_play") {
+      return this.l10n.text.cannotPlay;
+    }
+    return errorText(note.error, this.l10n);
+  }
+
   private _renderVideo(cover: string | null): TemplateResult {
     if (this._videoNote !== undefined) {
-      return html`<div class="video-note">${this._videoNote}</div>`;
+      return html`<div class="video-note">${this._videoNoteText(this._videoNote)}</div>`;
     }
     // The recordings use H.265, which only some browsers play.
     return html`
@@ -537,8 +563,7 @@ export class SiiPetVisitEditor extends LitElement {
         poster=${cover ?? nothing}
         src=${this._video ?? nothing}
         @error=${() => {
-          this._videoNote =
-            "This browser cannot play the recording. Safari and the Home Assistant app can.";
+          this._videoNote = "cannot_play";
         }}
       ></video>
     `;
@@ -566,10 +591,10 @@ export class SiiPetVisitEditor extends LitElement {
       >
         <ha-icon icon="mdi:camera-outline"></ha-icon>
         <div class="stool-text">
-          <div class="stool-label">Stool photo</div>
+          <div class="stool-label">${this.l10n.text.stoolPhoto}</div>
           ${reasons}
         </div>
-        <img class="stool-photo" src=${stool} alt="Stool photo" />
+        <img class="stool-photo" src=${stool} alt=${this.l10n.text.stoolPhoto} />
       </div>
     `;
   }
@@ -585,10 +610,14 @@ export class SiiPetVisitEditor extends LitElement {
       >
         ${
           this._stoolDialogSrc
-            ? html`<img class="stool-dialog-photo" src=${this._stoolDialogSrc} alt="Stool photo" />`
+            ? html`<img
+                class="stool-dialog-photo"
+                src=${this._stoolDialogSrc}
+                alt=${this.l10n.text.stoolPhoto}
+              />`
             : nothing
         }
-        <button class="stool-dialog-close" aria-label="Close">
+        <button class="stool-dialog-close" aria-label=${this.l10n.text.close}>
           <ha-icon icon="mdi:close"></ha-icon>
         </button>
       </dialog>

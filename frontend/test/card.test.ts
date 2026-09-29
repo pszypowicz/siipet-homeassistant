@@ -12,6 +12,7 @@ import {
   find,
   findAll,
   LINGERING,
+  localizeFor,
   mount,
   POOP,
   sent,
@@ -21,6 +22,7 @@ import {
   type TestCard,
   text,
   UNASSIGNED,
+  withLocale,
   withState,
 } from "./helpers";
 
@@ -108,7 +110,7 @@ describe("day view", () => {
     );
     expect(text(find(card, '.header [slot="primary"]'))).toBe("Luna");
     expect(text(find(card, '.header [slot="secondary"]'))).toBe(
-      "Sun 27 Sep · 1 visit · 1 poop · 1 abnormal",
+      "Sun, Sep 27 · 1 visit · 1 poop · 1 abnormal",
     );
   });
 
@@ -250,7 +252,7 @@ describe("day view", () => {
     const summary = { visits: 0, pee: 0, poop: 0, abnormal: 0 };
     const card = await mount(fakeHass({ day: { summary, visits: [] } }));
     expect(text(find(card, ".empty"))).toBe("No visits on this day.");
-    expect(text(find(card, '.header [slot="secondary"]'))).toBe("Sun 27 Sep · 0 visits");
+    expect(text(find(card, '.header [slot="secondary"]'))).toBe("Sun, Sep 27 · 0 visits");
   });
 
   it("goes back a day and reads the calendar only for a new month", async () => {
@@ -271,7 +273,7 @@ describe("day view", () => {
     find(card, ".prev-day")!.click();
     await settle(card);
     expect(sent(fake)).toEqual([{ type: "siipet/day", date: "2026-09-29", cat: "dev-luna" }]);
-    expect(text(find(card, ".date"))).toBe("Tue 29 Sep");
+    expect(text(find(card, ".date"))).toBe("Tue, Sep 29");
   });
 
   it("stops going back at the first day that can open", async () => {
@@ -280,7 +282,7 @@ describe("day view", () => {
     expect(find(card, ".prev-day")?.disabled).toBe(false);
     find(card, ".prev-day")!.click();
     await settle(card);
-    expect(text(find(card, ".date"))).toBe("Fri 28 Aug");
+    expect(text(find(card, ".date"))).toBe("Fri, Aug 28");
     expect(find(card, ".prev-day")?.disabled).toBe(true);
   });
 
@@ -309,7 +311,7 @@ describe("day view", () => {
     await settle(card);
     expect(sent(fake)).toEqual([{ type: "siipet/day", date: "2026-09-24", cat: "dev-luna" }]);
     expect(find(card, ".calendar")).toBeNull();
-    expect(text(find(card, ".date"))).toBe("Thu 24 Sep");
+    expect(text(find(card, ".date"))).toBe("Thu, Sep 24");
   });
 
   it("moves the calendar month within the last 12 months", async () => {
@@ -480,7 +482,7 @@ describe("day view", () => {
   it("shows a notice while SiiPet is not updating", async () => {
     const card = await mount(fakeHass({ cats: catsResult({ available: false }) }));
     expect(text(find(card, ".notice"))).toBe(
-      "SiiPet is not updating. Last update: Sun 27 Sep 20:15.",
+      "SiiPet is not updating. Last update: Sun, Sep 27 20:15.",
     );
   });
 });
@@ -530,7 +532,7 @@ describe("unknown queue", () => {
     expect(find(card, ".date-bar")).toBeNull();
     expect(text(find(card, '.header [slot="primary"]'))).toBe("Unknown");
     expect(text(find(card, '.header [slot="secondary"]'))).toBe("1 visit waiting");
-    expect(text(find(card, '.visit [slot="primary"]'))).toBe("Fri 25 Sep 03:12");
+    expect(text(find(card, '.visit [slot="primary"]'))).toBe("Fri, Sep 25 03:12");
   });
 
   it("starts with the queue for the Unknown cat in the config", async () => {
@@ -1014,11 +1016,11 @@ describe("refresh", () => {
 
     find(card, ".prev-day")!.click();
     await settle(card);
-    expect(text(find(card, ".date"))).toBe("Sat 26 Sep");
+    expect(text(find(card, ".date"))).toBe("Sat, Sep 26");
 
     releaseCats(fake.results.cats);
     await settle(card);
-    expect(text(find(card, ".date"))).toBe("Sat 26 Sep");
+    expect(text(find(card, ".date"))).toBe("Sat, Sep 26");
   });
 
   it("renews the read 50 minutes after the last one while the page stays visible", async () => {
@@ -1517,7 +1519,7 @@ describe("open a visit from a link", () => {
 
     await closeEditor(card, "ev-1");
     expect(text(find(card, '.header [slot="primary"]'))).toBe("Milo");
-    expect(text(find(card, ".date"))).toBe("Fri 25 Sep");
+    expect(text(find(card, ".date"))).toBe("Fri, Sep 25");
   });
 
   it("keeps the shown cat when it owns the visit", async () => {
@@ -1549,7 +1551,7 @@ describe("open a visit from a link", () => {
     expect(editing(card)?.event_id).toBe("ev-1");
 
     await closeEditor(card, "ev-1");
-    expect(text(find(card, ".date"))).toBe("Fri 25 Sep");
+    expect(text(find(card, ".date"))).toBe("Fri, Sep 25");
   });
 
   it("opens a visit without a cat in the Unknown queue", async () => {
@@ -2034,5 +2036,224 @@ describe("open a visit from a link", () => {
     await settle(card);
     expect(visitReads(fake)).toBe(2);
     expect(editing(card)?.event_id).toBe("ev-1");
+  });
+});
+
+describe("locale", () => {
+  it("shows the dates in the language of the profile", async () => {
+    const fake = fakeHass();
+    fake.hass = withLocale(fake.hass, {
+      language: "pl",
+      time_format: "language",
+      first_weekday: "language",
+    });
+    const card = await mount(fake);
+    expect(text(find(card, ".date"))).toBe("niedz., 27 wrz");
+
+    find(card, ".date")!.click();
+    await settle(card);
+    expect(text(find(card, ".month-name"))).toBe("wrzesień 2026");
+    expect(findAll(card, ".weekday").map((day) => text(day))).toEqual([
+      "pon.",
+      "wt.",
+      "śr.",
+      "czw.",
+      "pt.",
+      "sob.",
+      "niedz.",
+    ]);
+  });
+
+  it("shows 12-hour times when the profile asks for them", async () => {
+    const fake = fakeHass();
+    fake.hass = withLocale(fake.hass, { time_format: "12" });
+    const card = await mount(fake);
+    const poop = findAll(card, ".visit")[0];
+    expect(text(poop.querySelector('[slot="primary"]'))).toBe("8:11 PM");
+  });
+
+  it("starts the calendar on the first weekday of the language", async () => {
+    const fake = fakeHass();
+    fake.hass = withLocale(fake.hass, { first_weekday: "language" });
+    const card = await mount(fake);
+    find(card, ".date")!.click();
+    await settle(card);
+    expect(text(findAll(card, ".weekday")[0])).toBe("Sun");
+    // 1 September 2026 is a Tuesday.
+    expect(findAll(card, ".blank")).toHaveLength(2);
+  });
+
+  it("renders again when only the profile locale changes", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    expect(text(find(card, ".date"))).toBe("Sun, Sep 27");
+    const calls = sent(fake).length;
+
+    card.hass = withLocale(fake.hass, { language: "pl" });
+    await settle(card);
+    expect(text(find(card, ".date"))).toBe("niedz., 27 wrz");
+    expect(sent(fake)).toHaveLength(calls);
+  });
+
+  it("shows the day view in Polish", async () => {
+    const fake = fakeHass();
+    fake.hass = withLocale(fake.hass, { language: "pl" });
+    const card = await mount(fake);
+    expect(text(find(card, '.header [slot="secondary"]'))).toBe(
+      "niedz., 27 wrz · 1 wizyta · 1 kupa · 1 nieprawidłowa",
+    );
+    const poop = findAll(card, ".visit")[0];
+    expect(text(poop.querySelector('[slot="secondary"]'))).toContain("Kupa · 57 s");
+    expect(find(card, ".date")?.label).toBe("Wybierz dzień");
+  });
+
+  it("shows an empty day and the queue in Polish", async () => {
+    const summary = { visits: 0, pee: 0, poop: 0, abnormal: 0 };
+    const empty = fakeHass({ day: { summary, visits: [] } });
+    empty.hass = withLocale(empty.hass, { language: "pl" });
+    expect(text(find(await mount(empty), ".empty"))).toBe("Brak wizyt tego dnia.");
+    document.body.replaceChildren();
+
+    const queue = fakeHass({
+      cats: catsResult({ unknown: { device_id: "dev-unknown", waiting: 1 } }),
+    });
+    queue.hass = withLocale(queue.hass, { language: "pl" });
+    const card = await mount(queue, { cat: "dev-unknown" });
+    expect(text(find(card, '.header [slot="primary"]'))).toBe("Nieznany");
+    expect(text(find(card, '.header [slot="secondary"]'))).toBe("1 wizyta do przypisania");
+  });
+
+  it("shows a SiiPet error in the language of the profile", async () => {
+    const fake = fakeHass({
+      fail: {
+        "siipet/day": {
+          code: "service_validation_error",
+          message: "Choose a date from 2026-08-28 to 2026-09-27",
+          translation_domain: "siipet",
+          translation_key: "date_out_of_range",
+          translation_placeholders: { first: "2026-08-28", last: "2026-09-27" },
+        },
+      },
+    });
+    fake.hass = withLocale(fake.hass, { language: "pl" });
+    const card = await mount(fake);
+    expect(fake.loadBackendTranslation).toHaveBeenCalledWith("exceptions", "siipet");
+    expect(text(find(card, ".error"))).toBe("Wybierz datę od 2026-08-28 do 2026-09-27.");
+  });
+
+  it("asks for the exception texts once per language", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    expect(fake.loadBackendTranslation).toHaveBeenCalledTimes(1);
+    expect(fake.loadBackendTranslation).toHaveBeenCalledWith("exceptions", "siipet");
+
+    card.hass = withState(card.hass!, "sensor.outside", "13");
+    await settle(card);
+    expect(fake.loadBackendTranslation).toHaveBeenCalledTimes(1);
+
+    card.hass = withLocale(card.hass!, { language: "pl" });
+    await settle(card);
+    expect(fake.loadBackendTranslation).toHaveBeenCalledTimes(2);
+
+    card.hass = withLocale(card.hass!, { language: "en" });
+    await settle(card);
+    expect(fake.loadBackendTranslation).toHaveBeenCalledTimes(3);
+  });
+
+  it("shows the texts that Home Assistant loads after the error", async () => {
+    const fake = fakeHass({
+      fail: {
+        "siipet/day": {
+          code: "service_validation_error",
+          message: "Choose a date from 2026-08-28 to 2026-09-27",
+          translation_domain: "siipet",
+          translation_key: "date_out_of_range",
+          translation_placeholders: { first: "2026-08-28", last: "2026-09-27" },
+        },
+      },
+    });
+    fake.hass = { ...withLocale(fake.hass, { language: "pl" }), localize: () => "" };
+    const card = await mount(fake);
+    expect(text(find(card, ".error"))).toBe("Choose a date from 2026-08-28 to 2026-09-27");
+
+    card.hass = { ...card.hass!, localize: localizeFor("pl") };
+    await settle(card);
+    expect(text(find(card, ".error"))).toBe("Wybierz datę od 2026-08-28 do 2026-09-27.");
+  });
+
+  it("follows the translator of Home Assistant in every card", async () => {
+    const fake = fakeHass({
+      fail: {
+        "siipet/day": {
+          code: "service_validation_error",
+          message: "Choose a date from 2026-08-28 to 2026-09-27",
+          translation_domain: "siipet",
+          translation_key: "date_out_of_range",
+          translation_placeholders: { first: "2026-08-28", last: "2026-09-27" },
+        },
+      },
+    });
+    fake.hass = { ...withLocale(fake.hass, { language: "pl" }), localize: () => "" };
+    const cards = [await mount(fake), await mount(fake, { cat: "dev-milo" })];
+    for (const card of cards) {
+      expect(text(find(card, ".error"))).toBe("Choose a date from 2026-08-28 to 2026-09-27");
+    }
+
+    const polish = { ...fake.hass, localize: localizeFor("pl") };
+    for (const card of cards) {
+      card.hass = polish;
+    }
+    for (const card of cards) {
+      await settle(card);
+      expect(text(find(card, ".error"))).toBe("Wybierz datę od 2026-08-28 do 2026-09-27.");
+    }
+
+    const english = withLocale(polish, { language: "en" });
+    for (const card of cards) {
+      card.hass = english;
+    }
+    for (const card of cards) {
+      await settle(card);
+      expect(text(find(card, ".error"))).toBe("Choose a date from 2026-08-28 to 2026-09-27.");
+    }
+  });
+
+  it("shows the English message without exception texts", async () => {
+    const fake = fakeHass({
+      fail: {
+        "siipet/day": {
+          code: "home_assistant_error",
+          message: "SiiPet could not read",
+        },
+      },
+    });
+    fake.hass = { ...fake.hass, loadBackendTranslation: undefined, localize: undefined };
+    const card = await mount(fake);
+    expect(text(find(card, ".error"))).toBe("SiiPet could not read");
+  });
+
+  describe("with a Polish page", () => {
+    afterEach(() => {
+      document.documentElement.lang = "";
+    });
+
+    it("names the card, the form, and the config errors in Polish", () => {
+      document.documentElement.lang = "pl";
+      const entries = (window as { customCards?: { type: string; name: string }[] }).customCards;
+      expect(entries?.find((entry) => entry.type === "siipet-visits-card")?.name).toBe(
+        "Wizyty SiiPet",
+      );
+      const form = cardClass().getConfigForm();
+      expect(form.computeLabel({ name: "cat" })).toBe("Kot");
+      expect(form.computeHelper({ name: "hide_cat_picker" })).toBe(
+        "Karta zostaje przy jednym kocie.",
+      );
+      const card = document.createElement("siipet-visits-card") as HTMLElement & {
+        setConfig(config: unknown): void;
+      };
+      expect(() => card.setConfig({ type: "custom:siipet-visits-card", cat: 3 })).toThrow(
+        "Opcja cat musi być identyfikatorem urządzenia.",
+      );
+    });
   });
 });

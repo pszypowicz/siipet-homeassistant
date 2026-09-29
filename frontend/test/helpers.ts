@@ -8,7 +8,9 @@ import type {
   CardConfig,
   CatsResult,
   DayResult,
+  FrontendLocale,
   HomeAssistant,
+  LocalizeFunc,
   QueueResult,
   Visit,
   VisitResult,
@@ -104,6 +106,36 @@ export const CALENDAR: CalendarResult = {
   last: "2026-09-27",
 };
 
+// The SiiPet exception texts by language, as Home Assistant loads them.
+const EXCEPTION_TEXTS: Record<
+  string,
+  Record<string, (values?: Record<string, unknown>) => string>
+> = {
+  pl: {
+    "component.siipet.exceptions.not_loaded.message": () =>
+      "SiiPet nie jest załadowany. Sprawdź integrację SiiPet.",
+    "component.siipet.exceptions.date_out_of_range.message": (values) =>
+      `Wybierz datę od ${values?.first} do ${values?.last}.`,
+    "component.siipet.exceptions.edit_partial.message": (values) =>
+      `SiiPet mógł nie zastosować całej zmiany wizyty ${values?.event_id}: ${values?.error}. Sprawdź wizytę, a potem wywołaj akcję ponownie z typem ${values?.type}.`,
+  },
+  en: {
+    "component.siipet.exceptions.not_loaded.message": () =>
+      "SiiPet is not loaded. Check the SiiPet integration.",
+    "component.siipet.exceptions.date_out_of_range.message": (values) =>
+      `Choose a date from ${values?.first} to ${values?.last}.`,
+    "component.siipet.exceptions.edit_partial.message": (values) =>
+      `SiiPet may not have applied the whole change to visit ${values?.event_id}: ${values?.error}. Check the visit, then call the action again with type ${values?.type}.`,
+  },
+};
+
+/** A Home Assistant translator with the SiiPet exception texts: Polish for a
+ * `pl` language, else English. Any other key gives "". */
+export function localizeFor(language: string): LocalizeFunc {
+  const table = EXCEPTION_TEXTS[language === "pl" ? "pl" : "en"];
+  return (key, values) => table[key]?.(values) ?? "";
+}
+
 export interface FakeResults {
   cats: CatsResult;
   day: DayResult;
@@ -119,6 +151,7 @@ export interface FakeHass {
   results: FakeResults;
   callWS: ReturnType<typeof vi.fn>;
   callService: ReturnType<typeof vi.fn>;
+  loadBackendTranslation: ReturnType<typeof vi.fn>;
   listeners: Map<string, () => void>;
 }
 
@@ -156,6 +189,8 @@ export function fakeHass(overrides: Partial<FakeResults> = {}, admin = true): Fa
     throw new Error(`unexpected ${type}`);
   });
   const callService = vi.fn().mockResolvedValue(undefined);
+  // The card ignores the answer. It reads the texts from `hass.localize`.
+  const loadBackendTranslation = vi.fn(async () => localizeFor("en"));
   const hass = {
     states: {
       "event.luna_visit": {
@@ -174,6 +209,11 @@ export function fakeHass(overrides: Partial<FakeResults> = {}, admin = true): Fa
       "sensor.outside": { entity_id: "sensor.outside", platform: "met" },
     },
     user: { is_admin: admin },
+    // An English profile with 24-hour times and Monday first, so the times and
+    // the calendar read like the fixtures.
+    language: "en",
+    locale: { language: "en", time_format: "24", first_weekday: "monday" },
+    localize: localizeFor("en"),
     connection: {
       addEventListener: (event: string, listener: () => void) => listeners.set(event, listener),
       removeEventListener: (event: string, listener: () => void) => {
@@ -184,8 +224,9 @@ export function fakeHass(overrides: Partial<FakeResults> = {}, admin = true): Fa
     },
     callWS,
     callService,
+    loadBackendTranslation,
   } as unknown as HomeAssistant;
-  return { hass, results, callWS, callService, listeners };
+  return { hass, results, callWS, callService, loadBackendTranslation, listeners };
 }
 
 /** A copy of `hass` with a new state for one entity, as Home Assistant sends it. */
@@ -194,6 +235,13 @@ export function withState(hass: HomeAssistant, entityId: string, state: string):
     ...hass,
     states: { ...hass.states, [entityId]: { entity_id: entityId, state, last_changed: "" } },
   };
+}
+
+/** A copy of `hass` with other profile locale settings and the translator of their
+ * language, as Home Assistant sends it once the texts are loaded. */
+export function withLocale(hass: HomeAssistant, locale: Partial<FrontendLocale>): HomeAssistant {
+  const next = { ...hass.locale!, ...locale };
+  return { ...hass, language: next.language, locale: next, localize: localizeFor(next.language) };
 }
 
 export interface TestCard extends HTMLElement {

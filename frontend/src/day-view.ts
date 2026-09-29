@@ -3,27 +3,31 @@
 import { html, nothing, type TemplateResult } from "lit";
 
 import { monthCells } from "./calendar";
-import { dayLabel, durationText, monthLabel, timeOf, TYPE_STYLE } from "./format";
+import {
+  dayLabel,
+  durationText,
+  firstWeekday,
+  monthLabel,
+  timeLabel,
+  TYPE_STYLE,
+  weekdayNames,
+} from "./format";
+import type { Localization } from "./localize";
 import { optionRow } from "./option-row";
 import type { CalendarResult, CatsResult, DaySummary, Visit } from "./types";
 
-const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-function count(value: number, one: string, many: string): string {
-  return `${value} ${value === 1 ? one : many}`;
-}
-
-/** "Sun 27 Sep · 3 visits · 1 poop · 2 pee · 1 abnormal", without the counts that are 0. */
-export function daySummaryText(date: string, summary: DaySummary): string {
-  const parts = [dayLabel(date), count(summary.visits, "visit", "visits")];
-  if (summary.poop > 0) parts.push(`${summary.poop} poop`);
-  if (summary.pee > 0) parts.push(`${summary.pee} pee`);
-  if (summary.abnormal > 0) parts.push(`${summary.abnormal} abnormal`);
+/** "Sun, Sep 27 · 3 visits · 1 poop · 2 pee · 1 abnormal", without the counts that are 0. */
+export function daySummaryText(date: string, summary: DaySummary, l10n: Localization): string {
+  const text = l10n.text;
+  const parts = [dayLabel(date, l10n.locale), text.visits(summary.visits)];
+  if (summary.poop > 0) parts.push(text.poop(summary.poop));
+  if (summary.pee > 0) parts.push(text.pee(summary.pee));
+  if (summary.abnormal > 0) parts.push(text.abnormal(summary.abnormal));
   return parts.join(" · ");
 }
 
-export function queueSummaryText(waiting: number): string {
-  return `${count(waiting, "visit", "visits")} waiting`;
+export function queueSummaryText(waiting: number, l10n: Localization): string {
+  return l10n.text.waiting(waiting);
 }
 
 export interface HeaderOptions {
@@ -52,6 +56,7 @@ export interface DateBarOptions {
   canGoBack: boolean;
   canGoForward: boolean;
   marked: boolean;
+  l10n: Localization;
   onShift: (delta: number) => void;
   onToggle: () => void;
 }
@@ -61,19 +66,23 @@ export function renderDateBar(options: DateBarOptions): TemplateResult {
     <ha-control-button-group class="date-bar">
       <ha-control-button
         class="arrow prev-day"
-        .label=${"Previous day"}
+        .label=${options.l10n.text.previousDay}
         .disabled=${!options.canGoBack}
         @click=${() => options.onShift(-1)}
       >
         <ha-icon icon="mdi:chevron-left"></ha-icon>
       </ha-control-button>
-      <ha-control-button class="date" .label=${"Pick a day"} @click=${options.onToggle}>
-        <span>${dayLabel(options.date)}</span>
+      <ha-control-button
+        class="date"
+        .label=${options.l10n.text.pickDay}
+        @click=${options.onToggle}
+      >
+        <span>${dayLabel(options.date, options.l10n.locale)}</span>
         ${options.marked ? html`<span class="dot"></span>` : nothing}
       </ha-control-button>
       <ha-control-button
         class="arrow next-day"
-        .label=${"Next day"}
+        .label=${options.l10n.text.nextDay}
         .disabled=${!options.canGoForward}
         @click=${() => options.onShift(1)}
       >
@@ -89,27 +98,33 @@ export interface CalendarOptions {
   selected: string;
   canGoBack: boolean;
   canGoForward: boolean;
+  l10n: Localization;
   onShiftMonth: (delta: number) => void;
   onOpenDay: (date: string) => void;
 }
 
 export function renderCalendar(options: CalendarOptions): TemplateResult {
-  const cells = monthCells(options.month, options.calendar ?? null, options.selected);
+  const cells = monthCells(
+    options.month,
+    options.calendar ?? null,
+    options.selected,
+    firstWeekday(options.l10n.locale),
+  );
   return html`
     <div class="calendar">
       <ha-control-button-group class="month-bar">
         <ha-control-button
           class="arrow prev-month"
-          .label=${"Previous month"}
+          .label=${options.l10n.text.previousMonth}
           .disabled=${!options.canGoBack}
           @click=${() => options.onShiftMonth(-1)}
         >
           <ha-icon icon="mdi:chevron-left"></ha-icon>
         </ha-control-button>
-        <div class="month-name">${monthLabel(options.month)}</div>
+        <div class="month-name">${monthLabel(options.month, options.l10n.locale)}</div>
         <ha-control-button
           class="arrow next-month"
-          .label=${"Next month"}
+          .label=${options.l10n.text.nextMonth}
           .disabled=${!options.canGoForward}
           @click=${() => options.onShiftMonth(1)}
         >
@@ -117,7 +132,7 @@ export function renderCalendar(options: CalendarOptions): TemplateResult {
         </ha-control-button>
       </ha-control-button-group>
       <div class="grid">
-        ${WEEKDAYS.map((day) => html`<span class="weekday">${day}</span>`)}
+        ${weekdayNames(options.l10n.locale).map((day) => html`<span class="weekday">${day}</span>`)}
         ${cells.map((cell) =>
           cell.date === null
             ? html`<span class="blank"></span>`
@@ -125,7 +140,7 @@ export function renderCalendar(options: CalendarOptions): TemplateResult {
                 <ha-control-button
                   class="cell ${cell.selected ? "selected" : ""}"
                   data-date=${cell.date}
-                  .label=${dayLabel(cell.date)}
+                  .label=${dayLabel(cell.date, options.l10n.locale)}
                   .disabled=${!cell.openable}
                   @click=${() => options.onOpenDay(cell.date)}
                 >
@@ -147,6 +162,7 @@ export function renderCatStrip(
   selected: string,
   hidden: boolean,
   onSelect: (deviceId: string) => void,
+  l10n: Localization,
 ): TemplateResult | typeof nothing {
   if (hidden) {
     return nothing;
@@ -163,7 +179,7 @@ export function renderCatStrip(
     ),
   }));
   if (cats.unknown.waiting > 0) {
-    const unknownName = `Unknown (${cats.unknown.waiting})`;
+    const unknownName = l10n.text.unknownOption(cats.unknown.waiting);
     options.push({
       value: cats.unknown.device_id,
       ariaLabel: unknownName,
@@ -180,7 +196,7 @@ export function renderCatStrip(
       class="cats"
       .options=${options}
       .value=${selected}
-      .label=${"Cat"}
+      .label=${l10n.text.cat}
       @value-changed=${(ev: CustomEvent<{ value: string }>) => {
         ev.stopPropagation();
         onSelect(ev.detail.value);
@@ -193,17 +209,18 @@ function renderVisit(
   visit: Visit,
   withDay: boolean,
   onOpen: (visit: Visit) => void,
+  l10n: Localization,
 ): TemplateResult {
   const style = TYPE_STYLE[visit.type];
-  const time = timeOf(visit.start);
-  const primary = withDay ? `${dayLabel(visit.start.slice(0, 10))} ${time}` : time;
-  const secondary = `${style.label} · ${durationText(visit.duration)}`;
+  const time = timeLabel(visit.start, l10n.locale);
+  const primary = withDay ? `${dayLabel(visit.start.slice(0, 10), l10n.locale)} ${time}` : time;
+  const secondary = `${l10n.text.types[visit.type]} · ${durationText(visit.duration)}`;
   // The camera comes last, so the row cuts it off before the memo icon.
   const camera = visit.camera ? ` · ${visit.camera}` : "";
   const memo = visit.note
     ? html`<ha-icon class="memo" icon="mdi:note-text-outline"></ha-icon>`
     : nothing;
-  const reason = visit.abnormal_reasons[0] ?? "Abnormal";
+  const reason = visit.abnormal_reasons[0] ?? l10n.text.abnormalChip;
   const chip = visit.abnormal
     ? html`<span slot="features-inline" class="chip">${reason}</span>`
     : nothing;
@@ -213,13 +230,13 @@ function renderVisit(
   const stool = visit.stool
     ? html`<div class="stool-row">
         <ha-icon icon="mdi:camera-outline"></ha-icon>
-        <span class="stool-label">Stool photo</span>
-        <img class="stool" src=${visit.stool} alt="Stool photo" loading="lazy" />
+        <span class="stool-label">${l10n.text.stoolPhoto}</span>
+        <img class="stool" src=${visit.stool} alt=${l10n.text.stoolPhoto} loading="lazy" />
       </div>`
     : nothing;
   const cameraOnly = visit.has_video
     ? nothing
-    : html`<span class="camera-only">On camera only</span>`;
+    : html`<span class="camera-only">${l10n.text.onCameraOnly}</span>`;
   return html`
     <ha-tile-container
       class="visit ${visit.type}"
@@ -250,15 +267,16 @@ export function renderTimeline(
   visits: Visit[] | undefined,
   withDay: boolean,
   onOpen: (visit: Visit) => void,
+  l10n: Localization,
 ): TemplateResult | typeof nothing {
   if (visits === undefined) {
     return nothing;
   }
   if (visits.length === 0) {
-    const text = withDay ? "No visits are waiting." : "No visits on this day.";
+    const text = withDay ? l10n.text.noVisitsWaiting : l10n.text.noVisitsOnDay;
     return html`<div class="message empty">${text}</div>`;
   }
   return html`<div class="timeline">
-    ${visits.map((visit) => renderVisit(visit, withDay, onOpen))}
+    ${visits.map((visit) => renderVisit(visit, withDay, onOpen, l10n))}
   </div>`;
 }
