@@ -102,9 +102,6 @@
   },
   "entity": {
     "binary_sensor": {
-      "charging": {
-        "name": "Charging"
-      },
       "privacy_mode": {
         "name": "Privacy mode"
       },
@@ -166,9 +163,6 @@
       },
       "subscription_expires": {
         "name": "Subscription expires"
-      },
-      "battery": {
-        "name": "Battery"
       },
       "last_report": {
         "name": "Last report"

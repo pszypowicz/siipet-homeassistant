@@ -1,0 +1,258 @@
+{
+  "config": {
+    "step": {
+      "email": {
+        "title": "Zaloguj się kodem z e-maila",
+        "description": "Wprowadź adres e-mail konta SiiPet. SiiPet wyśle na ten adres kod logowania.",
+        "data": {
+          "email": "E-mail"
+        }
+      },
+      "code": {
+        "title": "Wprowadź kod",
+        "description": "Wprowadź kod, który SiiPet wysłał na adres {email}.",
+        "data": {
+          "code": "Kod"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Nie można połączyć się z SiiPet. Spróbuj ponownie później.",
+      "code_request_failed": "SiiPet nie wysłał kodu. Sprawdź adres e-mail i spróbuj ponownie.",
+      "invalid_code": "Kod jest nieprawidłowy albo wygasł.",
+      "invalid_email": "Wprowadź prawidłowy adres e-mail.",
+      "login_failed": "SiiPet odrzucił logowanie. Zamknij ten formularz i zacznij od nowa, aby dostać nowy kod.",
+      "session_rejected": "SiiPet przyjął kod, ale odrzucił nową sesję. Zamknij ten formularz i zacznij od nowa, aby dostać nowy kod.",
+      "too_many_requests": "SiiPet pozwala poprosić o kod tylko kilka razy dziennie. Spróbuj ponownie jutro.",
+      "unknown": "Wystąpił nieoczekiwany błąd. Szczegóły są w logu."
+    },
+    "abort": {
+      "already_configured": "To konto SiiPet jest już skonfigurowane.",
+      "entry_outdated": "Ten wpis SiiPet pochodzi ze starej wersji. Usuń wpis SiiPet i dodaj go ponownie.",
+      "reauth_successful": "Zalogowano ponownie.",
+      "reconfigure_successful": "Zalogowano ponownie.",
+      "single_instance_allowed": "SiiPet jest już skonfigurowany.",
+      "wrong_account": "Zaloguj się na to samo konto SiiPet co wcześniej."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Lokalne multimedia",
+        "description": "Home Assistant może przechowywać kopię nagrań i zdjęć SiiPet z ostatnich dni i odtwarzać je z tej kopii. Ustaw 0, aby wyłączyć kopię i ją usunąć.",
+        "data": {
+          "media_days": "Liczba dni"
+        },
+        "data_description": {
+          "media_days": "Od 0 do 30. Nagranie zajmuje średnio około 30 MB. Kopia jest w folderze .siipet w folderze multimediów."
+        }
+      }
+    }
+  },
+  "issues": {
+    "media_disk_full": {
+      "title": "SiiPet wstrzymał lokalną kopię multimediów",
+      "description": "Na dysku z folderem multimediów jest mniej niż 1 GB wolnego miejsca, więc SiiPet przestał kopiować nagrania i zdjęcia. Nagrania i zdjęcia, których jeszcze nie skopiowano, są odtwarzane z chmury SiiPet, dopóki miejsce się nie zwolni. Zwolnij trochę miejsca albo ustaw mniej dni w opcjach SiiPet."
+    },
+    "media_folder_unavailable": {
+      "title": "SiiPet nie może użyć folderu multimediów",
+      "description": "SiiPet nie może zapisać lokalnej kopii nagrań i zdjęć w folderze multimediów, więc odtwarzanie korzysta z chmury SiiPet. Sprawdź folder multimediów, a potem przeładuj integrację SiiPet. Aby wyłączyć lokalną kopię, ustaw 0 dni w opcjach SiiPet."
+    }
+  },
+  "exceptions": {
+    "entry_outdated": {
+      "message": "Usuń wpis SiiPet i dodaj go ponownie."
+    },
+    "not_loaded": {
+      "message": "SiiPet nie jest załadowany. Sprawdź integrację SiiPet."
+    },
+    "invalid_cat": {
+      "message": "Wybierz urządzenie kota SiiPet."
+    },
+    "date_out_of_range": {
+      "message": "Wybierz datę od {first} do {last}."
+    },
+    "request_failed": {
+      "message": "SiiPet nie mógł wykonać żądania: {error}"
+    },
+    "unknown_visit": {
+      "message": "SiiPet nie ma wizyty {event_id}."
+    },
+    "visit_not_in_window": {
+      "message": "SiiPet nie ma wizyty {event_id} z ostatnich 7 dni."
+    },
+    "nothing_to_change": {
+      "message": "Wizyta już odpowiada żądaniu."
+    },
+    "type_required": {
+      "message": "Wizyta ma nieznany typ. Wybierz typ razem z kotami."
+    },
+    "edit_partial": {
+      "message": "SiiPet mógł nie zastosować całej zmiany wizyty {event_id}: {error}. Sprawdź wizytę, a potem wywołaj akcję ponownie z typem {type}."
+    },
+    "edit_partial_note": {
+      "message": "SiiPet mógł nie zapisać notatki wizyty {event_id}: {error}. Sprawdź wizytę, a potem wywołaj akcję ponownie."
+    },
+    "edit_unconfirmed": {
+      "message": "SiiPet przyjął zmianę wizyty {event_id}, ale nie udało się ponownie odczytać danych tej wizyty: {error}. Sprawdź wizytę w aplikacji SiiPet."
+    },
+    "edit_not_applied": {
+      "message": "SiiPet nie zastosował zmiany wizyty {event_id}. Sprawdź wizytę w aplikacji SiiPet."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "privacy_mode": {
+        "name": "Tryb prywatności"
+      },
+      "online": {
+        "name": "Online"
+      },
+      "cloud_storage": {
+        "name": "Przechowywanie w chmurze"
+      }
+    },
+    "event": {
+      "visit": {
+        "name": "Wizyta",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "unknown": "Nieznany",
+              "lingering": "Bez załatwienia",
+              "poop": "Kupa",
+              "pee": "Siku"
+            }
+          }
+        }
+      }
+    },
+    "sensor": {
+      "visits_today": {
+        "name": "Wizyty dzisiaj"
+      },
+      "pee_today": {
+        "name": "Siku dzisiaj"
+      },
+      "poop_today": {
+        "name": "Kupa dzisiaj"
+      },
+      "lingering_today": {
+        "name": "Bez załatwienia dzisiaj"
+      },
+      "abnormal_visits_today": {
+        "name": "Nieprawidłowe wizyty dzisiaj"
+      },
+      "average_duration_today": {
+        "name": "Średni czas wizyty dzisiaj"
+      },
+      "baseline_visits": {
+        "name": "Oczekiwane wizyty"
+      },
+      "baseline_duration": {
+        "name": "Oczekiwany czas wizyty"
+      },
+      "baseline_progress": {
+        "name": "Postęp nauki"
+      },
+      "last_visit": {
+        "name": "Ostatnia wizyta"
+      },
+      "unassigned_visits": {
+        "name": "Nieprzypisane wizyty"
+      },
+      "subscription_expires": {
+        "name": "Koniec subskrypcji"
+      },
+      "last_report": {
+        "name": "Ostatni raport"
+      },
+      "wifi_signal": {
+        "name": "Sygnał Wi-Fi"
+      },
+      "fill_light": {
+        "name": "Doświetlenie",
+        "state": {
+          "low": "Niskie",
+          "medium": "Średnie",
+          "high": "Wysokie"
+        }
+      },
+      "motion_sensitivity": {
+        "name": "Czułość wykrywania ruchu",
+        "state": {
+          "medium": "Średnia",
+          "high": "Wysoka"
+        }
+      },
+      "update_mode": {
+        "name": "Tryb aktualizacji oprogramowania",
+        "state": {
+          "automatic": "Automatyczny",
+          "manual": "Ręczny"
+        }
+      }
+    }
+  },
+  "services": {
+    "list_visits": {
+      "name": "Lista wizyt",
+      "description": "Zwraca wizyty w kuwecie z maksymalnie 7 dni, od najnowszej. Odpowiedź nie zawiera linków.",
+      "fields": {
+        "date": {
+          "name": "Data",
+          "description": "Ostatni dzień listy. Dzisiaj albo jeden z poprzednich 30 dni. Domyślnie: dzisiaj."
+        },
+        "days": {
+          "name": "Dni",
+          "description": "Liczba dni na liście, do daty włącznie. Od 1 do 7. Domyślnie: 1."
+        },
+        "cat": {
+          "name": "Kot",
+          "description": "Tylko wizyty tego kota. Urządzenie Unknown cat pokazuje nierozpoznane wizyty."
+        }
+      }
+    },
+    "update_visit": {
+      "name": "Zmień wizytę",
+      "description": "Zmienia koty, typ albo notatkę wizyty w kuwecie.",
+      "fields": {
+        "event_id": {
+          "name": "ID zdarzenia",
+          "description": "event_id wizyty z odpowiedzi akcji Lista wizyt albo ze zdarzenia Wizyta."
+        },
+        "cats": {
+          "name": "Koty",
+          "description": "Koty, które skorzystały z kuwety. Urządzenie Unknown cat jest tu niedozwolone."
+        },
+        "type": {
+          "name": "Typ",
+          "description": "Nowy typ wizyty."
+        },
+        "note": {
+          "name": "Notatka",
+          "description": "Nowa notatka, do 200 znaków. Pusta notatka usuwa obecną."
+        }
+      }
+    },
+    "delete_visit": {
+      "name": "Usuń wizytę",
+      "description": "Usuwa wizytę w kuwecie na zawsze. Tego nie można cofnąć.",
+      "fields": {
+        "event_id": {
+          "name": "ID zdarzenia",
+          "description": "event_id wizyty z odpowiedzi akcji Lista wizyt albo ze zdarzenia Wizyta."
+        }
+      }
+    }
+  },
+  "selector": {
+    "visit_type": {
+      "options": {
+        "pee": "Siku",
+        "poop": "Kupa",
+        "lingering": "Bez załatwienia"
+      }
+    }
+  }
+}
