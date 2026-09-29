@@ -12,6 +12,7 @@ import {
   find,
   findAll,
   LINGERING,
+  loadCard,
   mount,
   POOP,
   sent,
@@ -26,7 +27,7 @@ import {
 
 beforeAll(async () => {
   stubTileParts();
-  await import("../src/siipet-visits-card");
+  await loadCard();
 });
 
 afterEach(() => {

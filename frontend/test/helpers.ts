@@ -24,6 +24,16 @@ export function stubTileParts(skip: string[] = []): void {
   (window as { loadCardHelpers?: () => Promise<unknown> }).loadCardHelpers = async () => ({});
 }
 
+/** Define `home-assistant` as the app does, load the card, and wait for its elements. */
+export async function loadCard(): Promise<void> {
+  if (!customElements.get("home-assistant")) {
+    customElements.define("home-assistant", class extends HTMLElement {});
+  }
+  await import("../src/siipet-visits-card");
+  await customElements.whenDefined("siipet-visits-card");
+  await customElements.whenDefined("siipet-visit-editor");
+}
+
 /** Stubs window.loadCardHelpers to resolve a delete confirmation dialog to `result`. */
 export function stubConfirmationDialog(result: boolean): ReturnType<typeof vi.fn> {
   const showConfirmationDialog = vi.fn().mockResolvedValue(result);

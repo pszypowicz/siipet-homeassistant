@@ -4,6 +4,7 @@ import { css, html, LitElement, nothing, type PropertyValues, type TemplateResul
 
 import { deleteVisit, errorMessage, isPartialEdit, resolveVideo, updateVisit } from "./api";
 import { changedFields, type EditForm, initialForm } from "./changes";
+import { defineElement } from "./define";
 import { dayLabel, durationText, timeOf, TYPE_STYLE } from "./format";
 import { optionRow } from "./option-row";
 import { cardStyles } from "./styles";
@@ -615,6 +616,4 @@ export class SiiPetVisitEditor extends LitElement {
   }
 }
 
-if (!customElements.get("siipet-visit-editor")) {
-  customElements.define("siipet-visit-editor", SiiPetVisitEditor);
-}
+void defineElement("siipet-visit-editor", SiiPetVisitEditor);
