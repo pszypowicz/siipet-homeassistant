@@ -71,6 +71,15 @@ async function typeMemo(editor: HTMLElement, value: string): Promise<void> {
 }
 
 describe("edit view", () => {
+  it("leaves the camera out of the header of a visit without a camera label", async () => {
+    const card = await mount(fakeHass());
+    const editor = await openVisit(card, 1);
+
+    expect(text(inEditor(editor, '.header [slot="secondary"]'))).toBe(
+      "Sun 27 Sep · Lingering · 25 s",
+    );
+  });
+
   it("opens a visit and resolves its recording", async () => {
     const fake = fakeHass();
     const card = await mount(fake);
@@ -79,7 +88,7 @@ describe("edit view", () => {
     expect(find(card, ".timeline")).toBeNull();
     expect(text(inEditor(editor, '.header [slot="primary"]'))).toBe("20:11 · Luna");
     expect(text(inEditor(editor, '.header [slot="secondary"]'))).toBe(
-      "Sun 27 Sep · Poop · 57 s · Soft stool",
+      "Sun 27 Sep · Poop · 57 s · Soft stool · Bathroom",
     );
     expect(sent(fake).at(-1)).toEqual({
       type: "media_source/resolve_media",

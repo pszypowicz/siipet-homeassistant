@@ -145,6 +145,8 @@ The card shows the visits of one cat on one day, newest first:
 - Tap the date to open the month calendar. A red dot marks a day with an abnormal visit or a warning.
   Only today and the 30 days before it open.
 - The cat strip changes the cat. **Unknown** shows while visits of the last 7 days have no cat.
+- If you have more than one camera, each visit names the area of its camera.
+  If the camera device has no area, the visit shows the device name.
 - Tap a visit to open it. You can play the recording, change the cats, the type, and the memo, and save.
 - Administrators can also delete a visit. Tap **Delete** and confirm in the dialog that follows.
 

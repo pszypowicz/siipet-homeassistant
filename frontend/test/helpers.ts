@@ -55,6 +55,7 @@ export const LINGERING: Visit = {
   start: "2026-09-27T07:46:00+02:00",
   duration: 25,
   type: "lingering",
+  camera: null,
   note: "checked",
   abnormal: false,
   abnormal_reasons: [],

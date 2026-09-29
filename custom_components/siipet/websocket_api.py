@@ -17,12 +17,13 @@ import voluptuous as vol
 
 from .api import SiiPetAuthError, SiiPetError, Visit, VisitType
 from .const import DOMAIN, UNKNOWN_CAT_ID
-from .coordinator import SiiPetData
+from .coordinator import SiiPetConfigEntry, SiiPetData
 from .media import MediaKind
 from .views import image_path
 from .visit_data import (
     HISTORY_DAYS,
     async_read_day,
+    camera_labels,
     cat_id,
     check_history_day,
     device_ids,
@@ -96,14 +97,20 @@ def _signed(
 def _card_visits(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
-    data: SiiPetData,
-    devices: dict[str, str],
+    entry: SiiPetConfigEntry,
     visits: Iterable[Visit],
 ) -> list[dict[str, Any]]:
-    """Return visit dicts with signed paths of their cover and stool images."""
+    """Return visit dicts with signed paths of their cover and stool images.
+
+    `camera` holds the label from `camera_labels`, or None.
+    """
+    data = entry.runtime_data.coordinator.data
+    devices = device_ids(hass, entry)
+    labels = camera_labels(hass, entry)
     return [
         {
             **visit_dict(data, devices, visit),
+            "camera": labels.get(visit.sn),
             "cover": _signed(hass, connection, MediaKind.COVER, visit.event_id)
             if visit.cover_key
             else None,
@@ -276,9 +283,7 @@ async def ws_day(
         msg["id"],
         {
             "summary": _summary(visits),
-            "visits": _card_visits(
-                hass, connection, data, device_ids(hass, entry), visits
-            ),
+            "visits": _card_visits(hass, connection, entry, visits),
         },
     )
 
@@ -299,11 +304,7 @@ async def ws_queue(
     )
     connection.send_result(
         msg["id"],
-        {
-            "visits": _card_visits(
-                hass, connection, data, device_ids(hass, entry), visits
-            )
-        },
+        {"visits": _card_visits(hass, connection, entry, visits)},
     )
 
 
@@ -323,9 +324,7 @@ async def ws_visit(
     for day, visits in data.days.items():
         for visit in visits:
             if visit.event_id == msg["event_id"]:
-                [card_visit] = _card_visits(
-                    hass, connection, data, device_ids(hass, entry), [visit]
-                )
+                [card_visit] = _card_visits(hass, connection, entry, [visit])
                 connection.send_result(
                     msg["id"], {"date": day.isoformat(), "visit": card_visit}
                 )

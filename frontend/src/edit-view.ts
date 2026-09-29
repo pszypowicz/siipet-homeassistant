@@ -430,6 +430,8 @@ export class SiiPetVisitEditor extends LitElement {
       style.label,
       durationText(visit.duration),
       ...visit.abnormal_reasons.slice(0, 1),
+      // Last, so a long camera name cuts off before the reason.
+      ...(visit.camera ? [visit.camera] : []),
     ].join(" · ");
     return html`
       <ha-tile-container class="header" .interactive=${true} @action=${() => this._back()}>

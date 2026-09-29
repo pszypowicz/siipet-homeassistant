@@ -197,6 +197,9 @@ function renderVisit(
   const style = TYPE_STYLE[visit.type];
   const time = timeOf(visit.start);
   const primary = withDay ? `${dayLabel(visit.start.slice(0, 10))} ${time}` : time;
+  const secondary = `${style.label} · ${durationText(visit.duration)}`;
+  // The camera comes last, so the row cuts it off before the memo icon.
+  const camera = visit.camera ? ` · ${visit.camera}` : "";
   const memo = visit.note
     ? html`<ha-icon class="memo" icon="mdi:note-text-outline"></ha-icon>`
     : nothing;
@@ -231,7 +234,7 @@ function renderVisit(
       ></ha-tile-icon>
       <ha-tile-info slot="info">
         <span slot="primary">${primary}</span>
-        <span slot="secondary">${style.label} · ${durationText(visit.duration)} ${memo}</span>
+        <span slot="secondary">${secondary} ${memo}${camera}</span>
       </ha-tile-info>
       ${chip}
       <div slot="features" class="poster-slot">
