@@ -109,6 +109,7 @@ export interface HomeAssistant {
   connection: HassConnection;
   language?: string;
   locale?: FrontendLocale;
+  localize?: LocalizeFunc;
   callWS<T>(message: Record<string, unknown>): Promise<T>;
   callService(
     domain: string,

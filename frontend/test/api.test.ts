@@ -90,7 +90,7 @@ describe("errorText", () => {
   const polish = {
     ...localization(undefined),
     text: PL,
-    exceptions: (key: string, values?: Record<string, unknown>) =>
+    localize: (key: string, values?: Record<string, unknown>) =>
       key === "component.siipet.exceptions.date_out_of_range.message"
         ? `Wybierz datę od ${values?.first} do ${values?.last}.`
         : "",

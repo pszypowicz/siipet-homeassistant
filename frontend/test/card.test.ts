@@ -12,6 +12,7 @@ import {
   find,
   findAll,
   LINGERING,
+  localizeFor,
   mount,
   POOP,
   sent,
@@ -2140,7 +2141,26 @@ describe("locale", () => {
     expect(text(find(card, ".error"))).toBe("Wybierz datę od 2026-08-28 do 2026-09-27.");
   });
 
-  it("asks again for the exception texts when the first answer lacks them", async () => {
+  it("asks for the exception texts once per language", async () => {
+    const fake = fakeHass();
+    const card = await mount(fake);
+    expect(fake.loadBackendTranslation).toHaveBeenCalledTimes(1);
+    expect(fake.loadBackendTranslation).toHaveBeenCalledWith("exceptions", "siipet");
+
+    card.hass = withState(card.hass!, "sensor.outside", "13");
+    await settle(card);
+    expect(fake.loadBackendTranslation).toHaveBeenCalledTimes(1);
+
+    card.hass = withLocale(card.hass!, { language: "pl" });
+    await settle(card);
+    expect(fake.loadBackendTranslation).toHaveBeenCalledTimes(2);
+
+    card.hass = withLocale(card.hass!, { language: "en" });
+    await settle(card);
+    expect(fake.loadBackendTranslation).toHaveBeenCalledTimes(3);
+  });
+
+  it("shows the texts that Home Assistant loads after the error", async () => {
     const fake = fakeHass({
       fail: {
         "siipet/day": {
@@ -2152,29 +2172,50 @@ describe("locale", () => {
         },
       },
     });
-    fake.hass = withLocale(fake.hass, { language: "pl" });
-    // Home Assistant's early answer to a second request for the same
-    // translations, while the first load is still out.
-    fake.loadBackendTranslation.mockImplementationOnce(async () => () => "");
+    fake.hass = { ...withLocale(fake.hass, { language: "pl" }), localize: () => "" };
     const card = await mount(fake);
     expect(text(find(card, ".error"))).toBe("Choose a date from 2026-08-28 to 2026-09-27");
 
-    card.hass = withState(card.hass!, "sensor.outside", "13");
+    card.hass = { ...card.hass!, localize: localizeFor("pl") };
     await settle(card);
-    expect(fake.loadBackendTranslation).toHaveBeenCalledTimes(2);
     expect(text(find(card, ".error"))).toBe("Wybierz datę od 2026-08-28 do 2026-09-27.");
   });
 
-  it("loads the exception texts once per language", async () => {
-    const fake = fakeHass();
-    const card = await mount(fake);
-    card.hass = withState(fake.hass, "sensor.outside", "13");
-    await settle(card);
-    expect(fake.loadBackendTranslation).toHaveBeenCalledTimes(1);
+  it("follows the translator of Home Assistant in every card", async () => {
+    const fake = fakeHass({
+      fail: {
+        "siipet/day": {
+          code: "service_validation_error",
+          message: "Choose a date from 2026-08-28 to 2026-09-27",
+          translation_domain: "siipet",
+          translation_key: "date_out_of_range",
+          translation_placeholders: { first: "2026-08-28", last: "2026-09-27" },
+        },
+      },
+    });
+    fake.hass = { ...withLocale(fake.hass, { language: "pl" }), localize: () => "" };
+    const cards = [await mount(fake), await mount(fake, { cat: "dev-milo" })];
+    for (const card of cards) {
+      expect(text(find(card, ".error"))).toBe("Choose a date from 2026-08-28 to 2026-09-27");
+    }
 
-    card.hass = withLocale(fake.hass, { language: "pl" });
-    await settle(card);
-    expect(fake.loadBackendTranslation).toHaveBeenCalledTimes(2);
+    const polish = { ...fake.hass, localize: localizeFor("pl") };
+    for (const card of cards) {
+      card.hass = polish;
+    }
+    for (const card of cards) {
+      await settle(card);
+      expect(text(find(card, ".error"))).toBe("Wybierz datę od 2026-08-28 do 2026-09-27.");
+    }
+
+    const english = withLocale(polish, { language: "en" });
+    for (const card of cards) {
+      card.hass = english;
+    }
+    for (const card of cards) {
+      await settle(card);
+      expect(text(find(card, ".error"))).toBe("Choose a date from 2026-08-28 to 2026-09-27.");
+    }
   });
 
   it("shows the English message without exception texts", async () => {
@@ -2186,7 +2227,7 @@ describe("locale", () => {
         },
       },
     });
-    fake.hass = { ...fake.hass, loadBackendTranslation: undefined };
+    fake.hass = { ...fake.hass, loadBackendTranslation: undefined, localize: undefined };
     const card = await mount(fake);
     expect(text(find(card, ".error"))).toBe("SiiPet could not read");
   });

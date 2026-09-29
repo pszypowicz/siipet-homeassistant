@@ -5,8 +5,9 @@ import type { FrontendLocale, HomeAssistant, LocalizeFunc, VisitType } from "./t
 export interface Localization {
   locale: FrontendLocale;
   text: CardText;
-  /** The exception texts of the integration, once they are loaded. */
-  exceptions?: LocalizeFunc;
+  /** The translator of Home Assistant. It holds the exception texts of the integration
+   * once they are loaded. */
+  localize?: LocalizeFunc;
 }
 
 /** Every text of the card. Functions build the texts with values or plural forms. */
@@ -188,7 +189,11 @@ export function pageLanguage(): string {
 /** The localization of the user of `hass`. English when `hass` has no language. */
 export function localization(hass: HomeAssistant | undefined): Localization {
   const language = hass?.locale?.language ?? hass?.language ?? "en";
-  return { locale: { ...hass?.locale, language }, text: cardText(language) };
+  return {
+    locale: { ...hass?.locale, language },
+    text: cardText(language),
+    localize: hass?.localize,
+  };
 }
 
 /** A key that changes when the language or a locale setting that the card uses changes. */

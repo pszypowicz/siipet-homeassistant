@@ -84,9 +84,9 @@ export interface Failure {
  * the card, else its message, else the fallback text of the card. */
 export function errorText(err: unknown, l10n: Localization): string {
   const key = errorTranslationKey(err);
-  if (key !== undefined && l10n.exceptions && stringField(err, "translation_domain") === "siipet") {
+  if (key !== undefined && l10n.localize && stringField(err, "translation_domain") === "siipet") {
     const placeholders = errorField(err, "translation_placeholders");
-    const text = l10n.exceptions(
+    const text = l10n.localize(
       `component.siipet.exceptions.${key}.message`,
       typeof placeholders === "object" && placeholders !== null
         ? (placeholders as Record<string, unknown>)

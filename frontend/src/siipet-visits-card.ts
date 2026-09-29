@@ -65,8 +65,6 @@ const CALENDAR_MONTHS = 12;
 const LINK_PARAM = "siipet_visit";
 // A save or a delete in one card fires this on `window`, so the other cards read again.
 const CHANGED_EVENT = "siipet-visits-changed";
-// Every loaded set of SiiPet exception texts has this key.
-const EXCEPTIONS_PROBE = "component.siipet.exceptions.not_loaded.message";
 
 interface ChangedDetail {
   source: SiiPetVisitsCard;
@@ -182,13 +180,10 @@ export class SiiPetVisitsCard extends LitElement {
   // The localization key of the last `hass`. A profile change replaces `hass`
   // and changes this key, so the card renders again with the new locale.
   private _l10nKey?: string;
-  // The language whose exception texts the card has loaded, confirmed to hold
-  // the SiiPet keys. A failed load, or one that lacks the keys, leaves the
-  // English messages until a later `hass` update asks again.
-  private _exceptionsFor?: string;
-  // The language of the exception load in flight, so one card never starts a
-  // second load for the same language while the first is still out.
-  private _exceptionsLoading?: string;
+  // The language whose exception texts the card asked Home Assistant for.
+  // Home Assistant forgets integration loads on a language change, so the
+  // card asks again for each language.
+  private _exceptionsRequested?: string;
 
   constructor() {
     super();
@@ -295,28 +290,22 @@ export class SiiPetVisitsCard extends LitElement {
   }
 
   // Home Assistant sets `hass` on every state change in the house, and the card
-  // renders only the locale settings of the user from it. An update that
-  // changes only `hass` does the hass work here and skips the render unless
-  // the locale settings changed. The editor keeps the `hass` of its last
-  // render, which is enough for its calls.
+  // renders only the locale settings of the user and the translator of Home
+  // Assistant from it. An update that changes only `hass` does the hass work
+  // here and skips the render unless the locale settings or the translator
+  // changed. Home Assistant replaces `hass.localize` only when translations
+  // load. The editor keeps the `hass` of its last render, which is enough for
+  // its calls.
   protected shouldUpdate(changed: PropertyValues<this>): boolean {
     let relocalized = false;
     if (changed.has("hass")) {
       const key = localizationKey(this.hass);
-      if (key !== this._l10nKey) {
+      if (key !== this._l10nKey || this.hass?.localize !== this._l10n.localize) {
         this._l10nKey = key;
-        const next = localization(this.hass);
-        // A new time format keeps the loaded exception texts of the same language.
-        this._l10n =
-          next.locale.language === this._l10n.locale.language
-            ? { ...next, exceptions: this._l10n.exceptions }
-            : next;
+        this._l10n = localization(this.hass);
         relocalized = true;
       }
-      // This returns early once the texts are loaded, so it is cheap on every
-      // update. A dropped early answer (see below) needs a later `hass` update
-      // to try again, not just a language change.
-      this._loadExceptions();
+      this._requestExceptions();
     }
     // A run can change state before its first await. Lit drops a change made
     // here when this returns false, so an update that starts a run renders.
@@ -341,33 +330,22 @@ export class SiiPetVisitsCard extends LitElement {
     return ran || relocalized || !this.hasUpdated || !onlyHass;
   }
 
-  private _loadExceptions(): void {
-    const load = this.hass?.loadBackendTranslation;
+  /** Ask Home Assistant to load the exception texts of the integration for the
+   * language of the user. Home Assistant then replaces `hass.localize`, and the
+   * card translates its errors through that. */
+  private _requestExceptions(): void {
+    const hass = this.hass;
     const language = this._l10n.locale.language;
-    if (!load || this._exceptionsFor === language || this._exceptionsLoading === language) {
+    if (!hass?.loadBackendTranslation || this._exceptionsRequested === language) {
       return;
     }
-    this._exceptionsLoading = language;
-    load.call(this.hass, "exceptions", "siipet").then(
-      (exceptions) => {
-        if (this._exceptionsLoading === language) {
-          this._exceptionsLoading = undefined;
-        }
-        // Home Assistant answers a second caller while the first load runs, with
-        // texts that do not have the SiiPet exceptions yet, so the card asks
-        // again on its next `hass` update.
-        if (this._l10n.locale.language !== language || !exceptions(EXCEPTIONS_PROBE)) {
-          return;
-        }
-        this._exceptionsFor = language;
-        this._l10n = { ...this._l10n, exceptions };
-      },
-      () => {
-        if (this._exceptionsLoading === language) {
-          this._exceptionsLoading = undefined;
-        }
-      },
-    );
+    this._exceptionsRequested = language;
+    hass.loadBackendTranslation("exceptions", "siipet").catch(() => {
+      // The errors keep their messages, and a later update asks again.
+      if (this._exceptionsRequested === language) {
+        this._exceptionsRequested = undefined;
+      }
+    });
   }
 
   private _onVisibilityChange = (): void => {
