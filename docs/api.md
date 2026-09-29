@@ -1064,6 +1064,11 @@ These results come from tests against a real account.
   - `Data.IotCore.Endpoint` uses an `https://` scheme.
 - The integration's own MQTT connection ran for 120 seconds against the owner account. It connected and reported a state for all 4 cameras. Its log held no serial number, shadow name, identity, or signed URL.
 - After the deploy of the device state, the invited-account instance created the device state entities of all 4 cameras. The owner instance showed battery values for all 4 cameras, all online, privacy mode off, and update mode manual. One camera on external power reported `charging: true` at 99% battery, the first live sample with that value.
+- Both instances ran the device state for 11 hours after a restart, through the planned reconnect before the IoT credentials expire.
+  - On the invited-account instance, the connection that was open 11 hours after the restart had sent about 230 data segments. At one ping each minute and 8 shadow reads every 5 minutes, that count fits a start about 9 hours 50 minutes after the restart. The renewal margin ends at that time. The first connection no longer existed.
+  - Neither instance logged a device state warning, and no device state entity became unavailable.
+  - Both instances received the same battery change after the planned reconnect.
+  - A planned reconnect writes no log line and keeps `connected_since` in the diagnostics, so the socket counters were the only evidence.
 
 ## Open questions
 
