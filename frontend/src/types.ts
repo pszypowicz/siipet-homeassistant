@@ -27,6 +27,8 @@ export interface Visit {
   duration: number;
   type: VisitType;
   cats: VisitCat[];
+  /** The area of the camera device, else its name. Null when the account has one camera,
+   * or when the camera left the account. */
   camera: string | null;
   note: string;
   abnormal: boolean;
