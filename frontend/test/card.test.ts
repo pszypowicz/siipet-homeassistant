@@ -2140,6 +2140,31 @@ describe("locale", () => {
     expect(text(find(card, ".error"))).toBe("Wybierz datę od 2026-08-28 do 2026-09-27.");
   });
 
+  it("asks again for the exception texts when the first answer lacks them", async () => {
+    const fake = fakeHass({
+      fail: {
+        "siipet/day": {
+          code: "service_validation_error",
+          message: "Choose a date from 2026-08-28 to 2026-09-27",
+          translation_domain: "siipet",
+          translation_key: "date_out_of_range",
+          translation_placeholders: { first: "2026-08-28", last: "2026-09-27" },
+        },
+      },
+    });
+    fake.hass = withLocale(fake.hass, { language: "pl" });
+    // Home Assistant's early answer to a second request for the same
+    // translations, while the first load is still out.
+    fake.loadBackendTranslation.mockImplementationOnce(async () => () => "");
+    const card = await mount(fake);
+    expect(text(find(card, ".error"))).toBe("Choose a date from 2026-08-28 to 2026-09-27");
+
+    card.hass = withState(card.hass!, "sensor.outside", "13");
+    await settle(card);
+    expect(fake.loadBackendTranslation).toHaveBeenCalledTimes(2);
+    expect(text(find(card, ".error"))).toBe("Wybierz datę od 2026-08-28 do 2026-09-27.");
+  });
+
   it("loads the exception texts once per language", async () => {
     const fake = fakeHass();
     const card = await mount(fake);

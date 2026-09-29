@@ -65,6 +65,8 @@ const CALENDAR_MONTHS = 12;
 const LINK_PARAM = "siipet_visit";
 // A save or a delete in one card fires this on `window`, so the other cards read again.
 const CHANGED_EVENT = "siipet-visits-changed";
+// Every loaded set of SiiPet exception texts has this key.
+const EXCEPTIONS_PROBE = "component.siipet.exceptions.not_loaded.message";
 
 interface ChangedDetail {
   source: SiiPetVisitsCard;
@@ -180,9 +182,13 @@ export class SiiPetVisitsCard extends LitElement {
   // The localization key of the last `hass`. A profile change replaces `hass`
   // and changes this key, so the card renders again with the new locale.
   private _l10nKey?: string;
-  // The language whose exception texts the card asked for. A failed load
-  // leaves the English messages until the language changes.
+  // The language whose exception texts the card has loaded, confirmed to hold
+  // the SiiPet keys. A failed load, or one that lacks the keys, leaves the
+  // English messages until a later `hass` update asks again.
   private _exceptionsFor?: string;
+  // The language of the exception load in flight, so one card never starts a
+  // second load for the same language while the first is still out.
+  private _exceptionsLoading?: string;
 
   constructor() {
     super();
@@ -305,9 +311,12 @@ export class SiiPetVisitsCard extends LitElement {
           next.locale.language === this._l10n.locale.language
             ? { ...next, exceptions: this._l10n.exceptions }
             : next;
-        this._loadExceptions();
         relocalized = true;
       }
+      // This returns early once the texts are loaded, so it is cheap on every
+      // update. A dropped early answer (see below) needs a later `hass` update
+      // to try again, not just a language change.
+      this._loadExceptions();
     }
     // A run can change state before its first await. Lit drops a change made
     // here when this returns false, so an update that starts a run renders.
@@ -335,18 +344,28 @@ export class SiiPetVisitsCard extends LitElement {
   private _loadExceptions(): void {
     const load = this.hass?.loadBackendTranslation;
     const language = this._l10n.locale.language;
-    if (!load || this._exceptionsFor === language) {
+    if (!load || this._exceptionsFor === language || this._exceptionsLoading === language) {
       return;
     }
-    this._exceptionsFor = language;
+    this._exceptionsLoading = language;
     load.call(this.hass, "exceptions", "siipet").then(
       (exceptions) => {
-        if (this._l10n.locale.language === language) {
-          this._l10n = { ...this._l10n, exceptions };
+        if (this._exceptionsLoading === language) {
+          this._exceptionsLoading = undefined;
         }
+        // Home Assistant answers a second caller while the first load runs, with
+        // texts that do not have the SiiPet exceptions yet, so the card asks
+        // again on its next `hass` update.
+        if (this._l10n.locale.language !== language || !exceptions(EXCEPTIONS_PROBE)) {
+          return;
+        }
+        this._exceptionsFor = language;
+        this._l10n = { ...this._l10n, exceptions };
       },
       () => {
-        // The errors keep their English messages.
+        if (this._exceptionsLoading === language) {
+          this._exceptionsLoading = undefined;
+        }
       },
     );
   }

@@ -158,23 +158,33 @@ export function fakeHass(overrides: Partial<FakeResults> = {}, admin = true): Fa
     throw new Error(`unexpected ${type}`);
   });
   const callService = vi.fn().mockResolvedValue(undefined);
-  // Polish texts for two SiiPet exceptions, as Home Assistant loads them for a
-  // Polish user. The card calls the loader with its `hass` as `this`. Other
-  // languages get no texts, so the tests keep the English messages of the errors.
+  // SiiPet exception texts by language, as Home Assistant loads them. The card
+  // calls the loader with its `hass` as `this`, so the fake answers by that
+  // language, like Home Assistant does. A key outside the three below gives "".
+  const EXCEPTION_TEXTS: Record<
+    string,
+    Record<string, (values?: Record<string, unknown>) => string>
+  > = {
+    pl: {
+      "component.siipet.exceptions.not_loaded.message": () =>
+        "SiiPet nie jest załadowany. Sprawdź integrację SiiPet.",
+      "component.siipet.exceptions.date_out_of_range.message": (values) =>
+        `Wybierz datę od ${values?.first} do ${values?.last}.`,
+      "component.siipet.exceptions.edit_partial.message": (values) =>
+        `SiiPet mógł nie zastosować całej zmiany wizyty ${values?.event_id}: ${values?.error}. Sprawdź wizytę, a potem wywołaj akcję ponownie z typem ${values?.type}.`,
+    },
+    en: {
+      "component.siipet.exceptions.not_loaded.message": () =>
+        "SiiPet is not loaded. Check the SiiPet integration.",
+      "component.siipet.exceptions.date_out_of_range.message": (values) =>
+        `Choose a date from ${values?.first} to ${values?.last}.`,
+      "component.siipet.exceptions.edit_partial.message": (values) =>
+        `SiiPet may not have applied the whole change to visit ${values?.event_id}: ${values?.error}. Check the visit, then call the action again with type ${values?.type}.`,
+    },
+  };
   const loadBackendTranslation = vi.fn(async function (this: HomeAssistant | undefined) {
-    const polish = this?.language === "pl";
-    return (key: string, values?: Record<string, unknown>) => {
-      if (!polish) {
-        return "";
-      }
-      switch (key) {
-        case "component.siipet.exceptions.date_out_of_range.message":
-          return `Wybierz datę od ${values?.first} do ${values?.last}.`;
-        case "component.siipet.exceptions.edit_partial.message":
-          return `SiiPet mógł nie zastosować całej zmiany wizyty ${values?.event_id}: ${values?.error}. Sprawdź wizytę, a potem wywołaj akcję ponownie z typem ${values?.type}.`;
-      }
-      return "";
-    };
+    const table = EXCEPTION_TEXTS[this?.language === "pl" ? "pl" : "en"];
+    return (key: string, values?: Record<string, unknown>) => table[key]?.(values) ?? "";
   });
   const hass = {
     states: {
