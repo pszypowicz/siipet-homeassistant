@@ -2093,4 +2093,57 @@ describe("locale", () => {
     expect(text(find(card, ".date"))).toBe("niedz., 27 wrz");
     expect(sent(fake)).toHaveLength(calls);
   });
+
+  it("shows the day view in Polish", async () => {
+    const fake = fakeHass();
+    fake.hass = withLocale(fake.hass, { language: "pl" });
+    const card = await mount(fake);
+    expect(text(find(card, '.header [slot="secondary"]'))).toBe(
+      "niedz., 27 wrz · 1 wizyta · 1 kupa · 1 nieprawidłowa",
+    );
+    const poop = findAll(card, ".visit")[0];
+    expect(text(poop.querySelector('[slot="secondary"]'))).toContain("Kupa · 57 s");
+    expect(find(card, ".date")?.label).toBe("Wybierz dzień");
+  });
+
+  it("shows an empty day and the queue in Polish", async () => {
+    const summary = { visits: 0, pee: 0, poop: 0, abnormal: 0 };
+    const empty = fakeHass({ day: { summary, visits: [] } });
+    empty.hass = withLocale(empty.hass, { language: "pl" });
+    expect(text(find(await mount(empty), ".empty"))).toBe("Brak wizyt tego dnia.");
+    document.body.replaceChildren();
+
+    const queue = fakeHass({
+      cats: catsResult({ unknown: { device_id: "dev-unknown", waiting: 1 } }),
+    });
+    queue.hass = withLocale(queue.hass, { language: "pl" });
+    const card = await mount(queue, { cat: "dev-unknown" });
+    expect(text(find(card, '.header [slot="primary"]'))).toBe("Nieznany");
+    expect(text(find(card, '.header [slot="secondary"]'))).toBe("1 wizyta do przypisania");
+  });
+
+  describe("with a Polish page", () => {
+    afterEach(() => {
+      document.documentElement.lang = "";
+    });
+
+    it("names the card, the form, and the config errors in Polish", () => {
+      document.documentElement.lang = "pl";
+      const entries = (window as { customCards?: { type: string; name: string }[] }).customCards;
+      expect(entries?.find((entry) => entry.type === "siipet-visits-card")?.name).toBe(
+        "Wizyty SiiPet",
+      );
+      const form = cardClass().getConfigForm();
+      expect(form.computeLabel({ name: "cat" })).toBe("Kot");
+      expect(form.computeHelper({ name: "hide_cat_picker" })).toBe(
+        "Karta zostaje przy jednym kocie.",
+      );
+      const card = document.createElement("siipet-visits-card") as HTMLElement & {
+        setConfig(config: unknown): void;
+      };
+      expect(() => card.setConfig({ type: "custom:siipet-visits-card", cat: 3 })).toThrow(
+        "Opcja cat musi być identyfikatorem urządzenia.",
+      );
+    });
+  });
 });

@@ -131,14 +131,13 @@ export function shiftMonth(month: string, delta: number): string {
 }
 
 export interface TypeStyle {
-  label: string;
   icon: string;
   color: string;
 }
 
 export const TYPE_STYLE: Record<VisitType, TypeStyle> = {
-  poop: { label: "Poop", icon: "mdi:emoticon-poop", color: "var(--brown-color)" },
-  pee: { label: "Pee", icon: "mdi:water", color: "var(--amber-color)" },
-  lingering: { label: "Lingering", icon: "mdi:paw", color: "var(--grey-color)" },
-  unknown: { label: "Unknown", icon: "mdi:help", color: "var(--disabled-color)" },
+  poop: { icon: "mdi:emoticon-poop", color: "var(--brown-color)" },
+  pee: { icon: "mdi:water", color: "var(--amber-color)" },
+  lingering: { icon: "mdi:paw", color: "var(--grey-color)" },
+  unknown: { icon: "mdi:help", color: "var(--disabled-color)" },
 };

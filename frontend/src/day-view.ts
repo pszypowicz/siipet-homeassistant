@@ -16,21 +16,18 @@ import type { Localization } from "./localize";
 import { optionRow } from "./option-row";
 import type { CalendarResult, CatsResult, DaySummary, Visit } from "./types";
 
-function count(value: number, one: string, many: string): string {
-  return `${value} ${value === 1 ? one : many}`;
-}
-
 /** "Sun, Sep 27 · 3 visits · 1 poop · 2 pee · 1 abnormal", without the counts that are 0. */
 export function daySummaryText(date: string, summary: DaySummary, l10n: Localization): string {
-  const parts = [dayLabel(date, l10n.locale), count(summary.visits, "visit", "visits")];
-  if (summary.poop > 0) parts.push(`${summary.poop} poop`);
-  if (summary.pee > 0) parts.push(`${summary.pee} pee`);
-  if (summary.abnormal > 0) parts.push(`${summary.abnormal} abnormal`);
+  const text = l10n.text;
+  const parts = [dayLabel(date, l10n.locale), text.visits(summary.visits)];
+  if (summary.poop > 0) parts.push(text.poop(summary.poop));
+  if (summary.pee > 0) parts.push(text.pee(summary.pee));
+  if (summary.abnormal > 0) parts.push(text.abnormal(summary.abnormal));
   return parts.join(" · ");
 }
 
-export function queueSummaryText(waiting: number): string {
-  return `${count(waiting, "visit", "visits")} waiting`;
+export function queueSummaryText(waiting: number, l10n: Localization): string {
+  return l10n.text.waiting(waiting);
 }
 
 export interface HeaderOptions {
@@ -69,19 +66,23 @@ export function renderDateBar(options: DateBarOptions): TemplateResult {
     <ha-control-button-group class="date-bar">
       <ha-control-button
         class="arrow prev-day"
-        .label=${"Previous day"}
+        .label=${options.l10n.text.previousDay}
         .disabled=${!options.canGoBack}
         @click=${() => options.onShift(-1)}
       >
         <ha-icon icon="mdi:chevron-left"></ha-icon>
       </ha-control-button>
-      <ha-control-button class="date" .label=${"Pick a day"} @click=${options.onToggle}>
+      <ha-control-button
+        class="date"
+        .label=${options.l10n.text.pickDay}
+        @click=${options.onToggle}
+      >
         <span>${dayLabel(options.date, options.l10n.locale)}</span>
         ${options.marked ? html`<span class="dot"></span>` : nothing}
       </ha-control-button>
       <ha-control-button
         class="arrow next-day"
-        .label=${"Next day"}
+        .label=${options.l10n.text.nextDay}
         .disabled=${!options.canGoForward}
         @click=${() => options.onShift(1)}
       >
@@ -114,7 +115,7 @@ export function renderCalendar(options: CalendarOptions): TemplateResult {
       <ha-control-button-group class="month-bar">
         <ha-control-button
           class="arrow prev-month"
-          .label=${"Previous month"}
+          .label=${options.l10n.text.previousMonth}
           .disabled=${!options.canGoBack}
           @click=${() => options.onShiftMonth(-1)}
         >
@@ -123,7 +124,7 @@ export function renderCalendar(options: CalendarOptions): TemplateResult {
         <div class="month-name">${monthLabel(options.month, options.l10n.locale)}</div>
         <ha-control-button
           class="arrow next-month"
-          .label=${"Next month"}
+          .label=${options.l10n.text.nextMonth}
           .disabled=${!options.canGoForward}
           @click=${() => options.onShiftMonth(1)}
         >
@@ -161,6 +162,7 @@ export function renderCatStrip(
   selected: string,
   hidden: boolean,
   onSelect: (deviceId: string) => void,
+  l10n: Localization,
 ): TemplateResult | typeof nothing {
   if (hidden) {
     return nothing;
@@ -177,7 +179,7 @@ export function renderCatStrip(
     ),
   }));
   if (cats.unknown.waiting > 0) {
-    const unknownName = `Unknown (${cats.unknown.waiting})`;
+    const unknownName = l10n.text.unknownOption(cats.unknown.waiting);
     options.push({
       value: cats.unknown.device_id,
       ariaLabel: unknownName,
@@ -194,7 +196,7 @@ export function renderCatStrip(
       class="cats"
       .options=${options}
       .value=${selected}
-      .label=${"Cat"}
+      .label=${l10n.text.cat}
       @value-changed=${(ev: CustomEvent<{ value: string }>) => {
         ev.stopPropagation();
         onSelect(ev.detail.value);
@@ -212,13 +214,13 @@ function renderVisit(
   const style = TYPE_STYLE[visit.type];
   const time = timeLabel(visit.start, l10n.locale);
   const primary = withDay ? `${dayLabel(visit.start.slice(0, 10), l10n.locale)} ${time}` : time;
-  const secondary = `${style.label} · ${durationText(visit.duration)}`;
+  const secondary = `${l10n.text.types[visit.type]} · ${durationText(visit.duration)}`;
   // The camera comes last, so the row cuts it off before the memo icon.
   const camera = visit.camera ? ` · ${visit.camera}` : "";
   const memo = visit.note
     ? html`<ha-icon class="memo" icon="mdi:note-text-outline"></ha-icon>`
     : nothing;
-  const reason = visit.abnormal_reasons[0] ?? "Abnormal";
+  const reason = visit.abnormal_reasons[0] ?? l10n.text.abnormalChip;
   const chip = visit.abnormal
     ? html`<span slot="features-inline" class="chip">${reason}</span>`
     : nothing;
@@ -228,13 +230,13 @@ function renderVisit(
   const stool = visit.stool
     ? html`<div class="stool-row">
         <ha-icon icon="mdi:camera-outline"></ha-icon>
-        <span class="stool-label">Stool photo</span>
-        <img class="stool" src=${visit.stool} alt="Stool photo" loading="lazy" />
+        <span class="stool-label">${l10n.text.stoolPhoto}</span>
+        <img class="stool" src=${visit.stool} alt=${l10n.text.stoolPhoto} loading="lazy" />
       </div>`
     : nothing;
   const cameraOnly = visit.has_video
     ? nothing
-    : html`<span class="camera-only">On camera only</span>`;
+    : html`<span class="camera-only">${l10n.text.onCameraOnly}</span>`;
   return html`
     <ha-tile-container
       class="visit ${visit.type}"
@@ -271,7 +273,7 @@ export function renderTimeline(
     return nothing;
   }
   if (visits.length === 0) {
-    const text = withDay ? "No visits are waiting." : "No visits on this day.";
+    const text = withDay ? l10n.text.noVisitsWaiting : l10n.text.noVisitsOnDay;
     return html`<div class="message empty">${text}</div>`;
   }
   return html`<div class="timeline">

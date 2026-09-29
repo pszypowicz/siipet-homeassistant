@@ -27,7 +27,13 @@ import "./edit-view";
 import type { BusyDetail, CloseDetail } from "./edit-view";
 import { dayLabel, monthOf, shiftDay, shiftMonth, timeLabel } from "./format";
 import "./icons";
-import { localization, localizationKey, type Localization } from "./localize";
+import {
+  cardText,
+  localization,
+  localizationKey,
+  type Localization,
+  pageLanguage,
+} from "./localize";
 import { cardStyles } from "./styles";
 import { loadTileParts } from "./tile-parts";
 import type {
@@ -187,27 +193,33 @@ export class SiiPetVisitsCard extends LitElement {
         { name: "cat", selector: { device: { filter: { integration: "siipet", model: "Cat" } } } },
         { name: "hide_cat_picker", selector: { boolean: {} } },
       ],
-      computeLabel: (schema: { name: string }) =>
-        schema.name === "cat"
-          ? "Cat"
+      // The form passes no language, so the labels follow the language of the page.
+      computeLabel: (schema: { name: string }) => {
+        const text = cardText(pageLanguage());
+        return schema.name === "cat"
+          ? text.configCat
           : schema.name === "hide_cat_picker"
-            ? "Hide the cat picker"
-            : undefined,
-      computeHelper: (schema: { name: string }) =>
-        schema.name === "cat"
-          ? "Optional. Without a cat, the card starts with the first cat."
+            ? text.configHideCatPicker
+            : undefined;
+      },
+      computeHelper: (schema: { name: string }) => {
+        const text = cardText(pageLanguage());
+        return schema.name === "cat"
+          ? text.configCatHelper
           : schema.name === "hide_cat_picker"
-            ? "Keep the card on one cat."
-            : undefined,
+            ? text.configHideCatPickerHelper
+            : undefined;
+      },
     };
   }
 
   setConfig(config: CardConfig): void {
+    const text = cardText(pageLanguage());
     if (config.cat !== undefined && (typeof config.cat !== "string" || config.cat === "")) {
-      throw new Error("The cat option must be a device ID.");
+      throw new Error(text.configCatInvalid);
     }
     if (config.hide_cat_picker !== undefined && typeof config.hide_cat_picker !== "boolean") {
-      throw new Error("The hide_cat_picker option must be true or false.");
+      throw new Error(text.configHideCatPickerInvalid);
     }
     const restart =
       this._started &&
@@ -902,7 +914,7 @@ export class SiiPetVisitsCard extends LitElement {
       return html`
         <ha-card>
           <div class="message alone missing">
-            The card cannot start. The Home Assistant frontend has no ${this._missing.join(", ")}.
+            ${this._l10n.text.missingParts(this._missing.join(", "))}
           </div>
         </ha-card>
       `;
@@ -921,9 +933,7 @@ export class SiiPetVisitsCard extends LitElement {
   }
 
   private _renderNoCat(cats: CatsResult): TemplateResult {
-    const message = this._catGone(cats)
-      ? "The cat of this card is not in the SiiPet account."
-      : "The SiiPet account has no cats.";
+    const message = this._catGone(cats) ? this._l10n.text.catGone : this._l10n.text.noCats;
     return html`<div class="message alone">${message}</div>`;
   }
 
@@ -931,8 +941,7 @@ export class SiiPetVisitsCard extends LitElement {
     const day = dayLabel(cats.updated_at.slice(0, 10), this._l10n.locale);
     return html`
       <div class="notice">
-        SiiPet is not updating. Last update: ${day}
-        ${timeLabel(cats.updated_at, this._l10n.locale)}.
+        ${this._l10n.text.notUpdating(`${day} ${timeLabel(cats.updated_at, this._l10n.locale)}`)}
       </div>
     `;
   }
@@ -964,12 +973,18 @@ export class SiiPetVisitsCard extends LitElement {
   }
 
   private _renderView(cats: CatsResult, selected: string): TemplateResult {
-    const strip = renderCatStrip(cats, selected, this._fixed(), (cat) => this._selectCat(cat));
+    const strip = renderCatStrip(
+      cats,
+      selected,
+      this._fixed(),
+      (cat) => this._selectCat(cat),
+      this._l10n,
+    );
     if (this._isQueue()) {
       return renderHeader({
         icon: "mdi:help",
-        primary: "Unknown",
-        secondary: queueSummaryText(this._queue?.visits.length ?? cats.unknown.waiting),
+        primary: this._l10n.text.unknown,
+        secondary: queueSummaryText(this._queue?.visits.length ?? cats.unknown.waiting, this._l10n),
         features: html`${strip}`,
       });
     }
@@ -1032,10 +1047,15 @@ interface CustomCardEntry {
 const cardWindow = window as { customCards?: CustomCardEntry[] };
 cardWindow.customCards = cardWindow.customCards ?? [];
 if (!cardWindow.customCards.some((entry) => entry.type === "siipet-visits-card")) {
+  // Getters, so the picker shows the language of the page each time it opens.
   cardWindow.customCards.push({
     type: "siipet-visits-card",
-    name: "SiiPet visits",
-    description: "The litter box visits of each cat, day by day.",
+    get name() {
+      return cardText(pageLanguage()).pickerName;
+    },
+    get description() {
+      return cardText(pageLanguage()).pickerDescription;
+    },
     preview: true,
   });
 }

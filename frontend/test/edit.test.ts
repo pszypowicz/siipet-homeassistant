@@ -974,4 +974,25 @@ describe("locale", () => {
     expect(text(inEditor(editor, '.header [slot="primary"]'))).toBe("20:11 · Luna");
     expect(text(inEditor(editor, '.header [slot="secondary"]'))).toContain("niedz., 27 wrz");
   });
+
+  it("shows the editor in Polish", async () => {
+    const fake = fakeHass();
+    fake.hass = withLocale(fake.hass, { language: "pl" });
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+    expect(inEditor(editor, ".save")!.querySelector("span")?.textContent).toBe("Zapisz");
+    expect(inEditor(editor, ".delete")?.label).toBe("Usuń");
+    expect(inEditor(editor, ".memo-input")?.getAttribute("placeholder")).toBe("Notatka");
+
+    const showConfirmationDialog = stubConfirmationDialog(false);
+    inEditor(editor, ".delete")!.click();
+    await settle(card);
+    expect(showConfirmationDialog).toHaveBeenCalledWith(editor, {
+      title: "Usunąć tę wizytę?",
+      text: "SiiPet usunie wizytę i jej nagranie. Tego nie można cofnąć.",
+      confirmText: "Usuń",
+      dismissText: "Anuluj",
+      destructive: true,
+    });
+  });
 });

@@ -13,8 +13,6 @@ import type { Cat, HomeAssistant, Visit } from "./types";
 
 const MEMO_LENGTH = 200;
 const TYPES = ["pee", "poop", "lingering"] as const;
-const DELETE_TITLE = "Delete this visit?";
-const DELETE_TEXT = "SiiPet deletes the visit and its recording. You cannot undo this.";
 
 interface ConfirmationDialogParams {
   title?: string;
@@ -279,7 +277,7 @@ export class SiiPetVisitEditor extends LitElement {
     this._baseline = this.visit;
     this._form = initialForm(this.visit);
     this._video = undefined;
-    this._videoNote = this.visit.has_video ? undefined : "Recording is on the camera only.";
+    this._videoNote = this.visit.has_video ? undefined : this.l10n.text.recordingOnCamera;
     this._error = undefined;
     this._partialEdit = false;
     this._stoolDialog()?.close();
@@ -375,18 +373,19 @@ export class SiiPetVisitEditor extends LitElement {
   }
 
   private async _confirmDelete(): Promise<boolean> {
+    const text = this.l10n.text;
     const win = window as unknown as HelperWindow;
     const helpers = await win.loadCardHelpers?.();
     if (helpers?.showConfirmationDialog) {
       return helpers.showConfirmationDialog(this, {
-        title: DELETE_TITLE,
-        text: DELETE_TEXT,
-        confirmText: "Delete",
-        dismissText: "Cancel",
+        title: text.deleteTitle,
+        text: text.deleteText,
+        confirmText: text.delete,
+        dismissText: text.cancel,
         destructive: true,
       });
     }
-    return win.confirm(`${DELETE_TITLE}\n${DELETE_TEXT}`);
+    return win.confirm(`${text.deleteTitle}\n${text.deleteText}`);
   }
 
   private async _delete(): Promise<void> {
@@ -413,7 +412,7 @@ export class SiiPetVisitEditor extends LitElement {
       return nothing;
     }
     const check = changedFields(baseline, form, { sendType: this._partialEdit });
-    const hint = check.reason === "type_required" ? "Pick a type as well." : undefined;
+    const hint = check.reason === "type_required" ? this.l10n.text.pickType : undefined;
     return html`
       ${this._renderHeader(baseline)}
       <div class="editor">
@@ -428,11 +427,10 @@ export class SiiPetVisitEditor extends LitElement {
   }
 
   private _renderHeader(visit: Visit): TemplateResult {
-    const style = TYPE_STYLE[visit.type];
-    const names = visit.cats.map((cat) => cat.name).join(", ") || "Unknown";
+    const names = visit.cats.map((cat) => cat.name).join(", ") || this.l10n.text.unknown;
     const secondary = [
       dayLabel(visit.start.slice(0, 10), this.l10n.locale),
-      style.label,
+      this.l10n.text.types[visit.type],
       durationText(visit.duration),
       ...visit.abnormal_reasons.slice(0, 1),
       // Last, so a long camera name cuts off before the reason.
@@ -452,10 +450,10 @@ export class SiiPetVisitEditor extends LitElement {
   private _renderType(form: EditForm): TemplateResult {
     const options = TYPES.map((type) => ({
       value: type,
-      ariaLabel: TYPE_STYLE[type].label,
+      ariaLabel: this.l10n.text.types[type],
       icon: optionRow(
         html`<ha-icon icon=${TYPE_STYLE[type].icon}></ha-icon>`,
-        TYPE_STYLE[type].label,
+        this.l10n.text.types[type],
       ),
     }));
     return html`
@@ -463,7 +461,7 @@ export class SiiPetVisitEditor extends LitElement {
         class="type"
         .options=${options}
         .value=${form.type ?? undefined}
-        .label=${"Type"}
+        .label=${this.l10n.text.type}
         .disabled=${this._busy}
         @value-changed=${(ev: CustomEvent<{ value: EditForm["type"] }>) => {
           // As in the tile features, the event does not leave the editor.
@@ -484,8 +482,8 @@ export class SiiPetVisitEditor extends LitElement {
           class="memo-input"
           type="text"
           maxlength=${MEMO_LENGTH}
-          placeholder="Memo"
-          aria-label="Memo"
+          placeholder=${this.l10n.text.memo}
+          aria-label=${this.l10n.text.memo}
           .value=${form.note}
           .disabled=${this._busy}
           @input=${(ev: Event) => {
@@ -505,11 +503,11 @@ export class SiiPetVisitEditor extends LitElement {
       ? html`
           <ha-control-button
             class="delete"
-            .label=${"Delete"}
+            .label=${this.l10n.text.delete}
             .disabled=${this._busy}
             @click=${() => this._delete()}
           >
-            <span>Delete</span>
+            <span>${this.l10n.text.delete}</span>
           </ha-control-button>
         `
       : nothing;
@@ -517,11 +515,11 @@ export class SiiPetVisitEditor extends LitElement {
       <ha-control-button-group class="actions">
         <ha-control-button
           class="save"
-          .label=${"Save"}
+          .label=${this.l10n.text.save}
           .disabled=${data === null || this._busy}
           @click=${() => data && this._save(data)}
         >
-          <span>Save</span>
+          <span>${this.l10n.text.save}</span>
         </ha-control-button>
         ${remove}
       </ha-control-button-group>
@@ -541,8 +539,7 @@ export class SiiPetVisitEditor extends LitElement {
         poster=${cover ?? nothing}
         src=${this._video ?? nothing}
         @error=${() => {
-          this._videoNote =
-            "This browser cannot play the recording. Safari and the Home Assistant app can.";
+          this._videoNote = this.l10n.text.cannotPlay;
         }}
       ></video>
     `;
@@ -570,10 +567,10 @@ export class SiiPetVisitEditor extends LitElement {
       >
         <ha-icon icon="mdi:camera-outline"></ha-icon>
         <div class="stool-text">
-          <div class="stool-label">Stool photo</div>
+          <div class="stool-label">${this.l10n.text.stoolPhoto}</div>
           ${reasons}
         </div>
-        <img class="stool-photo" src=${stool} alt="Stool photo" />
+        <img class="stool-photo" src=${stool} alt=${this.l10n.text.stoolPhoto} />
       </div>
     `;
   }
@@ -589,10 +586,14 @@ export class SiiPetVisitEditor extends LitElement {
       >
         ${
           this._stoolDialogSrc
-            ? html`<img class="stool-dialog-photo" src=${this._stoolDialogSrc} alt="Stool photo" />`
+            ? html`<img
+                class="stool-dialog-photo"
+                src=${this._stoolDialogSrc}
+                alt=${this.l10n.text.stoolPhoto}
+              />`
             : nothing
         }
-        <button class="stool-dialog-close" aria-label="Close">
+        <button class="stool-dialog-close" aria-label=${this.l10n.text.close}>
           <ha-icon icon="mdi:close"></ha-icon>
         </button>
       </dialog>

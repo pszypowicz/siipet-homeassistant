@@ -92,9 +92,8 @@ describe("format", () => {
     expect(shiftMonth("2026-12", 1)).toBe("2027-01");
   });
 
-  it("gives each visit type a label, an icon, and a theme color", () => {
+  it("gives each visit type an icon and a theme color", () => {
     expect(TYPE_STYLE.poop).toEqual({
-      label: "Poop",
       icon: "mdi:emoticon-poop",
       color: "var(--brown-color)",
     });
