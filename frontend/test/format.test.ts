@@ -33,6 +33,10 @@ describe("format", () => {
     expect(monthLabel("2026-09", PL)).toBe("wrzesień 2026");
   });
 
+  it("keeps the month on the Gregorian calendar, even where the locale defaults elsewhere", () => {
+    expect(monthLabel("2026-09", { language: "fa" })).toBe("سپتامبر ۲۰۲۶");
+  });
+
   it("takes the time from the server string without a time zone change", () => {
     expect(timeLabel("2026-09-27T20:11:03+02:00", EN)).toBe("20:11");
     expect(timeLabel("2026-09-26T07:46:59-07:00", EN)).toBe("07:46");
@@ -47,6 +51,10 @@ describe("format", () => {
       }),
     ).toBe("8:11 PM");
     expect(timeLabel("2026-09-27T20:11:03+02:00", PL)).toBe("20:11");
+  });
+
+  it("does not pad a single-digit hour in the 24-hour format", () => {
+    expect(timeLabel("2026-09-27T07:46:00+02:00", PL)).toBe("7:46");
   });
 
   it("finds the first weekday of the calendar", () => {

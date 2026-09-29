@@ -273,8 +273,9 @@ export class SiiPetVisitsCard extends LitElement {
   }
 
   // Home Assistant sets `hass` on every state change in the house, and the card
-  // renders nothing from it. An update that changes only `hass` does the hass
-  // work here and skips the render. The editor keeps the `hass` of its last
+  // renders only the locale settings of the user from it. An update that
+  // changes only `hass` does the hass work here and skips the render unless
+  // the locale settings changed. The editor keeps the `hass` of its last
   // render, which is enough for its calls.
   protected shouldUpdate(changed: PropertyValues<this>): boolean {
     let relocalized = false;

@@ -25,10 +25,14 @@ function isoDay(value: Date): string {
   return value.toISOString().slice(0, 10);
 }
 
-/** Format a UTC-anchored value, so the browser time zone does not move it. */
+/** Format a UTC-anchored value, so the browser time zone does not move it. The
+ * month grid and its navigation stay on the Gregorian calendar, so a locale
+ * whose default calendar differs (for example Persian) still names the same
+ * days that `monthCells` and the shift functions compute. */
 function format(locale: FrontendLocale, options: Intl.DateTimeFormatOptions, value: Date): string {
   return new Intl.DateTimeFormat(locale.language, {
     ...options,
+    calendar: "gregory",
     timeZone: "UTC",
   }).format(value);
 }
@@ -59,7 +63,7 @@ export function timeLabel(start: string, locale: FrontendLocale): string {
   return format(
     locale,
     {
-      hour: amPm ? "numeric" : "2-digit",
+      hour: "numeric",
       minute: "2-digit",
       hourCycle: amPm ? "h12" : "h23",
     },
