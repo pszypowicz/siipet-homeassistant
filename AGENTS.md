@@ -76,6 +76,9 @@ frontend/              source of the dashboard card: TypeScript, Lit, esbuild, v
   It writes only through `siipet.update_visit` and `siipet.delete_visit`.
 - The card reuses internal tile parts of the Home Assistant frontend. `frontend/src/tile-parts.ts` lists them.
   If a part is missing, the card names it and shows nothing else.
+- The card defines its elements with `defineElement` in `frontend/src/define.ts`, after the app defines `home-assistant`.
+  The card loads in parallel with the app bundle, and the app does not see an element defined before its registry polyfill.
+  On a page without a `home-assistant` element, such as the Cast receiver or a card test, it defines them at once.
 - Only `api/shadow_link.py` talks to AWS IoT. It reads the shadows and never writes them.
 - The device state entities read `SiiPetDeviceCoordinator.data`, and the camera list of the main coordinator for availability. The shadow link runs as a background task, so setup never waits for it.
 

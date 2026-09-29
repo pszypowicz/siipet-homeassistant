@@ -22,6 +22,7 @@ import {
   renderHeader,
   renderTimeline,
 } from "./day-view";
+import { defineElement } from "./define";
 import "./edit-view";
 import type { BusyDetail, CloseDetail } from "./edit-view";
 import { dayLabel, monthOf, shiftDay, shiftMonth, timeOf } from "./format";
@@ -996,9 +997,7 @@ export class SiiPetVisitsCard extends LitElement {
   }
 }
 
-if (!customElements.get("siipet-visits-card")) {
-  customElements.define("siipet-visits-card", SiiPetVisitsCard);
-}
+void defineElement("siipet-visits-card", SiiPetVisitsCard);
 
 interface CustomCardEntry {
   type: string;
