@@ -1,5 +1,10 @@
 # siipet-homeassistant
 
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
+[![GitHub release](https://img.shields.io/github/v/release/pszypowicz/siipet-homeassistant)](https://github.com/pszypowicz/siipet-homeassistant/releases)
+[![Validate](https://github.com/pszypowicz/siipet-homeassistant/actions/workflows/validate.yml/badge.svg)](https://github.com/pszypowicz/siipet-homeassistant/actions/workflows/validate.yml)
+[![License](https://img.shields.io/github/license/pszypowicz/siipet-homeassistant)](LICENSE)
+
 A Home Assistant custom integration for [SiiPet](https://siipet.com) LitterLens litter box cameras.
 
 ## Status
@@ -15,12 +20,19 @@ Its actions list, edit, and delete visits. A dashboard card shows the visits of 
 
 ## Install
 
-Option 1: Install with HACS.
+Option 1: Install with HACS. HACS then shows each new release as an update.
 
-1. In Home Assistant, go to **HACS > Integrations**, open the three-dot menu, and choose **Custom repositories**.
-2. Add `https://github.com/pszypowicz/siipet-homeassistant` with category **Integration**.
-3. Find **SiiPet** in HACS and install it.
-4. Restart Home Assistant.
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=pszypowicz&repository=siipet-homeassistant&category=integration)
+
+1. Select the button above. If HACS asks to add the repository, choose **Add**.
+2. Choose **Download** and download the latest version.
+3. Restart Home Assistant.
+
+Without the button, open **HACS**, open the three-dot menu, and choose **Custom repositories**.
+Add `https://github.com/pszypowicz/siipet-homeassistant` as an **Integration**, then find **SiiPet** in HACS.
+
+If you copied the files by hand before, install with HACS in the same way.
+HACS replaces the files in `/config/custom_components/siipet/`. The SiiPet entry, its devices, and its entities stay as they are.
 
 Option 2: Copy the files by hand.
 
@@ -29,7 +41,9 @@ Option 2: Copy the files by hand.
 
 Then, for either option:
 
-1. Go to **Settings > Devices & Services > Add Integration** and search for **SiiPet**.
+[![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=siipet)
+
+1. Select the button above, or go to **Settings > Devices & Services > Add Integration** and search for **SiiPet**.
 2. Enter the email address of your SiiPet account.
 3. Enter the code that SiiPet sends to that address.
 
@@ -297,3 +311,20 @@ actions:
 ## License
 
 MIT.
+
+## Disclaimer
+
+This project is not affiliated with SiiPet, and SiiPet does not endorse or support it.
+SiiPet, LitterLens, and the other product names in this README belong to their owners.
+
+The integration uses the cloud API of the SiiPet app. SiiPet does not publish this API, and it can change the API at any time.
+A change can stop the integration without warning.
+
+I maintain this integration on a best-effort basis. I give no warranty and no promise of support or fixes.
+You use it at your own risk. I am not responsible for lost or changed data, for problems with your SiiPet account, or for other damage.
+The edit and delete actions change your data in the SiiPet cloud, and you cannot undo a delete.
+
+The visit data and the abnormal marks come from SiiPet. They do not replace the advice of a veterinarian.
+If you are concerned about the health of your cat, ask a veterinarian.
+
+The [MIT license](LICENSE) gives the full terms.
