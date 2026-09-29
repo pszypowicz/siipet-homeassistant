@@ -203,8 +203,8 @@ actions:
 
 The integration and the card are in English and Polish.
 
-- The sign-in, the options, the repairs, the actions, and the card follow the language of each Home Assistant user.
-- Entity names and entity states follow the server language in **Settings > System > General**. After you change it, restart Home Assistant. The entity IDs stay the same.
+- The sign-in, the options, the repairs, the actions, the entity states, and the card follow the language of each Home Assistant user.
+- Entity names follow the server language in **Settings > System > General**. After you change it, restart Home Assistant. The entity IDs stay the same, and new entities on a Polish server get entity IDs from the Polish names.
 - The card shows dates and times with the settings of your user profile, for example the 12-hour clock and the first day of the week.
 - SiiPet sends the abnormal reasons in English. The media browser titles and the name of the Unknown cat device are also in English.
 

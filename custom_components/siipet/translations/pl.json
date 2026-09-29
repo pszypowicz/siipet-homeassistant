@@ -41,7 +41,7 @@
         "title": "Lokalne multimedia",
         "description": "Home Assistant może przechowywać kopię nagrań i zdjęć SiiPet z ostatnich dni i odtwarzać je z tej kopii. Ustaw 0, aby wyłączyć kopię i ją usunąć.",
         "data": {
-          "media_days": "Liczba dni"
+          "media_days": "Liczba dni przechowywania"
         },
         "data_description": {
           "media_days": "Od 0 do 30. Nagranie zajmuje średnio około 30 MB. Kopia jest w folderze .siipet w folderze multimediów."
@@ -51,7 +51,7 @@
   },
   "issues": {
     "media_disk_full": {
-      "title": "SiiPet wstrzymał lokalną kopię multimediów",
+      "title": "SiiPet wstrzymał kopiowanie multimediów",
       "description": "Na dysku z folderem multimediów jest mniej niż 1 GB wolnego miejsca, więc SiiPet przestał kopiować nagrania i zdjęcia. Nagrania i zdjęcia, których jeszcze nie skopiowano, są odtwarzane z chmury SiiPet, dopóki miejsce się nie zwolni. Zwolnij trochę miejsca albo ustaw mniej dni w opcjach SiiPet."
     },
     "media_folder_unavailable": {
@@ -196,8 +196,8 @@
   },
   "services": {
     "list_visits": {
-      "name": "Lista wizyt",
-      "description": "Zwraca wizyty w kuwecie z maksymalnie 7 dni, od najnowszej. Odpowiedź nie zawiera linków.",
+      "name": "Pobierz wizyty",
+      "description": "Zwraca wizyty w kuwecie z okresu do 7 dni, od najnowszej. Odpowiedź nie zawiera linków.",
       "fields": {
         "date": {
           "name": "Data",
@@ -219,7 +219,7 @@
       "fields": {
         "event_id": {
           "name": "ID zdarzenia",
-          "description": "event_id wizyty z odpowiedzi akcji Lista wizyt albo ze zdarzenia Wizyta."
+          "description": "event_id wizyty z odpowiedzi akcji Pobierz wizyty albo ze zdarzenia Wizyta."
         },
         "cats": {
           "name": "Koty",
@@ -241,7 +241,7 @@
       "fields": {
         "event_id": {
           "name": "ID zdarzenia",
-          "description": "event_id wizyty z odpowiedzi akcji Lista wizyt albo ze zdarzenia Wizyta."
+          "description": "event_id wizyty z odpowiedzi akcji Pobierz wizyty albo ze zdarzenia Wizyta."
         }
       }
     }

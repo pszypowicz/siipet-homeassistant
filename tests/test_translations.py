@@ -51,7 +51,7 @@ def test_polish_has_every_key() -> None:
 
 
 def test_polish_keeps_the_placeholders() -> None:
-    """Home Assistant drops a translated string with other placeholders."""
+    """Each Polish string has the placeholders of its English string."""
     english = _load("en")
     polish = _load("pl")
     for key, text in english.items():
@@ -62,7 +62,7 @@ def test_polish_keeps_the_placeholders() -> None:
 
 @pytest.mark.parametrize("language", ["en", "pl"])
 def test_no_references(language: str) -> None:
-    """A custom integration shows a key reference as literal text."""
+    """No string holds a [%key: reference."""
     for key, text in _load(language).items():
         assert "[%key:" not in text, key
 

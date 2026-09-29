@@ -42,7 +42,7 @@ custom_components/siipet/
   views.py             authenticated views: images, and recordings from the local media copy
   card.py              serving of the card file, with a content version in its URL
   frontend/            siipet-visits-card.js, the card bundle built from frontend/ at the repo root
-  translations/         en.json and pl.json, with the same keys and placeholders
+  translations/        en.json and pl.json, with the same keys and placeholders
   icons.json           icons of the device state entities
   brand/               icon.png and icon@2x.png, loaded by Home Assistant 2026.3 and later
 tests/
@@ -110,7 +110,7 @@ Read `docs/api.md` before you change `api/`. These points cause most mistakes:
   and hassfest does not catch them.
 - An entity whose name is the name of its device class has no `name` in the translations.
   Home Assistant then gives the name in every language.
-- Entity names and states follow the server language. The config flow, the options, the actions, the repairs,
+- Entity names follow the server language. Entity states, the config flow, the options, the actions, the repairs,
   and the errors follow the language of each user.
 - The card texts are in `frontend/src/localize.ts`. The Polish table has the type `CardText`,
   so a missing text fails the type check.
