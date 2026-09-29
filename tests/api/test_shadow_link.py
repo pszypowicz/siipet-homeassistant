@@ -519,8 +519,18 @@ async def test_failed_callback_logs_one_warning_per_camera(
         def fail_always(_sn: str) -> None:
             raise RuntimeError("callback failed")
 
+        def logged_again(name: str) -> bool:
+            return any(
+                r.levelno == logging.DEBUG
+                and name in r.getMessage()
+                and "RuntimeError" in r.getMessage()
+                for r in caplog.records
+            )
+
         running.recorder.hook = fail_always
-        await _until(lambda: len(running.broker.gets) >= 8)
+        # The broker counts a get before the link handles its reply, so the test
+        # waits for the records that it checks.
+        await _until(lambda: logged_again("Bathroom") and logged_again("Hallway"))
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 2
     for name in ("Bathroom", "Hallway"):
