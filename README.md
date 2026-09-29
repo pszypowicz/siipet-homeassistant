@@ -31,9 +31,6 @@ Option 1: Install with HACS. HACS then shows each new release as an update.
 Without the button, open **HACS**, open the three-dot menu, and choose **Custom repositories**.
 Add `https://github.com/pszypowicz/siipet-homeassistant` as an **Integration**, then find **SiiPet** in HACS.
 
-If you copied the files by hand before, install with HACS in the same way.
-HACS replaces the files in `/config/custom_components/siipet/`. The SiiPet entry, its devices, and its entities stay as they are.
-
 Option 2: Copy the files by hand.
 
 1. Copy `custom_components/siipet/` from this repo into your Home Assistant config, so that the path is `/config/custom_components/siipet/`.
@@ -46,8 +43,6 @@ Then, for either option:
 1. Select the button above, or go to **Settings > Devices & Services > Add Integration** and search for **SiiPet**.
 2. Enter the email address of your SiiPet account.
 3. Enter the code that SiiPet sends to that address.
-
-If you added SiiPet 0.0.1 before, remove that entry and add the integration again.
 
 The session renews automatically. If SiiPet ends the session, Home Assistant asks you to sign in again with an email code.
 
