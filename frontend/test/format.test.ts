@@ -3,27 +3,71 @@ import { describe, expect, it } from "vitest";
 import {
   dayLabel,
   durationText,
+  firstWeekday,
   monthLabel,
   monthOf,
   shiftDay,
   shiftMonth,
-  timeOf,
+  timeLabel,
   TYPE_STYLE,
+  weekdayNames,
 } from "../src/format";
 
+const EN = { language: "en", time_format: "24", first_weekday: "monday" };
+const PL = {
+  language: "pl",
+  time_format: "language",
+  first_weekday: "language",
+};
+
 describe("format", () => {
-  it("labels a day in short English", () => {
-    expect(dayLabel("2026-09-27")).toBe("Sun 27 Sep");
-    expect(dayLabel("2026-01-01")).toBe("Thu 1 Jan");
+  it("labels a day like the Home Assistant date formats", () => {
+    expect(dayLabel("2026-09-27", EN)).toBe("Sun, Sep 27");
+    expect(dayLabel("2026-01-01", EN)).toBe("Thu, Jan 1");
+    expect(dayLabel("2026-09-27", PL)).toBe("niedz., 27 wrz");
+    expect(dayLabel("2026-09-27", { language: "en-GB" })).toBe("Sun 27 Sept");
   });
 
   it("labels a month", () => {
-    expect(monthLabel("2026-09")).toBe("September 2026");
+    expect(monthLabel("2026-09", EN)).toBe("September 2026");
+    expect(monthLabel("2026-09", PL)).toBe("wrzesień 2026");
   });
 
   it("takes the time from the server string without a time zone change", () => {
-    expect(timeOf("2026-09-27T20:11:03+02:00")).toBe("20:11");
-    expect(timeOf("2026-09-26T23:59:59-07:00")).toBe("23:59");
+    expect(timeLabel("2026-09-27T20:11:03+02:00", EN)).toBe("20:11");
+    expect(timeLabel("2026-09-26T07:46:59-07:00", EN)).toBe("07:46");
+  });
+
+  it("follows the 12-hour setting of the profile", () => {
+    expect(timeLabel("2026-09-27T20:11:03+02:00", { ...EN, time_format: "12" })).toBe("8:11 PM");
+    expect(
+      timeLabel("2026-09-27T20:11:03+02:00", {
+        ...EN,
+        time_format: "language",
+      }),
+    ).toBe("8:11 PM");
+    expect(timeLabel("2026-09-27T20:11:03+02:00", PL)).toBe("20:11");
+  });
+
+  it("finds the first weekday of the calendar", () => {
+    expect(firstWeekday({ ...EN, first_weekday: "sunday" })).toBe(0);
+    expect(firstWeekday(EN)).toBe(1);
+    expect(firstWeekday({ language: "en", first_weekday: "language" })).toBe(0);
+    expect(firstWeekday(PL)).toBe(1);
+    expect(firstWeekday({ language: "not a tag", first_weekday: "language" })).toBe(1);
+  });
+
+  it("names the weekdays in calendar order", () => {
+    expect(weekdayNames(PL)).toEqual(["pon.", "wt.", "śr.", "czw.", "pt.", "sob.", "niedz."]);
+    expect(weekdayNames({ language: "en", first_weekday: "language" })).toEqual([
+      "Sun",
+      "Mon",
+      "Tue",
+      "Wed",
+      "Thu",
+      "Fri",
+      "Sat",
+    ]);
   });
 
   it("writes durations in seconds and minutes", () => {

@@ -5,7 +5,8 @@ import { css, html, LitElement, nothing, type PropertyValues, type TemplateResul
 import { deleteVisit, errorMessage, isPartialEdit, resolveVideo, updateVisit } from "./api";
 import { changedFields, type EditForm, initialForm } from "./changes";
 import { defineElement } from "./define";
-import { dayLabel, durationText, timeOf, TYPE_STYLE } from "./format";
+import { dayLabel, durationText, timeLabel, TYPE_STYLE } from "./format";
+import { localization, type Localization } from "./localize";
 import { optionRow } from "./option-row";
 import { cardStyles } from "./styles";
 import type { Cat, HomeAssistant, Visit } from "./types";
@@ -53,6 +54,7 @@ export class SiiPetVisitEditor extends LitElement {
     hass: { attribute: false },
     visit: { attribute: false },
     cats: { attribute: false },
+    l10n: { attribute: false },
     _baseline: { state: true },
     _form: { state: true },
     _video: { state: true },
@@ -215,6 +217,7 @@ export class SiiPetVisitEditor extends LitElement {
   declare hass?: HomeAssistant;
   declare visit?: Visit;
   declare cats: Cat[];
+  declare l10n: Localization;
   /** The visit this editor opened with. Save compares the form with this, not
    * with a refreshed `visit`, so a field changed elsewhere between opens does
    * not look like a change the form itself made. */
@@ -233,6 +236,7 @@ export class SiiPetVisitEditor extends LitElement {
   constructor() {
     super();
     this.cats = [];
+    this.l10n = localization(undefined);
     this._busy = false;
     this._partialEdit = false;
   }
@@ -427,7 +431,7 @@ export class SiiPetVisitEditor extends LitElement {
     const style = TYPE_STYLE[visit.type];
     const names = visit.cats.map((cat) => cat.name).join(", ") || "Unknown";
     const secondary = [
-      dayLabel(visit.start.slice(0, 10)),
+      dayLabel(visit.start.slice(0, 10), this.l10n.locale),
       style.label,
       durationText(visit.duration),
       ...visit.abnormal_reasons.slice(0, 1),
@@ -438,7 +442,7 @@ export class SiiPetVisitEditor extends LitElement {
       <ha-tile-container class="header" .interactive=${true} @action=${() => this._back()}>
         <ha-tile-icon slot="icon" .icon=${"mdi:arrow-left"}></ha-tile-icon>
         <ha-tile-info slot="info">
-          <span slot="primary">${timeOf(visit.start)} · ${names}</span>
+          <span slot="primary">${timeLabel(visit.start, this.l10n.locale)} · ${names}</span>
           <span slot="secondary">${secondary}</span>
         </ha-tile-info>
       </ha-tile-container>

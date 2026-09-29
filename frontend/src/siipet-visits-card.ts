@@ -25,8 +25,9 @@ import {
 import { defineElement } from "./define";
 import "./edit-view";
 import type { BusyDetail, CloseDetail } from "./edit-view";
-import { dayLabel, monthOf, shiftDay, shiftMonth, timeOf } from "./format";
+import { dayLabel, monthOf, shiftDay, shiftMonth, timeLabel } from "./format";
 import "./icons";
+import { localization, localizationKey, type Localization } from "./localize";
 import { cardStyles } from "./styles";
 import { loadTileParts } from "./tile-parts";
 import type {
@@ -117,6 +118,7 @@ export class SiiPetVisitsCard extends LitElement {
     _queue: { state: true },
     _error: { state: true },
     _editing: { state: true },
+    _l10n: { state: true },
   };
 
   static styles = cardStyles;
@@ -135,6 +137,7 @@ export class SiiPetVisitsCard extends LitElement {
   declare _queue?: QueueResult;
   declare _error?: string;
   declare _editing?: Visit;
+  declare _l10n: Localization;
 
   private _started = false;
   private _partsLoaded = false;
@@ -167,11 +170,15 @@ export class SiiPetVisitsCard extends LitElement {
   // The editor that was busy when a link came. The link waits while that
   // editor stays open, so a failed save keeps its error and its inputs in view.
   private _holdingEditor?: EventTarget;
+  // The localization key of the last `hass`. A profile change replaces `hass`
+  // and changes this key, so the card renders again with the new locale.
+  private _l10nKey?: string;
 
   constructor() {
     super();
     this._calendars = {};
     this._calendarOpen = false;
+    this._l10n = localization(undefined);
   }
 
   static getConfigForm() {
@@ -270,6 +277,15 @@ export class SiiPetVisitsCard extends LitElement {
   // work here and skips the render. The editor keeps the `hass` of its last
   // render, which is enough for its calls.
   protected shouldUpdate(changed: PropertyValues<this>): boolean {
+    let relocalized = false;
+    if (changed.has("hass")) {
+      const key = localizationKey(this.hass);
+      if (key !== this._l10nKey) {
+        this._l10nKey = key;
+        this._l10n = localization(this.hass);
+        relocalized = true;
+      }
+    }
     // A run can change state before its first await. Lit drops a change made
     // here when this returns false, so an update that starts a run renders.
     let ran = false;
@@ -290,7 +306,7 @@ export class SiiPetVisitsCard extends LitElement {
       }
     }
     const onlyHass = changed.size === 1 && changed.has("hass");
-    return ran || !this.hasUpdated || !onlyHass;
+    return ran || relocalized || !this.hasUpdated || !onlyHass;
   }
 
   private _onVisibilityChange = (): void => {
@@ -911,10 +927,11 @@ export class SiiPetVisitsCard extends LitElement {
   }
 
   private _renderNotice(cats: CatsResult): TemplateResult {
-    const day = dayLabel(cats.updated_at.slice(0, 10));
+    const day = dayLabel(cats.updated_at.slice(0, 10), this._l10n.locale);
     return html`
       <div class="notice">
-        SiiPet is not updating. Last update: ${day} ${timeOf(cats.updated_at)}.
+        SiiPet is not updating. Last update: ${day}
+        ${timeLabel(cats.updated_at, this._l10n.locale)}.
       </div>
     `;
   }
@@ -931,6 +948,7 @@ export class SiiPetVisitsCard extends LitElement {
             .hass=${this.hass}
             .visit=${this._editing}
             .cats=${cats.cats}
+            .l10n=${this._l10n}
             @siipet-busy=${(ev: CustomEvent<BusyDetail>) => this._onEditorBusy(ev)}
             @siipet-close=${(ev: CustomEvent<CloseDetail>) => this._closeEditor(ev)}
           ></siipet-visit-editor>
@@ -964,6 +982,7 @@ export class SiiPetVisitsCard extends LitElement {
       canGoBack: first === undefined || shiftDay(date, -1) >= first,
       canGoForward: date < cats.today,
       marked: this._calendars[monthOf(date)]?.days[date]?.marked ?? false,
+      l10n: this._l10n,
       onShift: (delta) => this._goToDay(shiftDay(date, delta)),
       onToggle: () => this._toggleCalendar(),
     });
@@ -974,6 +993,7 @@ export class SiiPetVisitsCard extends LitElement {
           selected: date,
           canGoBack: month > shiftMonth(lastMonth, -CALENDAR_MONTHS),
           canGoForward: month < lastMonth,
+          l10n: this._l10n,
           onShiftMonth: (delta) => this._shiftMonth(delta),
           onOpenDay: (day) => this._goToDay(day),
         })
@@ -982,7 +1002,9 @@ export class SiiPetVisitsCard extends LitElement {
       imageUrl: cat?.avatar ?? undefined,
       icon: cat?.avatar ? undefined : "mdi:cat",
       primary: cat?.name ?? "",
-      secondary: this._day ? daySummaryText(date, this._day.summary) : dayLabel(date),
+      secondary: this._day
+        ? daySummaryText(date, this._day.summary, this._l10n)
+        : dayLabel(date, this._l10n.locale),
       features: html`${dateBar} ${calendar} ${strip}`,
     });
   }
@@ -992,8 +1014,8 @@ export class SiiPetVisitsCard extends LitElement {
       this._editing = visit;
     };
     return this._isQueue()
-      ? renderTimeline(this._queue?.visits, true, open)
-      : renderTimeline(this._day?.visits, false, open);
+      ? renderTimeline(this._queue?.visits, true, open, this._l10n)
+      : renderTimeline(this._day?.visits, false, open, this._l10n);
   }
 }
 

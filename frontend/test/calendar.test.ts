@@ -16,14 +16,21 @@ const CALENDAR: CalendarResult = {
 describe("monthCells", () => {
   it("starts on Monday with empty cells before the first day", () => {
     // 1 September 2026 is a Tuesday.
-    const cells = monthCells("2026-09", CALENDAR, "2026-09-27");
+    const cells = monthCells("2026-09", CALENDAR, "2026-09-27", 1);
     expect(cells[0]).toEqual({ date: null });
     expect(cells[1]).toMatchObject({ date: "2026-09-01", day: 1 });
     expect(cells.filter((cell) => cell.date !== null)).toHaveLength(30);
   });
 
+  it("starts on Sunday when the week starts on Sunday", () => {
+    // 1 September 2026 is a Tuesday.
+    const cells = monthCells("2026-09", CALENDAR, "2026-09-27", 0);
+    expect(cells.slice(0, 2)).toEqual([{ date: null }, { date: null }]);
+    expect(cells[2]).toMatchObject({ date: "2026-09-01", day: 1 });
+  });
+
   it("marks days, opens only the days with recordings, and selects the day", () => {
-    const cells = monthCells("2026-09", CALENDAR, "2026-09-24");
+    const cells = monthCells("2026-09", CALENDAR, "2026-09-24", 1);
     const byDate = Object.fromEntries(
       cells.filter((cell) => cell.date !== null).map((cell) => [cell.date, cell]),
     );
@@ -40,7 +47,7 @@ describe("monthCells", () => {
   });
 
   it("works without calendar data", () => {
-    const cells = monthCells("2026-02", null, "2026-02-10");
+    const cells = monthCells("2026-02", null, "2026-02-10", 1);
     expect(cells.filter((cell) => cell.date !== null)).toHaveLength(28);
     expect(cells.some((cell) => cell.date !== null && cell.marked)).toBe(false);
     expect(cells.some((cell) => cell.date !== null && cell.openable)).toBe(false);

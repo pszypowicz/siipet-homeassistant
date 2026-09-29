@@ -16,6 +16,7 @@ import {
   stubTileParts,
   text,
   type TestCard,
+  withLocale,
 } from "./helpers";
 
 beforeAll(async () => {
@@ -76,7 +77,7 @@ describe("edit view", () => {
     const editor = await openVisit(card, 1);
 
     expect(text(inEditor(editor, '.header [slot="secondary"]'))).toBe(
-      "Sun 27 Sep · Lingering · 25 s",
+      "Sun, Sep 27 · Lingering · 25 s",
     );
   });
 
@@ -88,7 +89,7 @@ describe("edit view", () => {
     expect(find(card, ".timeline")).toBeNull();
     expect(text(inEditor(editor, '.header [slot="primary"]'))).toBe("20:11 · Luna");
     expect(text(inEditor(editor, '.header [slot="secondary"]'))).toBe(
-      "Sun 27 Sep · Poop · 57 s · Soft stool · Bathroom",
+      "Sun, Sep 27 · Poop · 57 s · Soft stool · Bathroom",
     );
     expect(sent(fake).at(-1)).toEqual({
       type: "media_source/resolve_media",
@@ -958,5 +959,19 @@ describe("edit view", () => {
 
     expect(find(card, "siipet-visit-editor")).toBe(editor);
     expect(text(inEditor(editor, ".error"))).toBe("SiiPet could not delete the visit");
+  });
+});
+
+describe("locale", () => {
+  it("shows the date and time of the visit in the profile locale", async () => {
+    const fake = fakeHass();
+    fake.hass = withLocale(fake.hass, {
+      language: "pl",
+      time_format: "language",
+    });
+    const card = await mount(fake);
+    const editor = await openVisit(card);
+    expect(text(inEditor(editor, '.header [slot="primary"]'))).toBe("20:11 · Luna");
+    expect(text(inEditor(editor, '.header [slot="secondary"]'))).toContain("niedz., 27 wrz");
   });
 });

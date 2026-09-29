@@ -90,11 +90,22 @@ export interface HassConnection {
   removeEventListener(event: "ready" | "disconnected", listener: () => void): void;
 }
 
+/** The locale settings of the user profile. Home Assistant sends more fields. */
+export interface FrontendLocale {
+  language: string;
+  /** "language", "system", "12", or "24". */
+  time_format?: string;
+  /** "language", or a weekday such as "monday". */
+  first_weekday?: string;
+}
+
 export interface HomeAssistant {
   states: Record<string, HassEntity>;
   entities: Record<string, HassEntityRegistryEntry>;
   user?: { is_admin: boolean };
   connection: HassConnection;
+  language?: string;
+  locale?: FrontendLocale;
   callWS<T>(message: Record<string, unknown>): Promise<T>;
   callService(
     domain: string,

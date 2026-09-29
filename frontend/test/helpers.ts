@@ -8,6 +8,7 @@ import type {
   CardConfig,
   CatsResult,
   DayResult,
+  FrontendLocale,
   HomeAssistant,
   QueueResult,
   Visit,
@@ -174,6 +175,10 @@ export function fakeHass(overrides: Partial<FakeResults> = {}, admin = true): Fa
       "sensor.outside": { entity_id: "sensor.outside", platform: "met" },
     },
     user: { is_admin: admin },
+    // An English profile with 24-hour times and Monday first, so the times and
+    // the calendar read like the fixtures.
+    language: "en",
+    locale: { language: "en", time_format: "24", first_weekday: "monday" },
     connection: {
       addEventListener: (event: string, listener: () => void) => listeners.set(event, listener),
       removeEventListener: (event: string, listener: () => void) => {
@@ -194,6 +199,12 @@ export function withState(hass: HomeAssistant, entityId: string, state: string):
     ...hass,
     states: { ...hass.states, [entityId]: { entity_id: entityId, state, last_changed: "" } },
   };
+}
+
+/** A copy of `hass` with other profile locale settings, as Home Assistant sends it. */
+export function withLocale(hass: HomeAssistant, locale: Partial<FrontendLocale>): HomeAssistant {
+  const next = { ...hass.locale!, ...locale };
+  return { ...hass, language: next.language, locale: next };
 }
 
 export interface TestCard extends HTMLElement {

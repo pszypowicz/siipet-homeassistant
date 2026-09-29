@@ -3,19 +3,26 @@
 import { html, nothing, type TemplateResult } from "lit";
 
 import { monthCells } from "./calendar";
-import { dayLabel, durationText, monthLabel, timeOf, TYPE_STYLE } from "./format";
+import {
+  dayLabel,
+  durationText,
+  firstWeekday,
+  monthLabel,
+  timeLabel,
+  TYPE_STYLE,
+  weekdayNames,
+} from "./format";
+import type { Localization } from "./localize";
 import { optionRow } from "./option-row";
 import type { CalendarResult, CatsResult, DaySummary, Visit } from "./types";
-
-const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 function count(value: number, one: string, many: string): string {
   return `${value} ${value === 1 ? one : many}`;
 }
 
-/** "Sun 27 Sep · 3 visits · 1 poop · 2 pee · 1 abnormal", without the counts that are 0. */
-export function daySummaryText(date: string, summary: DaySummary): string {
-  const parts = [dayLabel(date), count(summary.visits, "visit", "visits")];
+/** "Sun, Sep 27 · 3 visits · 1 poop · 2 pee · 1 abnormal", without the counts that are 0. */
+export function daySummaryText(date: string, summary: DaySummary, l10n: Localization): string {
+  const parts = [dayLabel(date, l10n.locale), count(summary.visits, "visit", "visits")];
   if (summary.poop > 0) parts.push(`${summary.poop} poop`);
   if (summary.pee > 0) parts.push(`${summary.pee} pee`);
   if (summary.abnormal > 0) parts.push(`${summary.abnormal} abnormal`);
@@ -52,6 +59,7 @@ export interface DateBarOptions {
   canGoBack: boolean;
   canGoForward: boolean;
   marked: boolean;
+  l10n: Localization;
   onShift: (delta: number) => void;
   onToggle: () => void;
 }
@@ -68,7 +76,7 @@ export function renderDateBar(options: DateBarOptions): TemplateResult {
         <ha-icon icon="mdi:chevron-left"></ha-icon>
       </ha-control-button>
       <ha-control-button class="date" .label=${"Pick a day"} @click=${options.onToggle}>
-        <span>${dayLabel(options.date)}</span>
+        <span>${dayLabel(options.date, options.l10n.locale)}</span>
         ${options.marked ? html`<span class="dot"></span>` : nothing}
       </ha-control-button>
       <ha-control-button
@@ -89,12 +97,18 @@ export interface CalendarOptions {
   selected: string;
   canGoBack: boolean;
   canGoForward: boolean;
+  l10n: Localization;
   onShiftMonth: (delta: number) => void;
   onOpenDay: (date: string) => void;
 }
 
 export function renderCalendar(options: CalendarOptions): TemplateResult {
-  const cells = monthCells(options.month, options.calendar ?? null, options.selected);
+  const cells = monthCells(
+    options.month,
+    options.calendar ?? null,
+    options.selected,
+    firstWeekday(options.l10n.locale),
+  );
   return html`
     <div class="calendar">
       <ha-control-button-group class="month-bar">
@@ -106,7 +120,7 @@ export function renderCalendar(options: CalendarOptions): TemplateResult {
         >
           <ha-icon icon="mdi:chevron-left"></ha-icon>
         </ha-control-button>
-        <div class="month-name">${monthLabel(options.month)}</div>
+        <div class="month-name">${monthLabel(options.month, options.l10n.locale)}</div>
         <ha-control-button
           class="arrow next-month"
           .label=${"Next month"}
@@ -117,7 +131,7 @@ export function renderCalendar(options: CalendarOptions): TemplateResult {
         </ha-control-button>
       </ha-control-button-group>
       <div class="grid">
-        ${WEEKDAYS.map((day) => html`<span class="weekday">${day}</span>`)}
+        ${weekdayNames(options.l10n.locale).map((day) => html`<span class="weekday">${day}</span>`)}
         ${cells.map((cell) =>
           cell.date === null
             ? html`<span class="blank"></span>`
@@ -125,7 +139,7 @@ export function renderCalendar(options: CalendarOptions): TemplateResult {
                 <ha-control-button
                   class="cell ${cell.selected ? "selected" : ""}"
                   data-date=${cell.date}
-                  .label=${dayLabel(cell.date)}
+                  .label=${dayLabel(cell.date, options.l10n.locale)}
                   .disabled=${!cell.openable}
                   @click=${() => options.onOpenDay(cell.date)}
                 >
@@ -193,10 +207,11 @@ function renderVisit(
   visit: Visit,
   withDay: boolean,
   onOpen: (visit: Visit) => void,
+  l10n: Localization,
 ): TemplateResult {
   const style = TYPE_STYLE[visit.type];
-  const time = timeOf(visit.start);
-  const primary = withDay ? `${dayLabel(visit.start.slice(0, 10))} ${time}` : time;
+  const time = timeLabel(visit.start, l10n.locale);
+  const primary = withDay ? `${dayLabel(visit.start.slice(0, 10), l10n.locale)} ${time}` : time;
   const secondary = `${style.label} · ${durationText(visit.duration)}`;
   // The camera comes last, so the row cuts it off before the memo icon.
   const camera = visit.camera ? ` · ${visit.camera}` : "";
@@ -250,6 +265,7 @@ export function renderTimeline(
   visits: Visit[] | undefined,
   withDay: boolean,
   onOpen: (visit: Visit) => void,
+  l10n: Localization,
 ): TemplateResult | typeof nothing {
   if (visits === undefined) {
     return nothing;
@@ -259,6 +275,6 @@ export function renderTimeline(
     return html`<div class="message empty">${text}</div>`;
   }
   return html`<div class="timeline">
-    ${visits.map((visit) => renderVisit(visit, withDay, onOpen))}
+    ${visits.map((visit) => renderVisit(visit, withDay, onOpen, l10n))}
   </div>`;
 }
