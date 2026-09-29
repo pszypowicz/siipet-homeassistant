@@ -18,6 +18,7 @@ from homeassistant.exceptions import (
     ServiceValidationError,
     Unauthorized,
 )
+from homeassistant.helpers import area_registry as ar, device_registry as dr
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
@@ -116,6 +117,25 @@ async def test_list_visits_for_one_cat(
     await setup_integration(hass, config_entry)
     response = await _list(hass, cat=siipet_device_id(hass, config_entry, identifier))
     assert [visit["event_id"] for visit in response["visits"]] == event_ids
+
+
+async def test_list_visits_keeps_the_siipet_camera_name(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    area_registry: ar.AreaRegistry,
+    device_registry: dr.DeviceRegistry,
+) -> None:
+    """A visit names its camera as SiiPet does, also when the device has an area and a rename."""
+    await setup_integration(hass, config_entry)
+    area = area_registry.async_create("Upstairs bath")
+    device_registry.async_update_device(
+        siipet_device_id(hass, config_entry, "SN0001"),
+        area_id=area.id,
+        name_by_user="Box 1",
+    )
+    response = await _list(hass)
+    assert {visit["camera"] for visit in response["visits"]} == {"Bathroom", "Hallway"}
 
 
 async def test_list_visits_window_days_make_no_call(

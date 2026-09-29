@@ -7,7 +7,7 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import area_registry as ar, device_registry as dr
 from homeassistant.util import dt as dt_util
 
 from .api import SiiPetAuthError, Visit
@@ -61,6 +61,30 @@ def device_ids(hass: HomeAssistant, entry: SiiPetConfigEntry) -> dict[str, str]:
         if device is not None:
             ids[owner] = device.id
     return ids
+
+
+def camera_labels(hass: HomeAssistant, entry: SiiPetConfigEntry) -> dict[str, str]:
+    """Map serial numbers to the area of the camera device, else to the device name.
+
+    A camera without a device takes its SiiPet name. The map is empty when
+    the account has fewer than two cameras.
+    """
+    cameras = entry.runtime_data.coordinator.data.cameras
+    if len(cameras) < 2:
+        return {}
+    devices = dr.async_get(hass)
+    areas = ar.async_get(hass)
+    labels: dict[str, str] = {}
+    for sn, camera in cameras.items():
+        device = devices.async_get_device_by_identifier((DOMAIN, sn), entry.entry_id)
+        if device is None:
+            labels[sn] = camera.name
+            continue
+        area = areas.async_get_area(device.area_id) if device.area_id else None
+        labels[sn] = (
+            area.name if area else device.name_by_user or device.name or camera.name
+        )
+    return labels
 
 
 def visit_dict(

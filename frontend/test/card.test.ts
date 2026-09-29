@@ -183,7 +183,7 @@ describe("day view", () => {
 
     const [poop, lingering] = rows;
     expect(text(poop.querySelector('[slot="primary"]'))).toBe("20:11");
-    expect(text(poop.querySelector('[slot="secondary"]'))).toBe("Poop · 57 s");
+    expect(text(poop.querySelector('[slot="secondary"]'))).toBe("Poop · 57 s · Bathroom");
     const icon = poop.querySelector("ha-tile-icon") as HTMLElement & { icon: string };
     expect(icon.icon).toBe("mdi:emoticon-poop");
     expect(icon.style.getPropertyValue("--tile-icon-color")).toBe("var(--brown-color)");
@@ -200,6 +200,16 @@ describe("day view", () => {
     expect(lingering.querySelector(".chip")).toBeNull();
     expect(lingering.querySelector(".cover")).toBeNull();
     expect(lingering.querySelector(".stool-row")).toBeNull();
+  });
+
+  it("puts the camera after the memo icon, so a long camera name cuts off first", async () => {
+    const card = await mount(fakeHass({ day: { ...DAY, visits: [{ ...POOP, note: "soft" }] } }));
+    const secondary = find(card, '.visit [slot="secondary"]')!;
+
+    expect(text(secondary)).toBe("Poop · 57 s · Bathroom");
+    const markup = secondary.innerHTML;
+    expect(markup.indexOf('class="memo"')).toBeGreaterThan(-1);
+    expect(markup.indexOf('class="memo"')).toBeLessThan(markup.indexOf("Bathroom"));
   });
 
   it("wraps the poster so its background stays inside the row instead of the tile padding", async () => {

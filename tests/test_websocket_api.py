@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 
 from homeassistant.config_entries import SOURCE_REAUTH
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import area_registry as ar, device_registry as dr
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
@@ -163,6 +164,119 @@ async def test_day(
     assert visits[0]["stool"] is None
     assert _private_values(response) == []
     assert mock_client.get_day.await_count == reads
+
+
+@pytest.mark.parametrize(
+    ("hallway_rename", "hallway_label"),
+    [(None, "Hall device"), ("Hall box", "Hall box")],
+)
+async def test_day_camera_labels(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+    area_registry: ar.AreaRegistry,
+    device_registry: dr.DeviceRegistry,
+    hallway_rename: str | None,
+    hallway_label: str,
+) -> None:
+    """A visit names the area of its camera device, else the device name.
+
+    The area wins over a rename in Home Assistant.
+    """
+    await setup_integration(hass, config_entry)
+    area = area_registry.async_create("Upstairs bath")
+    device_registry.async_update_device(
+        siipet_device_id(hass, config_entry, "SN0001"),
+        area_id=area.id,
+        name_by_user="Box 1",
+    )
+    device_registry.async_update_device(
+        siipet_device_id(hass, config_entry, "SN0002"),
+        name="Hall device",
+        name_by_user=hallway_rename,
+    )
+    response = await _ws(
+        hass, hass_ws_client, type="siipet/day", date=TODAY.isoformat()
+    )
+    labels = {
+        visit["event_id"]: visit["camera"] for visit in response["result"]["visits"]
+    }
+    assert labels == {
+        "ev-1": "Upstairs bath",
+        "ev-2": hallway_label,
+        "ev-3": "Upstairs bath",
+        "ev-4": "Upstairs bath",
+        "ev-5": hallway_label,
+        "ev-6": "Upstairs bath",
+    }
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        {"type": "siipet/day", "date": TODAY.isoformat()},
+        {"type": "siipet/queue"},
+        {"type": "siipet/visit", "event_id": "ev-4"},
+    ],
+)
+async def test_card_commands_name_the_camera_area(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+    area_registry: ar.AreaRegistry,
+    device_registry: dr.DeviceRegistry,
+    message: dict[str, Any],
+) -> None:
+    """Each card command names the area of the camera of a visit."""
+    await setup_integration(hass, config_entry)
+    area = area_registry.async_create("Upstairs bath")
+    device_registry.async_update_device(
+        siipet_device_id(hass, config_entry, "SN0001"), area_id=area.id
+    )
+    result = (await _ws(hass, hass_ws_client, **message))["result"]
+    visits = [result["visit"]] if "visit" in result else result["visits"]
+    [visit] = [visit for visit in visits if visit["event_id"] == "ev-4"]
+    assert visit["camera"] == "Upstairs bath"
+
+
+async def test_day_camera_label_without_a_device(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+    device_registry: dr.DeviceRegistry,
+) -> None:
+    """A camera without a device takes its SiiPet name."""
+    await setup_integration(hass, config_entry)
+    device_registry.async_remove_device(siipet_device_id(hass, config_entry, "SN0002"))
+    response = await _ws(
+        hass, hass_ws_client, type="siipet/day", date=TODAY.isoformat()
+    )
+    [visit] = [
+        visit for visit in response["result"]["visits"] if visit["event_id"] == "ev-2"
+    ]
+    assert visit["camera"] == "Hallway"
+
+
+async def test_day_one_camera_has_no_label(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """With one camera on the account, no visit names a camera."""
+    mock_client.get_cameras.return_value = {
+        sn: camera
+        for sn, camera in mock_client.get_cameras.return_value.items()
+        if sn == "SN0001"
+    }
+    await setup_integration(hass, config_entry)
+    response = await _ws(
+        hass, hass_ws_client, type="siipet/day", date=TODAY.isoformat()
+    )
+    assert [visit["camera"] for visit in response["result"]["visits"]] == [None] * 6
 
 
 @pytest.mark.parametrize(
