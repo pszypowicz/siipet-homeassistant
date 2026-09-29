@@ -78,6 +78,7 @@ frontend/              source of the dashboard card: TypeScript, Lit, esbuild, v
   If a part is missing, the card names it and shows nothing else.
 - The card defines its elements with `defineElement` in `frontend/src/define.ts`, after the app defines `home-assistant`.
   The card loads in parallel with the app bundle, and the app does not see an element defined before its registry polyfill.
+  On a page without a `home-assistant` element, such as the Cast receiver or a card test, it defines them at once.
 - Only `api/shadow_link.py` talks to AWS IoT. It reads the shadows and never writes them.
 - The device state entities read `SiiPetDeviceCoordinator.data`, and the camera list of the main coordinator for availability. The shadow link runs as a background task, so setup never waits for it.
 
@@ -151,7 +152,6 @@ CI fails when the committed file differs from a new build.
 - Integration tests mock `SiiPetClient` with the fixtures in `tests/conftest.py`.
 - Client tests mock HTTP with the `aioclient_mock` fixture.
 - Card tests define stub tile parts, because the Home Assistant frontend is not available in tests.
-- Card tests load the card with `loadCard` from `frontend/test/helpers.ts`. It defines a stub `home-assistant`, so the card defines its elements.
 - Tests run in UTC with the time frozen at 2026-09-26 12:00.
 - The entry fixtures turn the local media copy off. Tests of the copy use `setup_mirror` in `tests/common.py`.
 - Integration tests replace `ShadowLink` with `FakeShadowLink` from `tests/common.py`. A test calls its callbacks to push a state or a connection change.

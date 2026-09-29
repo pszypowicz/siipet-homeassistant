@@ -2,11 +2,11 @@
 
 import { beforeAll, expect, it } from "vitest";
 
-import { fakeHass, find, loadCard, mount, stubTileParts, text } from "./helpers";
+import { fakeHass, find, mount, stubTileParts, text } from "./helpers";
 
 beforeAll(async () => {
   stubTileParts(["ha-control-select"]);
-  await loadCard();
+  await import("../src/siipet-visits-card");
 });
 
 it("names a missing tile part and reads nothing", async () => {

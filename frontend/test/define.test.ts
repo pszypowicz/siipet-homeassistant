@@ -32,8 +32,16 @@ class FakeRegistry {
   }
 }
 
-function scopeWith(registry: FakeRegistry): { customElements: CustomElementRegistry } {
-  return { customElements: registry as unknown as CustomElementRegistry };
+/** A page with the registry, and with the `home-assistant` root element if `app` is true. */
+function scopeWith(
+  registry: FakeRegistry,
+  app = true,
+): { customElements: CustomElementRegistry; document: Document } {
+  const page = document.implementation.createHTMLDocument();
+  if (app) {
+    page.body.append(page.createElement("home-assistant"));
+  }
+  return { customElements: registry as unknown as CustomElementRegistry, document: page };
 }
 
 class Card extends HTMLElement {}
@@ -67,5 +75,13 @@ describe("defineElement", () => {
     await defineElement("siipet-test", OtherCard, scope);
 
     expect(app.get("siipet-test")).toBe(Card);
+  });
+
+  it("defines the element at once on a page without the app, such as the Cast receiver", async () => {
+    const registry = new FakeRegistry();
+    void defineElement("siipet-test", Card, scopeWith(registry, false));
+    await Promise.resolve();
+
+    expect(registry.get("siipet-test")).toBe(Card);
   });
 });

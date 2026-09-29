@@ -8,7 +8,6 @@ import {
   find,
   findAll,
   LINGERING,
-  loadCard,
   mount,
   POOP,
   sent,
@@ -21,7 +20,7 @@ import {
 
 beforeAll(async () => {
   stubTileParts();
-  await loadCard();
+  await import("../src/siipet-visits-card");
 });
 
 // A test that needs a delete confirmation stubs window.loadCardHelpers itself;

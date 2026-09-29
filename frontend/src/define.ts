@@ -3,9 +3,12 @@
 // and the new registry does not see an element defined before that. The polyfill
 // also defines a stand-in for each app element in the native registry, so the
 // native wait for `home-assistant` ends only after the polyfill is in place.
+// A page with no `home-assistant` element, such as the Cast receiver, never
+// defines it, so the card defines its elements there at once.
 
 interface RegistryScope {
   customElements: CustomElementRegistry;
+  document: Pick<Document, "querySelector">;
 }
 
 /**
@@ -17,7 +20,9 @@ export async function defineElement(
   element: CustomElementConstructor,
   scope: RegistryScope = window,
 ): Promise<void> {
-  await scope.customElements.whenDefined("home-assistant");
+  if (scope.document.querySelector("home-assistant")) {
+    await scope.customElements.whenDefined("home-assistant");
+  }
   const registry = scope.customElements;
   if (!registry.get(name)) {
     registry.define(name, element);
