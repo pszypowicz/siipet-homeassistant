@@ -311,3 +311,20 @@ actions:
 ## License
 
 MIT.
+
+## Disclaimer
+
+This project is not affiliated with SiiPet, and SiiPet does not endorse or support it.
+SiiPet, LitterLens, and the other product names in this README belong to their owners.
+
+The integration uses the cloud API of the SiiPet app. SiiPet does not publish this API, and it can change the API at any time.
+A change can stop the integration without warning.
+
+I maintain this integration on a best-effort basis. I give no warranty and no promise of support or fixes.
+You use it at your own risk. I am not responsible for lost or changed data, for problems with your SiiPet account, or for other damage.
+The edit and delete actions change your data in the SiiPet cloud, and you cannot undo a delete.
+
+The visit data and the abnormal marks come from SiiPet. They do not replace the advice of a veterinarian.
+If you are concerned about the health of your cat, ask a veterinarian.
+
+The [MIT license](LICENSE) gives the full terms.
