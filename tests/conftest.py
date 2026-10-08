@@ -41,6 +41,19 @@ def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
 
 
 @pytest.fixture(autouse=True)
+def no_deprecated_calls(caplog: pytest.LogCaptureFixture) -> Generator[None]:
+    """Fail a test in which Home Assistant reports a deprecated call."""
+    yield
+    reports = [
+        record.getMessage()
+        for when in ("setup", "call")
+        for record in caplog.get_records(when)
+        if record.name == "homeassistant.helpers.frame"
+    ]
+    assert not reports
+
+
+@pytest.fixture(autouse=True)
 def shadow_links() -> Generator[list[FakeShadowLink]]:
     """Replace the shadow link with a fake. The list holds each fake link."""
     links: list[FakeShadowLink] = []

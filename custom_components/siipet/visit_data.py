@@ -39,7 +39,7 @@ def cat_id(
     """Return the pet id of a cat device, or UNKNOWN_CAT_ID for the Unknown cat."""
     device = dr.async_get(hass).async_get(device_id)
     cats = entry.runtime_data.coordinator.data.cats
-    if device is not None and entry.entry_id in device.config_entries:
+    if device is not None and device.config_entry_id == entry.entry_id:
         for domain, identifier in device.identifiers:
             if domain != DOMAIN:
                 continue
