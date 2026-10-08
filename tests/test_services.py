@@ -234,6 +234,22 @@ async def test_list_visits_invalid_cat(
         assert info.value.translation_key == "invalid_cat"
 
 
+async def test_list_visits_cat_of_another_entry(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """A device of another config entry is refused, also with the id of a cat."""
+    await setup_integration(hass, config_entry)
+    other = MockConfigEntry(domain="other")
+    other.add_to_hass(hass)
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=other.entry_id, identifiers={(DOMAIN, "pet-luna")}
+    )
+    assert device.id != siipet_device_id(hass, config_entry, "pet-luna")
+    with pytest.raises(ServiceValidationError) as info:
+        await _list(hass, cat=device.id)
+    assert info.value.translation_key == "invalid_cat"
+
+
 async def test_list_visits_has_no_private_values(
     hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
 ) -> None:
