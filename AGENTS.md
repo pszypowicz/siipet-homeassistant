@@ -130,7 +130,7 @@ When you add a field that holds a private value, add its key to `TO_REDACT` in `
 
 ## Commands
 
-Set up a Python 3.14 environment and install the test requirements:
+Set up a Python 3.14.2 or later environment and install the test requirements:
 
 ```bash
 python3.14 -m venv .venv
@@ -161,6 +161,8 @@ CI fails when the committed file differs from a new build.
 ## Tests
 
 - Write the test first, then the code.
+- Fixtures such as `hass` and helpers such as `MockConfigEntry` come from `pytest-homeassistant`.
+  Each of its releases pins one Home Assistant version.
 - Integration tests mock `SiiPetClient` with the fixtures in `tests/conftest.py`.
 - Client tests mock HTTP with the `aioclient_mock` fixture.
 - Card tests define stub tile parts, because the Home Assistant frontend is not available in tests.
