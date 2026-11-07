@@ -376,8 +376,8 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
         kept = {
             key: value for key, value in entry.data.items() if key != CONF_PASSWORD_HASH
         }
-        # Without a reason, Home Assistant shows its own text, which has no
-        # Polish version, in place of the texts in our translations.
+        # Without a reason, Home Assistant shows its own text in place of the
+        # texts in our translations.
         return self.async_update_reload_and_abort(
             entry, data={**kept, **data}, reason=reason
         )

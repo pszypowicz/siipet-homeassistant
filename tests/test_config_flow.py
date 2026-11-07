@@ -12,6 +12,7 @@ from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType, InvalidData
 import probatio
+from probatio.humanize import humanize_error
 import pytest
 from pytest_homeassistant.common import MockConfigEntry
 
@@ -787,7 +788,7 @@ async def test_new_password_for_token_entry_needs_code_sign_in(
 def test_password_errors_are_redacted(
     schema: probatio.Schema, user_input: dict[str, Any]
 ) -> None:
-    """A validation error of a password field keeps the value out of its output."""
+    """A validation error of a password field keeps the value out of its message."""
     with pytest.raises(probatio.Invalid) as err:
         schema(user_input)
-    assert [error["secret"] for error in err.value.as_dict()["errors"]] == [True]
+    assert "secret-1" not in humanize_error(user_input, err.value)

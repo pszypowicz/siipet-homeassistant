@@ -65,7 +65,8 @@ class SiiPetMediaSource(MediaSource):
         media = self._media()
         if media is None:
             raise Unresolvable("SiiPet is not loaded")
-        kind, _, item_id = item.identifier.partition("/")
+        # The root has no identifier.
+        kind, _, item_id = (item.identifier or "").partition("/")
         if not item_id:
             raise Unresolvable("Unknown SiiPet media item")
         try:
@@ -85,7 +86,8 @@ class SiiPetMediaSource(MediaSource):
 
         A recording, a folder, and an unknown item have no single image.
         """
-        kind, _, item_id = item.identifier.partition("/")
+        # The root has no identifier.
+        kind, _, item_id = (item.identifier or "").partition("/")
         try:
             image_kind = MediaKind(kind)
         except ValueError:

@@ -214,6 +214,15 @@ async def test_resolve_errors(
     assert "pet-gone" not in str(info.value)
 
 
+async def test_resolve_root(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """The root is a folder, so it does not resolve."""
+    await setup_integration(hass, config_entry)
+    with pytest.raises(Unresolvable):
+        await async_resolve_media(hass, ROOT, None)
+
+
 async def test_resolve_not_loaded(
     hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
 ) -> None:
@@ -346,17 +355,20 @@ async def test_unreadable_local_image_comes_from_s3(
     assert s3_gets(aioclient_mock, "events/ev-1/cover.jpg") == 2
 
 
-@pytest.mark.parametrize("identifier", ["visit/ev-1", "week/1", "cover/", ""])
+@pytest.mark.parametrize(
+    "media_content_id",
+    [f"{ROOT}/visit/ev-1", f"{ROOT}/week/1", f"{ROOT}/cover/", ROOT],
+)
 async def test_no_media_image(
     hass: HomeAssistant,
     mock_client: AsyncMock,
     config_entry: MockConfigEntry,
     aioclient_mock: AiohttpClientMocker,
-    identifier: str,
+    media_content_id: str,
 ) -> None:
-    """A recording, a folder, or an unknown item has no single image."""
+    """A recording, the root, or an unknown item has no single image."""
     await setup_integration(hass, config_entry)
-    assert await async_get_media_image(hass, f"{ROOT}/{identifier}") is None
+    assert await async_get_media_image(hass, media_content_id) is None
     assert aioclient_mock.call_count == 0
 
 
