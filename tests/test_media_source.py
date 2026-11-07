@@ -6,12 +6,13 @@ from dataclasses import replace
 from datetime import timedelta
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from homeassistant.components.media_player import BrowseError
 from homeassistant.components.media_source import (
     Unresolvable,
     async_browse_media,
+    async_get_media_image,
     async_resolve_media,
 )
 from homeassistant.core import HomeAssistant
@@ -30,7 +31,10 @@ from custom_components.siipet.api import (
 )
 
 from .common import (
+    COVER,
     EMPTY_DAY,
+    S3,
+    STOOL,
     TODAY,
     VIDEO,
     day_folder,
@@ -39,6 +43,7 @@ from .common import (
     md5_hex,
     mirror_visit,
     mock_s3,
+    s3_gets,
     serve_days,
     setup_integration,
     setup_mirror,
@@ -284,3 +289,100 @@ async def test_resolve_video_with_a_missing_local_file(
     assert (day_folder(media_dir) / "ev-1.mp4").read_bytes() == VIDEO
     media = await async_resolve_media(hass, f"{ROOT}/visit/ev-1", None)
     assert media.url == "/api/siipet/recording/ev-1"
+
+
+@pytest.mark.parametrize(
+    ("identifier", "content"),
+    [("cover/ev-1", COVER), ("stool/ev-1", STOOL), ("avatar/pet-luna", b"luna")],
+)
+async def test_media_image_from_s3(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    identifier: str,
+    content: bytes,
+) -> None:
+    """An image gives its bytes, so that AI Task can attach it."""
+    serve_days(mock_client, {TODAY: (mirror_visit(),)})
+    mock_s3(aioclient_mock, **{"resources/luna.jpg": b"luna"})
+    await setup_integration(hass, config_entry)
+    image = await async_get_media_image(hass, f"{ROOT}/{identifier}")
+    assert image is not None
+    assert image.content == content
+    assert image.mime_type == "image/jpeg"
+
+
+async def test_media_image_from_the_local_copy(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+) -> None:
+    """A stored image comes from the disk, with no new S3 request."""
+    serve_days(mock_client, {TODAY: (mirror_visit(),)})
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7)
+    image = await async_get_media_image(hass, f"{ROOT}/cover/ev-1")
+    assert image is not None
+    assert image.content == COVER
+    assert s3_gets(aioclient_mock, "events/ev-1/cover.jpg") == 1
+
+
+async def test_unreadable_local_image_comes_from_s3(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+) -> None:
+    """A stored image that cannot be read comes from S3."""
+    serve_days(mock_client, {TODAY: (mirror_visit(),)})
+    mock_s3(aioclient_mock)
+    await setup_mirror(hass, config_entry, 7)
+    with patch.object(Path, "read_bytes", side_effect=OSError("gone")):
+        image = await async_get_media_image(hass, f"{ROOT}/cover/ev-1")
+    assert image is not None
+    assert image.content == COVER
+    assert s3_gets(aioclient_mock, "events/ev-1/cover.jpg") == 2
+
+
+@pytest.mark.parametrize("identifier", ["visit/ev-1", "week/1", "cover/", ""])
+async def test_no_media_image(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    identifier: str,
+) -> None:
+    """A recording, a folder, or an unknown item has no single image."""
+    await setup_integration(hass, config_entry)
+    assert await async_get_media_image(hass, f"{ROOT}/{identifier}") is None
+    assert aioclient_mock.call_count == 0
+
+
+async def test_media_image_errors(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+) -> None:
+    """A missing image or an S3 failure raises Unresolvable without a key or URL."""
+    aioclient_mock.get(S3 + "events/ev-1/cover.jpg", status=500)
+    await setup_integration(hass, config_entry)
+    for identifier in ("stool/ev-2", "cover/ev-1"):
+        with pytest.raises(Unresolvable) as info:
+            await async_get_media_image(hass, f"{ROOT}/{identifier}")
+        assert "events/" not in str(info.value)
+        assert S3 not in str(info.value)
+
+
+async def test_media_image_not_loaded(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """Without a loaded entry, an image raises Unresolvable."""
+    mock_client.get_day.side_effect = SiiPetConnectionError("down")
+    await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    with pytest.raises(Unresolvable) as info:
+        await async_get_media_image(hass, f"{ROOT}/cover/ev-1")
+    assert str(info.value) == "SiiPet is not loaded"
