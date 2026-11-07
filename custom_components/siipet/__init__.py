@@ -58,7 +58,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: SiiPetConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: SiiPetConfigEntry) -> None:
     """Set up SiiPet from a config entry."""
     if any(key not in entry.data for key in SESSION_KEYS):
         raise ConfigEntryError(
@@ -101,7 +101,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: SiiPetConfigEntry) -> bo
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     device_state.async_start()
     entry.runtime_data.mirror = await _async_start_mirror(hass, entry)
-    return True
 
 
 async def _async_start_mirror(
@@ -132,9 +131,9 @@ async def _async_start_mirror(
     return mirror
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: SiiPetConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: SiiPetConfigEntry) -> None:
     """Unload a SiiPet config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    await hass.config_entries.async_unload_platforms_or_raise(entry, PLATFORMS)
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: SiiPetConfigEntry) -> None:

@@ -47,7 +47,7 @@ PHONE_DEVICE = "phone-device-0001"
 def mock_setup_entry() -> Generator[AsyncMock]:
     """Do not set up the entry that a flow creates or reloads."""
     with patch(
-        "custom_components.siipet.async_setup_entry", return_value=True
+        "custom_components.siipet.async_setup_entry", return_value=None
     ) as setup_entry:
         yield setup_entry
 
