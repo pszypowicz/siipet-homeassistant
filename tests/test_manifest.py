@@ -30,6 +30,13 @@ def test_manifest() -> None:
     assert manifest["version"] == "0.6.1"
 
 
+def test_manifest_categories() -> None:
+    """The manifest files the integration under pets, reached through the cloud."""
+    manifest = json.loads((ROOT / "custom_components/siipet/manifest.json").read_text())
+    assert manifest["categories"] == ["pets"]
+    assert manifest["connectivity"] == ["cloud"]
+
+
 def test_hacs_minimum_version() -> None:
     """`hacs.json` requires Home Assistant 2026.11.0 or later."""
     hacs = json.loads((ROOT / "hacs.json").read_text())
