@@ -265,7 +265,7 @@ async def test_reauth_email(
     mock_client: AsyncMock,
     config_entry: MockConfigEntry,
 ) -> None:
-    """Email reauth suggests the stored address and keeps the client id."""
+    """Email reauth suggests the address, keeps the client id, and shows our text."""
     mock_client.login.return_value = Session(NEW_TOKEN, 1_800_000_000_000)
     result = await _start_reauth(hass, config_entry)
     assert _suggested(result, CONF_EMAIL) == "cat@example.com"
@@ -281,6 +281,7 @@ async def test_reauth_email(
     )
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
+    assert "translation_domain" not in result
     assert config_entry.data[CONF_TOKEN] == NEW_TOKEN
     assert config_entry.data[CONF_EXPIRE_AT] == 1_800_000_000_000
     assert config_entry.data[CONF_CLIENT_ID] == "client-uuid-0001"
@@ -353,7 +354,7 @@ async def test_reconfigure_email_entry(
     mock_setup_entry: AsyncMock,
     config_entry: MockConfigEntry,
 ) -> None:
-    """Reconfigure stores the new session, keeps the client id, and reloads."""
+    """Reconfigure stores the session, keeps the client id, reloads, shows our text."""
     mock_client.login.return_value = Session(NEW_TOKEN, 1_800_000_000_000)
     result = await _start_reconfigure(hass, config_entry)
     assert _suggested(result, CONF_EMAIL) == "cat@example.com"
@@ -361,6 +362,7 @@ async def test_reconfigure_email_entry(
     result = await _sign_in(hass, result["flow_id"])
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
+    assert "translation_domain" not in result
     assert config_entry.data == {
         CONF_AUTH_METHOD: AUTH_EMAIL,
         CONF_EMAIL: "cat@example.com",

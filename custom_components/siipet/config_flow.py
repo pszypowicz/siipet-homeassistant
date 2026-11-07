@@ -365,8 +365,10 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
             data[CONF_PASSWORD_HASH] = password_hash
         if self.source == SOURCE_REAUTH:
             entry = self._get_reauth_entry()
+            reason = "reauth_successful"
         elif self.source == SOURCE_RECONFIGURE:
             entry = self._get_reconfigure_entry()
+            reason = "reconfigure_successful"
         else:
             self._abort_if_unique_id_configured()
             return self.async_create_entry(title="SiiPet", data=data)
@@ -374,7 +376,11 @@ class SiiPetConfigFlow(ConfigFlow, domain=DOMAIN):
         kept = {
             key: value for key, value in entry.data.items() if key != CONF_PASSWORD_HASH
         }
-        return self.async_update_reload_and_abort(entry, data={**kept, **data})
+        # Without a reason, Home Assistant shows its own text, which has no
+        # Polish version, in place of the texts in our translations.
+        return self.async_update_reload_and_abort(
+            entry, data={**kept, **data}, reason=reason
+        )
 
     def _client(self) -> SiiPetClient:
         return SiiPetClient(
