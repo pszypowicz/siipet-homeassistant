@@ -121,7 +121,7 @@ async def _async_start_mirror(
         await store.async_load()
     except MediaStoreError as err:
         _LOGGER.warning("SiiPet cannot keep a local media copy: %s", err)
-        async_raise_issue(hass, ISSUE_FOLDER)
+        async_raise_issue(hass, entry, ISSUE_FOLDER)
         return None
     async_clear_issues(hass)
     runtime = entry.runtime_data
@@ -138,7 +138,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: SiiPetConfigEntry) -> N
 
 async def async_remove_entry(hass: HomeAssistant, entry: SiiPetConfigEntry) -> None:
     """Delete the local media copy of a removed entry."""
-    async_clear_issues(hass)
     if (root := media_root(hass)) is not None:
         await async_delete_folder(hass, root)
 
