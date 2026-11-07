@@ -156,7 +156,8 @@ The AI Task actions can attach the cover image and the stool image of a visit.
 Give `media-source://siipet/cover/<event id>` or `media-source://siipet/stool/<event id>` as the attachment.
 The image comes from the local media copy when the copy has it, and otherwise from the SiiPet cloud storage through Home Assistant.
 The media browser does not list these images, so set the id in YAML.
-This automation describes the cover image after each visit of one cat.
+This automation describes the cover image after each visit of one cat and sends the text in a notification.
+Replace the entity and the notify action with your own.
 
 ```yaml
 triggers:
@@ -172,6 +173,10 @@ actions:
       attachments:
         - media_content_id: "media-source://siipet/cover/{{ trigger.to_state.attributes.event_id }}"
           media_content_type: image/jpeg
+    response_variable: description
+  - action: notify.mobile_app_phone
+    data:
+      message: "{{ description.data }}"
 ```
 
 ## Local media copy
