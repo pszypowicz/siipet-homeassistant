@@ -11,6 +11,7 @@ from homeassistant.config_entries import SOURCE_USER
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType, InvalidData
+import probatio
 import pytest
 from pytest_homeassistant.common import MockConfigEntry
 
@@ -22,6 +23,7 @@ from custom_components.siipet.api import (
     SiiPetError,
 )
 from custom_components.siipet.api.client import WRONG_CODE
+from custom_components.siipet.config_flow import CODE_SCHEMA, EMAIL_SCHEMA
 from custom_components.siipet.const import (
     AUTH_EMAIL,
     AUTH_PASSWORD,
@@ -773,3 +775,19 @@ async def test_new_password_for_token_entry_needs_code_sign_in(
     assert result["reason"] == reason
     assert token_entry.data[CONF_EMAIL] == "cat@example.com"
     assert CONF_PASSWORD_HASH not in token_entry.data
+
+
+@pytest.mark.parametrize(
+    ("schema", "user_input"),
+    [
+        (EMAIL_SCHEMA, {CONF_EMAIL: "cat@example.com", CONF_PASSWORD: ["secret-1"]}),
+        (CODE_SCHEMA, {CONF_CODE: "012345", CONF_NEW_PASSWORD: ["secret-1"]}),
+    ],
+)
+def test_password_errors_are_redacted(
+    schema: probatio.Schema, user_input: dict[str, Any]
+) -> None:
+    """A validation error of a password field keeps the value out of its output."""
+    with pytest.raises(probatio.Invalid) as err:
+        schema(user_input)
+    assert [error["secret"] for error in err.value.as_dict()["errors"]] == [True]

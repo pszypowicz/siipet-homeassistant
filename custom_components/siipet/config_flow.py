@@ -26,7 +26,7 @@ from homeassistant.helpers.selector import (
     TextSelectorConfig,
     TextSelectorType,
 )
-import voluptuous as vol
+import probatio
 
 from .api import (
     Session,
@@ -58,24 +58,24 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-EMAIL_SCHEMA = vol.Schema(
+EMAIL_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_EMAIL): TextSelector(
+        probatio.Required(CONF_EMAIL): TextSelector(
             TextSelectorConfig(type=TextSelectorType.EMAIL, autocomplete="email")
         ),
-        vol.Optional(CONF_PASSWORD): TextSelector(
+        probatio.Optional(probatio.Secret(CONF_PASSWORD)): TextSelector(
             TextSelectorConfig(
                 type=TextSelectorType.PASSWORD, autocomplete="current-password"
             )
         ),
     }
 )
-CODE_SCHEMA = vol.Schema(
+CODE_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_CODE): TextSelector(
+        probatio.Required(CONF_CODE): TextSelector(
             TextSelectorConfig(autocomplete="one-time-code")
         ),
-        vol.Optional(CONF_NEW_PASSWORD): TextSelector(
+        probatio.Optional(probatio.Secret(CONF_NEW_PASSWORD)): TextSelector(
             TextSelectorConfig(
                 type=TextSelectorType.PASSWORD, autocomplete="new-password"
             )
@@ -83,9 +83,9 @@ CODE_SCHEMA = vol.Schema(
     }
 )
 
-OPTIONS_SCHEMA = vol.Schema(
+OPTIONS_SCHEMA = probatio.Schema(
     {
-        vol.Required(CONF_MEDIA_DAYS, default=DEFAULT_MEDIA_DAYS): vol.All(
+        probatio.Required(CONF_MEDIA_DAYS, default=DEFAULT_MEDIA_DAYS): probatio.All(
             NumberSelector(
                 NumberSelectorConfig(
                     min=0,
@@ -95,7 +95,7 @@ OPTIONS_SCHEMA = vol.Schema(
                     unit_of_measurement="days",
                 )
             ),
-            vol.Coerce(int),
+            probatio.Coerce(int),
         )
     }
 )
