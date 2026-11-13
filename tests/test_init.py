@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
 from homeassistant.const import CONF_EMAIL
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 import pytest
-from pytest_homeassistant.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry, async_capture_events
 
 from custom_components.siipet import async_remove_config_entry_device
 from custom_components.siipet.api import Session, SiiPetAuthError, SiiPetConnectionError
@@ -217,3 +217,39 @@ async def test_password_relogin_is_saved(
     assert config_entry.data[CONF_TOKEN] == "signed-in-again"
     assert config_entry.data[CONF_PASSWORD_HASH] == SECRET_HASH
     assert config_entry.data[CONF_EMAIL] == "cat@example.com"
+
+
+async def test_setup_removes_the_old_setting_entities(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    entity_registry: er.EntityRegistry,
+) -> None:
+    """The read-only setting entities that the controls replace leave the registry, and the controls stay."""
+    old = [
+        ("sensor", "SN0001_fill_light"),
+        ("sensor", "SN0001_motion_sensitivity"),
+        ("binary_sensor", "SN0001_privacy_mode"),
+    ]
+    kept = [
+        ("switch", "SN0001_privacy_mode"),
+        ("select", "SN0001_motion_sensitivity"),
+    ]
+    entity_ids: dict[tuple[str, str], str] = {}
+    for domain, unique_id in (*old, *kept):
+        entity = entity_registry.async_get_or_create(
+            domain, DOMAIN, unique_id, config_entry=config_entry
+        )
+        entity_ids[(domain, unique_id)] = entity.entity_id
+    events = async_capture_events(hass, er.EVENT_ENTITY_REGISTRY_UPDATED)
+    await setup_integration(hass, config_entry)
+    for domain, unique_id in old:
+        assert entity_registry.async_get_entity_id(domain, DOMAIN, unique_id) is None
+    # The platforms add the controls again, so only the events show a removal.
+    removed = {
+        event.data["entity_id"] for event in events if event.data["action"] == "remove"
+    }
+    assert removed == {entity_ids[unique] for unique in old}
+    for domain, unique_id in kept:
+        entity_id = entity_registry.async_get_entity_id(domain, DOMAIN, unique_id)
+        assert entity_id == entity_ids[(domain, unique_id)]

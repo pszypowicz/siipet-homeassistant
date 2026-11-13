@@ -74,6 +74,7 @@ registered timezone.
 | `/api/v1/pet/toilet/event/annotate`   | Edit cat assignment or event classification.      |
 | `/api/v1/pet/toilet/data/calendar`    | Per-day history for charts.                       |
 | `/api/v1/config/system/config`        | Client configuration. Called often.               |
+| `/api/v1/device/detail`               | Per-camera configuration, with the level values.  |
 | `/api/v1/config/aws/auth`             | Temporary credentials for media and device state. |
 | `/api/v1/user/firebase/token/bind`    | Push notification registration.                   |
 
@@ -578,7 +579,7 @@ The tests do not change device configuration or establish every transition.
 `BindDevice.isJoyPrivacyStatus` reads `privacyMode.active`.
 Use that field for the JOY1 app privacy state.
 The separate `privacyStatus` flag does not establish the same behavior.
-The samples contain `false` for both flags, so a privacy mode transition remains untested.
+The samples contain `false` for both flags. A live privacy mode change is in "Live checks".
 
 The `pir` object contains configuration for motion detection.
 It does not contain a motion event in the inspected replies.
@@ -590,6 +591,57 @@ Its slider fallback values are `40`, `70`, and `120`.
 `JoyFillLightSetVM.requestConfigFillLight` obtains `brightness2` from a configuration map and falls back to `60` when the selected level has no entry.
 These client defaults do not establish device limits or a percentage scale.
 
+### Changing a setting (realtime control)
+
+The app changes a camera setting over a second realtime service, not the REST
+API. It is Centrifugo (`io.github.centrifugal` in the app) at
+`wss://wss-siipet.linkric.com/connection/websocket`, the JSON protocol.
+
+The connect command has the name `java` and carries `data` of `{"platform": 1,
+"appConnectData": {"token": <api token>, "userId": <user id>}}`, so the same
+session token the REST and shadow lanes use authenticates the realtime lane
+too. There is no separate credential. The connect reply has `client`, `ping`,
+`pong`, and `version`.
+
+The app publishes to the per-camera channel `device:joy1:<SN>:app:dev:request`.
+The message is:
+
+```json
+{
+  "request": {
+    "header": {"name": "<command>", "sessionId": "<uuid>", "deviceId": "<SN>"},
+    "payload": {...}
+  }
+}
+```
+
+The reply to a publish is empty. The app subscribes to
+`device:joy1:<SN>:app:dev:response`, and the subscription is granted, but the
+camera sent nothing on it after a command.
+
+The app writes the shadow `desired` first, then sends the command, and then
+waits for `reported` to match, for 10 seconds. A privacy mode change is only
+the command. The app does not write `desired.privacyMode`.
+
+`config.fillLight` sets the night light. Its payload is the whole `fillLight`
+object, so a change to one field keeps the others:
+
+```json
+{"autoLight": true, "brightness2": 70, "level": 2, "lowLight": true}
+```
+
+`level` is 1, 2, or 3 (low, standard, high). `brightness2` comes from
+`Data.JOY1SystemConfig.FillLight["<level>"]` of `/api/v1/device/detail`, and the
+app uses 60 when the level has no entry. The app's slider values 40, 70, and 120
+are display values only.
+
+`config.pir.sense` sets the motion sensitivity. Its payload is
+`{"sense": <number>, "level": <level>}`, and `sense` comes from
+`Data.JOY1SystemConfig.Pir["<level>"]`. `config.privacyMode` sets privacy mode
+with `{"active": <boolean>}`. Other commands seen in the app:
+`config.sleepMode`, `control.picture`, `control.video.start` / `stop`,
+`config.upgrade.info` / `start.upgrade`.
+
 Android `JoyPirSenseSetActivity.initPirSenseLevelData` offers level `2` as medium and level `3` as high.
 Its fallback `sense` values are `75` and `60`, respectively.
 The app can replace those values through a configuration map.
@@ -598,6 +650,29 @@ The inspected UI does not establish a physical unit for `sense`.
 Android `DeviceOtaMode` defines `0` as automatic, `1` as manual, and `2` as unknown.
 These codes describe update mode rather than update progress or success.
 `otaMode` reads do not establish that a firmware update is available.
+
+#### Per-camera configuration
+
+`/api/v1/device/detail` takes `{"SN": "<serial>", "Version": "<firmware version>"}`.
+`Data.JOY1SystemConfig` holds the level maps `FillLight` and `Pir`, keyed by level.
+A live read returned the same maps for every camera, and for an empty and a real
+`Version`:
+
+| Level | `FillLight` | `Pir` |
+| ----- | ----------- | ----- |
+| 0     | 70          | 60    |
+| 1     | 40          | 75    |
+| 2     | 70          | 60    |
+| 3     | 120         | 45    |
+
+The motion values differ from the app's fallbacks of 75 and 60 for levels 2 and 3.
+
+#### Feature flags
+
+`Data.Device.FeatureOpen` of `/api/v1/config/system/config` is a list of
+`{"FeatureId": ["<id>"], "MinimumVersion": "<version>"}`. `FeatureId` is a list of
+strings. The app shows the fill light and motion settings only when feature `6`
+is on for the camera firmware. Feature `6` has the minimum version `0.0.6.31`.
 
 #### State age and update messages
 
@@ -1109,6 +1184,41 @@ These results come from tests against a real account.
   The app showed its sign-in screen.
 - `/api/v1/user/email/login` answered `Code` 10003 "not register" for an account without a password
   and for an address without an account.
+- The realtime control lane works from an invited account. A `config.fillLight`
+  command on the `device:joy1:<SN>:app:dev:request` channel, with the connect
+  `data` carrying the API token and user id, changed the camera's reported
+  `fillLight.level` (tested low, standard, high) and its `lowLight` field. The
+  camera applied the command and reported the new value over its shadow.
+- Sent without the shadow `desired` write, the camera still applied the command
+  and reported the change. The shadow then showed a `delta` for the stale
+  `desired`. Whether the camera applies a stale `desired` at a reconnect is an
+  open point, so the integration writes `desired` as the app does.
+- AWS IoT accepted a `desired` write for `fillLight` to the config shadow from the
+  owner account and from an invited account. It answered `update/accepted` in about
+  150 ms. Both accounts were granted the `update/accepted` and `update/rejected`
+  subscriptions, and the read connection stayed up.
+- The realtime server accepted a connect with the name `java`. A subscription to
+  the response channel was granted, and a publish reply was empty.
+- An invalid token and an ended session token both get the connect error code 401.
+  The server sends an error reply and drops the socket about 5 seconds later.
+- The REST API answers an expired token with `Code` -2, so an expired token cannot
+  be renewed. The integration signs in again with the stored password, if it has one,
+  or asks the user to sign in again.
+- A full fill light change on cameras on battery took a `desired` write of about
+  150 ms and a command of 0.8 to 1.2 seconds. The camera reported the new values
+  1.2 to 2.9 seconds after the command started, also while it was idle. A shadow
+  document that arrives right after the `desired` write still shows the old
+  values, so only a report with the new value confirms a change.
+- A `config.fillLight` command with the reported values made the camera report
+  again within about 0.5 seconds with the same values.
+- Privacy mode changed live for the first time, on a camera on battery. The
+  command `config.privacyMode` with `{"active": true}` and then `{"active": false}`
+  took 0.7 to 1.0 seconds. The camera reported `privacyMode.active` with the new
+  value 1.3 to 1.6 seconds after the command started. Each change gave exactly
+  one shadow report, the confirming one. No `desired` write was involved.
+- While Home Assistant opened realtime connections with the owner account's token,
+  the phone app of the same account stayed signed in and kept working on its home
+  screen. Live view was not open, so a parallel live video session is not covered.
 - The integration's own MQTT connection ran for 120 seconds against the owner account. It connected and reported a state for all 4 cameras. Its log held no serial number, shadow name, identity, or signed URL.
 - After the deploy of the device state, the invited-account instance created the device state entities of all 4 cameras. The owner instance showed battery values for all 4 cameras, all online, privacy mode off, and update mode manual. One camera on external power reported `charging: true` at 99% battery, the first live sample with that value.
 - Both instances ran the device state for 11 hours after a restart, through the planned reconnect before the IoT credentials expire.
@@ -1121,7 +1231,7 @@ These results come from tests against a real account.
 
 - Charging transitions, and behavior when a full battery is on external power.
 - Battery reporting intervals and observed changes through MQTT `/update/documents`.
-- Privacy and recording transitions, illumination code meanings, and configuration field units.
+- Recording transitions, illumination code meanings, and configuration field units.
 - Whether the iPhone uses the Android renewal condition.
 - How renewal behaves near or after the encoded token expiration, and how long
   the previous token remains valid after renewal.
@@ -1141,9 +1251,10 @@ These results come from tests against a real account.
 - Whether the server accepts operations 1 and 2, a memo edit, and a delete from an
   invited account. Operation 3 works (see Live checks). The answer decides whether
   an invited account can replace the owner account for all edits.
-- Which envelope codes the server returns for an expired or invalid token. The
-  app treats -2 and -4 as an ended session.
 - Whether the server checks `x-device-os`. `iOS 27.0` works with both model prefixes.
+- Whether the camera acts on the command or on the `desired` delta, and whether it
+  applies a stale `desired` at boot.
+- Whether the server also answers an ended session with `Code` -4. The live check saw -2 for an expired token.
 - Whether an account allows more than one active session. The earlier -2 results
   came from the model header, so they do not answer this. A password sign-in
   from a script ended the session of the phone app. After an email-code sign-in

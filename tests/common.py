@@ -23,7 +23,7 @@ from pytest_homeassistant.test_util.aiohttp import (
 )
 
 from custom_components.siipet.api import CameraShadows, DayVisits, DeviceState, Visit
-from custom_components.siipet.api.shadow_link import LinkStatus
+from custom_components.siipet.api.shadow_link import LinkStatus, WriteResult
 from custom_components.siipet.const import CONF_MEDIA_DAYS, DOMAIN
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -38,6 +38,9 @@ DEVICE_STATE = DeviceState(
     charging=False,
     privacy=False,
     fill_light=2,
+    fill_light_auto=True,
+    fill_light_night_vision=True,
+    fill_light_brightness=70,
     motion_level=3,
     update_mode=0,
     cloud_storage=True,
@@ -78,9 +81,19 @@ class FakeShadowLink:
             cameras_with_state=1,
             denied_cameras=1,
         )
+        self.writable = True
+        # With `writable` False: True means command only, False means not ready.
+        self.refused = False
+        self.update_desired = AsyncMock(return_value=WriteResult.ACCEPTED)
 
     def set_cameras(self, cameras: Mapping[str, CameraShadows]) -> None:
         self.cameras = dict(cameras)
+
+    def can_write(self, sn: str) -> bool:
+        return self.writable and self.status.connected
+
+    def writes_refused(self, sn: str) -> bool:
+        return self.refused
 
     async def run(self) -> None:
         # By default the fake returns at once, because the tests of the local
@@ -94,6 +107,17 @@ class FakeShadowLink:
     async def stop(self) -> None:
         self.stopped = True
         self._stopped_event.set()
+
+
+def camera_reports(
+    link: FakeShadowLink, sn: str = "SN0001", **changes: Any
+) -> Callable[..., None]:
+    """Return a `send` side effect that reports `changes`, as a camera does after a command."""
+
+    def send(*_args: Any, **_kwargs: Any) -> None:
+        link.on_state(sn, replace(DEVICE_STATE, **changes))
+
+    return send
 
 
 def load_fixture(name: str) -> dict[str, Any]:
