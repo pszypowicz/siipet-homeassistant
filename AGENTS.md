@@ -16,7 +16,7 @@ custom_components/siipet/
     client.py          SiiPetClient: headers, envelope, one method per endpoint
     auth.py            challenge encryption, token payload, renewal rule
     challenge_key.py   AES key for the sign-in challenge
-    models.py          Cat, Camera, CameraShadows, Visit, VisitType, DayVisits, DaySummary, CalendarDay, AbnormalLabels, MediaCredentials, IotCredentials, DeviceState, DeviceSettings, FeatureRules
+    models.py          Cat, Camera, CameraShadows, Visit, VisitType, DayVisits, DaySummary, CalendarDay, AbnormalLabels, MediaCredentials, IotCredentials, DeviceState, DeviceSettings, FeatureRules, SystemConfig, FirmwareRelease, ReleaseNoteSection
     edits.py           plan_edit: the annotate and memo calls for one visit edit
     errors.py          SiiPetError and its subclasses
     s3.py              SigV4 presigned GET URLs, credential cache
@@ -28,10 +28,10 @@ custom_components/siipet/
   __init__.py          setup of the image and recording views, the actions, the card commands, and the card, entry setup that starts the device state and the local media copy, unload, entry removal that deletes the copy, device removal
   config_flow.py       email step with an optional password, code step with an optional new password, reauth and reconfigure, options step for the days of local media
   const.py             constants: config keys, Unknown cat id, intervals
-  coordinator.py       SiiPetCoordinator, SiiPetData, SiiPetRuntime
+  coordinator.py       SiiPetCoordinator, SiiPetData, SiiPetRuntime, and the system config read
   device_state.py      SiiPetDeviceCoordinator: the device state that the shadow link pushes, and the setting changes
   entity.py            cat and camera entity bases
-  sensor.py  binary_sensor.py  event.py  select.py  switch.py  diagnostics.py
+  sensor.py  binary_sensor.py  event.py  select.py  switch.py  update.py  diagnostics.py
   services.py          actions: list_visits, update_visit, delete_visit
   services.yaml        action fields and selectors
   visit_data.py        visit, cat, and camera label helpers, the date check, and the day read for the actions and the card commands
@@ -82,8 +82,10 @@ frontend/              source of the dashboard card: TypeScript, Lit, esbuild, v
 - The card reuses internal tile parts of the Home Assistant frontend. `frontend/src/tile-parts.ts` lists them.
   If a part is missing, the card names it and shows nothing else.
 - Only `api/shadow_link.py` talks to AWS IoT. It writes the shadow `desired` only for the settings
-  that the app writes there: `fillLight` and `pir`.
+  that the app writes there: `fillLight`, `pir`, and `otaMode`.
 - Only `api/lrtm.py` talks to the realtime (Centrifugo) server.
+- Only the main coordinator reads `/api/v1/config/system/config`, every 6 hours. Entities read it from `SiiPetData.system`. The device hub reads the feature rules from `SiiPetCoordinator.system_config`, the last config that was read, also when the update that read it failed later.
+- The update entities never install firmware. `api/` never reads the firmware download fields `Url`, `Sha256`, `AesCfb256Key`, and `EventId`.
 - The device state entities read `SiiPetDeviceCoordinator.data`, and the camera list of the main coordinator for availability. The shadow link runs as a background task, so setup never waits for it.
 
 ## API facts that are easy to get wrong
@@ -116,6 +118,10 @@ Read `docs/api.md` before you change `api/`. These points cause most mistakes:
 - The realtime server is Centrifugo. The connect command has the name `java` and the data
   `{"platform": 1, "appConnectData": {"token", "userId"}}`. Commands go to `device:joy1:<SN>:app:dev:request`.
 - The realtime server answers an invalid or ended token with error 401.
+- The update mode change copies the app: a `desired` write of `{"otaMode": {"mode": 0|1}}` only.
+  A camera on battery applies it only when it is awake, so the integration sends `wakeup.lowpower` after the write.
+- The latest firmware comes from `Data.Device.Firmware` of `/api/v1/config/system/config`, by `ProductId`.
+  `LatestVersion` of `/api/v1/device/detail` is empty while the camera runs the latest version.
 - AWS IoT accepts the desired write from the owner and from an invited account.
 - `brightness2` and the motion `sense` come from `JOY1SystemConfig` of `/api/v1/device/detail`.
   The values 40, 70, and 120 on the app's slider are display values only.

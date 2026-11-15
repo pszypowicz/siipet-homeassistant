@@ -555,26 +555,26 @@ These paths are relative to `state.reported` in the `configInfo` shadow.
 The direct reads establish their presence and types.
 The tests do not change device configuration or establish every transition.
 
-| Field                                      | Type             | Meaning                                                                      |
-| ------------------------------------------ | ---------------- | ---------------------------------------------------------------------------- |
-| `privacyMode.active`                       | Boolean          | Privacy mode flag used by the JOY1 app.                                      |
-| `privacyStatus`                            | Boolean          | Separate privacy flag with unconfirmed behavior.                             |
-| `recordInfo.recording`                     | Boolean          | Reported recording flag. Live samples contain `false`.                       |
-| `autoTrack`                                | Boolean          | Reported automatic tracking flag.                                            |
-| `lightStatus`                              | Boolean          | Separate light flag with unconfirmed behavior.                               |
-| `fillLight.autoLight`                      | Boolean          | Automatic illumination configuration shown by the app.                       |
-| `fillLight.lowLight`                       | Boolean          | Low-light configuration shown by the app.                                    |
-| `fillLight.level`                          | Integer          | Illumination level selected in the app.                                      |
-| `fillLight.brightness2`                    | Integer          | Numeric illumination parameter associated with the selected level.           |
-| `fillLight.active`, `fillLight.brightness` | Integer          | Additional illumination fields with unconfirmed units and code meanings.     |
-| `pir.level`, `pir.sense`                   | Integer          | Motion sensitivity level and its numeric parameter.                          |
-| `otaMode.mode`                             | Integer          | Firmware update mode. See the Android codes below.                           |
-| `otaMode.start`, `otaMode.end`             | Integer          | Update window fields with unconfirmed units and scheduling rules.            |
-| `cloudMode.enableCloud`                    | Boolean          | Reported cloud storage flag.                                                 |
-| `cloudMode.leftCloudStorageQuota`          | Integer          | Remaining cloud quota field with unconfirmed units.                          |
-| `cloudMode.localRecordDuration`            | Integer          | Local recording duration field with unconfirmed units.                       |
-| `tzName`                                   | String           | Device timezone name.                                                        |
-| `petFeature`                               | Array of strings | Pet feature references. The test does not establish their identifier format. |
+| Field                                      | Type             | Meaning                                                                                             |
+| ------------------------------------------ | ---------------- | --------------------------------------------------------------------------------------------------- |
+| `privacyMode.active`                       | Boolean          | Privacy mode flag used by the JOY1 app.                                                             |
+| `privacyStatus`                            | Boolean          | Separate privacy flag with unconfirmed behavior.                                                    |
+| `recordInfo.recording`                     | Boolean          | Reported recording flag. Live samples contain `false`.                                              |
+| `autoTrack`                                | Boolean          | Reported automatic tracking flag.                                                                   |
+| `lightStatus`                              | Boolean          | Separate light flag with unconfirmed behavior.                                                      |
+| `fillLight.autoLight`                      | Boolean          | Automatic illumination configuration shown by the app.                                              |
+| `fillLight.lowLight`                       | Boolean          | Low-light configuration shown by the app.                                                           |
+| `fillLight.level`                          | Integer          | Illumination level selected in the app.                                                             |
+| `fillLight.brightness2`                    | Integer          | Numeric illumination parameter associated with the selected level.                                  |
+| `fillLight.active`, `fillLight.brightness` | Integer          | Additional illumination fields with unconfirmed units and code meanings.                            |
+| `pir.level`, `pir.sense`                   | Integer          | Motion sensitivity level and its numeric parameter.                                                 |
+| `otaMode.mode`                             | Integer          | Firmware update mode. See the Android codes below.                                                  |
+| `otaMode.start`, `otaMode.end`             | Integer          | Update window start and end in seconds of the day. Live samples hold 7200 and 14400 (2:00 to 4:00). |
+| `cloudMode.enableCloud`                    | Boolean          | Reported cloud storage flag.                                                                        |
+| `cloudMode.leftCloudStorageQuota`          | Integer          | Remaining cloud quota field with unconfirmed units.                                                 |
+| `cloudMode.localRecordDuration`            | Integer          | Local recording duration field with unconfirmed units.                                              |
+| `tzName`                                   | String           | Device timezone name.                                                                               |
+| `petFeature`                               | Array of strings | Pet feature references. The test does not establish their identifier format.                        |
 
 `BindDevice.isJoyPrivacyStatus` reads `privacyMode.active`.
 Use that field for the JOY1 app privacy state.
@@ -643,6 +643,14 @@ with `{"active": <boolean>}`. Other commands seen in the app:
 `config.sleepMode`, `control.picture`, `control.video.start` / `stop`,
 `config.upgrade.info` / `start.upgrade`.
 
+The app changes the firmware update mode with only a `desired` write of
+`{"otaMode": {"mode": 0|1}}` to the config shadow. It sends no command, and it
+shows the value of `desired`. The camera's main processor applies the value and
+reports it in `reported.otaMode`. On battery that processor sleeps, and it does
+not apply the value until it wakes. The integration sends `wakeup.lowpower` with
+payload `{}` after the write. The app sends the same command every 10 seconds
+while it is in the foreground.
+
 Android `JoyPirSenseSetActivity.initPirSenseLevelData` offers level `2` as "Standard(Recommended)" and level `3` as "High (Reduces Missed Events)".
 Its fallback `sense` values are `75` and `60`, respectively.
 The app can replace those values through a configuration map.
@@ -674,6 +682,22 @@ The motion values differ from the app's fallbacks of 75 and 60 for levels 2 and 
 `{"FeatureId": ["<id>"], "MinimumVersion": "<version>"}`. `FeatureId` is a list of
 strings. The app shows the fill light and motion settings only when feature `6`
 is on for the camera firmware. Feature `6` has the minimum version `0.0.6.31`.
+
+#### Firmware releases
+
+`Data.Device.Firmware` of `/api/v1/config/system/config` lists the latest firmware
+of each product. An entry has `ProductId` (`JOY1` for this camera), `ProductName`,
+`LatestVersion`, `Force`, and `Notify`. `LatestVersion` has `Version` and
+`ReleaseNoteFormat`, a list of `{"title", "items"}`. It also has the download
+fields `Url`, `Sha256`, `AesCfb256Key`, `Size`, and `EventId`. The download fields
+are private, and the integration does not read them.
+
+The app prefers this list over `LatestVersion` of `/api/v1/device/detail`, which is
+empty while the camera runs the latest version. `CurrentVersion` of the device
+detail holds the installed version and its release notes. `OtaProcess` holds
+`UpdateStatus` (0 success, 1 upgrading, 2 failed, 99 idle), `Progress` in percent,
+`Code`, and `Msg`. The app finds an update when the reported `main.sysVersion` is
+lower than the latest version, part by part.
 
 #### State age and update messages
 
@@ -1020,7 +1044,7 @@ The integration reads the device state as described in "Read the battery shadow"
 - It ignores a document with a lower `version` than the last one of the same shadow.
 - A camera is skipped for one hour when AWS IoT refuses its subscription, or when its start fails twice in a row. Its entities become unavailable, and the other cameras keep working.
 - If the connection stays down for 15 minutes, the device state entities become unavailable.
-- It never publishes to `update`, so it never changes a camera setting.
+- It publishes to `update` only for a setting change: the `desired` of `fillLight`, `pir`, or `otaMode`.
 
 ## Findings from the Android app
 
@@ -1229,6 +1253,18 @@ These results come from tests against a real account.
   - Neither instance logged a device state warning, and no device state entity became unavailable.
   - Both instances received the same battery change after the planned reconnect.
   - A planned reconnect writes no log line and keeps `connected_since` in the diagnostics, so the socket counters were the only evidence.
+- A read of all 4 cameras showed `desired.otaMode` equal to `reported.otaMode`,
+  `{"mode": 1, "start": 7200, "end": 14400}`, with no delta.
+- A `desired` write of `otaMode.mode` without a command, on a camera on external power
+  with its main processor awake (`main.connected.status` true): the camera reported the
+  new mode about 0.5 seconds after the write, in both directions.
+- The same write on a camera on battery with its main processor asleep: no report within
+  60 seconds. One `wakeup.lowpower` command made the main processor connect about
+  10 seconds later, and the camera reported the new mode 12.3 seconds after the wake.
+  The write back, with the processor still awake, was reported in 0.9 seconds.
+- The system config listed the latest `JOY1` firmware at the version that all 4 cameras
+  run, with three release note sections. `LatestVersion` of the device detail was empty
+  for every camera.
 
 ## Open questions
 
@@ -1268,3 +1304,5 @@ These results come from tests against a real account.
   email-code sign-in from Home Assistant.
 - Whether a renewal ends the other session when Home Assistant and the phone app
   use the same token and `x-device-identifier`, in either direction.
+- The firmware fields while an update is available or running. All cameras ran the latest version in the live checks.
+- Whether the cloud writes `desired.main.sysVersion` to start an automatic update.
