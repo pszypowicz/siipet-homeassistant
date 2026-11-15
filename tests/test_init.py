@@ -230,10 +230,12 @@ async def test_setup_removes_the_old_setting_entities(
         ("sensor", "SN0001_fill_light"),
         ("sensor", "SN0001_motion_sensitivity"),
         ("binary_sensor", "SN0001_privacy_mode"),
+        ("sensor", "SN0001_update_mode"),
     ]
     kept = [
         ("switch", "SN0001_privacy_mode"),
         ("select", "SN0001_motion_sensitivity"),
+        ("switch", "SN0001_automatic_firmware_updates"),
     ]
     entity_ids: dict[tuple[str, str], str] = {}
     for domain, unique_id in (*old, *kept):

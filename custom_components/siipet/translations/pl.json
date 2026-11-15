@@ -207,13 +207,6 @@
       },
       "wifi_signal": {
         "name": "Sygnał Wi-Fi"
-      },
-      "update_mode": {
-        "name": "Tryb aktualizacji oprogramowania",
-        "state": {
-          "automatic": "Automatyczny",
-          "manual": "Ręczny"
-        }
       }
     },
     "select": {
@@ -242,6 +235,9 @@
       },
       "privacy_mode": {
         "name": "Tryb prywatności"
+      },
+      "automatic_firmware_updates": {
+        "name": "Automatyczne aktualizacje oprogramowania"
       }
     }
   },

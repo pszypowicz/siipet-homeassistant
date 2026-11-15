@@ -1,4 +1,4 @@
-"""Camera setting switches: auto fill light, night vision fill light, privacy mode."""
+"""Camera setting switches: auto fill light, night vision fill light, privacy mode, automatic firmware updates."""
 
 from __future__ import annotations
 
@@ -12,7 +12,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .api import DeviceState
-from .api.settings import FillLightChange, PrivacyChange, SettingChange
+from .api.settings import (
+    UPDATE_MODE_AUTOMATIC,
+    UPDATE_MODE_MANUAL,
+    FillLightChange,
+    PrivacyChange,
+    SettingChange,
+    UpdateModeChange,
+)
 from .coordinator import SiiPetConfigEntry
 from .entity import SiiPetCameraStateEntity, async_add_camera_state_entities
 
@@ -26,6 +33,15 @@ class SiiPetSwitchDescription(SwitchEntityDescription):
 
     value_fn: Callable[[DeviceState], bool | None]
     change_fn: Callable[[bool], SettingChange]
+
+
+def _automatic_updates(state: DeviceState) -> bool | None:
+    """On in automatic mode, off in manual mode, unknown for other codes."""
+    if state.update_mode == UPDATE_MODE_AUTOMATIC:
+        return True
+    if state.update_mode == UPDATE_MODE_MANUAL:
+        return False
+    return None
 
 
 SWITCHES: tuple[SiiPetSwitchDescription, ...] = (
@@ -48,6 +64,13 @@ SWITCHES: tuple[SiiPetSwitchDescription, ...] = (
         translation_key="privacy_mode",
         value_fn=lambda state: state.privacy,
         change_fn=lambda on: PrivacyChange(active=on),
+    ),
+    SiiPetSwitchDescription(
+        key="automatic_firmware_updates",
+        translation_key="automatic_firmware_updates",
+        entity_category=EntityCategory.CONFIG,
+        value_fn=_automatic_updates,
+        change_fn=lambda on: UpdateModeChange(automatic=on),
     ),
 )
 

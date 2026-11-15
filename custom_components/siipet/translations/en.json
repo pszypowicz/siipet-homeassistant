@@ -207,13 +207,6 @@
       },
       "wifi_signal": {
         "name": "Wi-Fi signal"
-      },
-      "update_mode": {
-        "name": "Firmware update mode",
-        "state": {
-          "automatic": "Automatic",
-          "manual": "Manual"
-        }
       }
     },
     "select": {
@@ -242,6 +235,9 @@
       },
       "privacy_mode": {
         "name": "Privacy mode"
+      },
+      "automatic_firmware_updates": {
+        "name": "Automatic firmware updates"
       }
     }
   },
