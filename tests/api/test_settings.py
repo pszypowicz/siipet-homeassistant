@@ -217,11 +217,18 @@ def test_update_mode_from_an_unknown_mode(reported: int | None) -> None:
         assert planned is not None
 
 
-def test_update_mode_already_reported() -> None:
-    """The camera already reports the mode, so nothing is sent."""
+def test_update_mode_already_reported_is_still_planned() -> None:
+    """A mode the camera already reports still gets its plan."""
     state = replace(STATE, update_mode=UPDATE_MODE_AUTOMATIC)
-    assert (
-        plan_change(UpdateModeChange(automatic=True), state, DeviceSettings()) is None
+    planned = plan_change(UpdateModeChange(automatic=True), state, DeviceSettings())
+    assert planned == PlannedChange(
+        group=SettingGroup.UPDATE_MODE,
+        desired_key="otaMode",
+        desired_value={"mode": UPDATE_MODE_AUTOMATIC},
+        command="wakeup.lowpower",
+        command_payload={},
+        expected={"update_mode": UPDATE_MODE_AUTOMATIC},
+        needs_desired=True,
     )
 
 

@@ -138,7 +138,9 @@ def plan_change(
 ) -> PlannedChange | None:
     """Plan a change. Return None when the camera already reports it.
 
-    Raise SettingUnavailableError when a field that the change keeps is unknown.
+    A change with `needs_desired` gets its plan also when the camera already
+    reports it. Raise SettingUnavailableError when a field that the change
+    keeps is unknown.
     """
     match change:
         case FillLightChange():
@@ -158,6 +160,11 @@ def plan_change(
             planned = _plan_update_mode(change)
         case _:
             assert_never(change)
+    # Desired can still hold an older request, as after a failed change,
+    # and the camera applies it at its next wake. So a change that needs
+    # desired writes it even when the camera reports the value.
+    if planned.needs_desired:
+        return planned
     return None if reports(state, planned.expected) else planned
 
 

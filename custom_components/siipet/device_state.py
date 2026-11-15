@@ -204,14 +204,21 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
             return
         waiter = _Waiter(planned.expected, asyncio.get_running_loop().create_future())
         self._waiters.setdefault(sn, []).append(waiter)
+        reported = planned.needs_desired and reports(state, planned.expected)
+        if reported:
+            # The camera has the value. The desired write only replaces an
+            # older request, so the report needs no wait.
+            waiter.future.set_result(None)
         try:
             try:
                 await self._async_send(sn, planned, waiter, remaining)
             except HomeAssistantError:
                 # A camera can apply the desired write and report it before
                 # the command fails. It then has the setting, so the change
-                # succeeded.
-                if waiter.confirmed():
+                # succeeded. When the camera reported the value before the
+                # write, a failed write still fails the change, because
+                # desired then keeps the older request.
+                if waiter.confirmed() and not reported:
                     return
                 raise
             try:
@@ -264,6 +271,10 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         # Nothing then waits for the report, so the command stays unsent.
         if self._abandoned(sn, waiter):
             raise self._stopped_error(sn, desired_written)
+        if planned.needs_desired and waiter.confirmed():
+            # The camera reports the value and desired now holds it too, so
+            # no wake is needed.
+            return
         left = remaining()
         if left <= 0:
             if desired_written:
