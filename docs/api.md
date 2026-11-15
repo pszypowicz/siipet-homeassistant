@@ -1267,6 +1267,11 @@ These results come from tests against a real account.
 - The system config listed the latest `JOY1` firmware at the version that all 4 cameras
   run, with three release note sections. `LatestVersion` of the device detail was empty
   for every camera.
+- From an invited account, the Home Assistant switch set the update mode of a camera on
+  battery to automatic and back to manual. The camera was asleep, and the change with the
+  wake took 12.5 seconds. The change back took 1.0 second while the camera was still awake.
+  Both `desired` and `reported` ended on manual with no delta. The Firmware entity showed
+  the same installed and latest version and three release note sections.
 
 ## Open questions
 
