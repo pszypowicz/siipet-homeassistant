@@ -611,7 +611,11 @@ class SystemConfig:
 
     @classmethod
     def from_api(cls, data: Mapping[str, Any]) -> SystemConfig:
-        """Parse `Data`. A malformed part raises, so one response gives one result."""
+        """Parse `Data`.
+
+        A parse error rejects the whole response, so all parts come from one
+        read. Bad feature and firmware entries are skipped.
+        """
         return cls(
             labels=AbnormalLabels.from_api(data),
             features=FeatureRules.from_api(data),

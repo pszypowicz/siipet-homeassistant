@@ -649,7 +649,9 @@ shows the value of `desired`. The camera's main processor applies the value and
 reports it in `reported.otaMode`. On battery that processor sleeps, and it does
 not apply the value until it wakes. The integration sends `wakeup.lowpower` with
 payload `{}` after the write. The app sends the same command every 10 seconds
-while it is in the foreground.
+while it is in the foreground. When the camera already reports the mode, the
+integration still writes `desired` but sends no wake, because an older
+`desired` left by a failed change would apply at the next wake.
 
 Android `JoyPirSenseSetActivity.initPirSenseLevelData` offers level `2` as "Standard(Recommended)" and level `3` as "High (Reduces Missed Events)".
 Its fallback `sense` values are `75` and `60`, respectively.

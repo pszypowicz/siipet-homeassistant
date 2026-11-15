@@ -240,7 +240,11 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         waiter: _Waiter,
         remaining: Callable[[], float],
     ) -> None:
-        """Write desired when the link can, then send the command."""
+        """Write desired when the link can, then send the command.
+
+        A change that needs desired fails when the shadow writes are refused.
+        It sends no command when the camera already reports the value.
+        """
         desired_written = False
         if planned.desired_key is not None and planned.desired_value is not None:
             if self._may_write_shadow(sn):

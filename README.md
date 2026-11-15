@@ -136,7 +136,7 @@ Each camera has these controls:
 - **Night vision fill light**: the light used for night vision.
 - **Motion sensitivity**: standard or high.
 - **Privacy mode**: while it is on, the camera stops capturing events. The app calls this mode Sleep.
-- **Automatic firmware updates**: the camera installs new firmware by itself, at night between 2:00 and 4:00. Off means you install updates in the SiiPet app.
+- **Automatic firmware updates**: the camera installs new firmware by itself in the update window that SiiPet sets, 2:00 to 4:00 on the tested cameras. Off means you install updates in the SiiPet app.
 
 A change waits until the camera reports the new value. This takes a few seconds.
 A camera on battery sleeps between visits, so a change of Automatic firmware updates wakes it first and can take about 15 seconds.
@@ -150,7 +150,7 @@ The controls work for an invited account too.
 
 The controls replace the read-only Fill light, Motion sensitivity, and Privacy mode entities of earlier versions.
 Update automations and dashboards that use them.
-Automatic firmware updates replaces the read-only Firmware update mode sensor of version 0.9.0.
+Automatic firmware updates replaces the read-only Firmware update mode sensor of earlier versions.
 
 ### Firmware
 

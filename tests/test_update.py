@@ -88,7 +88,7 @@ async def test_firmware_unknown_without_a_release(
     config_entry: MockConfigEntry,
     shadow_links: list[FakeShadowLink],
 ) -> None:
-    """Without a config, or without an entry for the product, the state is unknown."""
+    """A config without a release for the product leaves the state unknown."""
     mock_client.get_system_config.return_value = SystemConfig()
     await _setup(hass, config_entry, shadow_links)
     assert hass.states.get(ENTITY).state == STATE_UNKNOWN

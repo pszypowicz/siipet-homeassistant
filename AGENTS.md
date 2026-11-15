@@ -84,7 +84,7 @@ frontend/              source of the dashboard card: TypeScript, Lit, esbuild, v
 - Only `api/shadow_link.py` talks to AWS IoT. It writes the shadow `desired` only for the settings
   that the app writes there: `fillLight`, `pir`, and `otaMode`.
 - Only `api/lrtm.py` talks to the realtime (Centrifugo) server.
-- Only the main coordinator reads `/api/v1/config/system/config`, every 6 hours. Entities read it from `SiiPetData.system`. The device hub reads the feature rules from `SiiPetCoordinator.system_config`, the last config that was read, also when the update that read it failed later.
+- Only the main coordinator reads `/api/v1/config/system/config`, every 6 hours, and sooner while a read fails. Entities read it from `SiiPetData.system`. The device hub reads the feature rules from `SiiPetCoordinator.system_config`, the last config that was read, also when the update that read it failed later.
 - The update entities never install firmware. `api/` never reads the firmware download fields `Url`, `Sha256`, `AesCfb256Key`, and `EventId`.
 - The device state entities read `SiiPetDeviceCoordinator.data`, and the camera list of the main coordinator for availability. The shadow link runs as a background task, so setup never waits for it.
 
@@ -120,6 +120,8 @@ Read `docs/api.md` before you change `api/`. These points cause most mistakes:
 - The realtime server answers an invalid or ended token with error 401.
 - The update mode change copies the app: a `desired` write of `{"otaMode": {"mode": 0|1}}` only.
   A camera on battery applies it only when it is awake, so the integration sends `wakeup.lowpower` after the write.
+  The integration writes `desired` also when the camera already reports the mode, so an older request cannot stay behind.
+  It then sends no wake.
 - The latest firmware comes from `Data.Device.Firmware` of `/api/v1/config/system/config`, by `ProductId`.
   `LatestVersion` of `/api/v1/device/detail` is empty while the camera runs the latest version.
 - AWS IoT accepts the desired write from the owner and from an invited account.

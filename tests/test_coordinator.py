@@ -405,12 +405,12 @@ async def test_system_config_is_read_every_6_hours(
     config_entry: MockConfigEntry,
     frozen_time: FrozenDateTimeFactory,
 ) -> None:
-    """The regular update reads the system config again after 6 hours."""
+    """The regular update reads the system config again after 6 hours, not before."""
     coordinator = await _coordinator(hass, config_entry)
-    frozen_time.tick(timedelta(minutes=5))
+    frozen_time.tick(timedelta(hours=6) - timedelta(minutes=10))
     await coordinator.async_refresh()
     assert mock_client.get_system_config.await_count == 1
-    frozen_time.tick(SYSTEM_CONFIG_INTERVAL)
+    frozen_time.tick(timedelta(minutes=10))
     await coordinator.async_refresh()
     assert mock_client.get_system_config.await_count == 2
     assert coordinator.data.new_visits == ()
