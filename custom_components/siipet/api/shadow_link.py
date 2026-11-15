@@ -7,13 +7,15 @@ from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 import json
 import logging
+from typing import Any
 from uuid import uuid4
 
 import aiohttp
 
-from .errors import SiiPetError
+from .errors import ShadowWriteError, SiiPetError
 from .models import (
     CONFIG_SHADOW,
     SHADOW_KINDS,
@@ -24,7 +26,7 @@ from .models import (
     ShadowPart,
     parse_shadow,
 )
-from .mqtt import MqttError, MqttRefused, MqttSession
+from .mqtt import MqttError, MqttNotSent, MqttRefused, MqttSession
 from .sigv4 import iot_ws_url
 
 _LOGGER = logging.getLogger(__name__)
@@ -33,8 +35,21 @@ ACCEPTED = "get/accepted"
 REJECTED = "get/rejected"
 DOCUMENTS = "update/documents"
 REPLIES = (ACCEPTED, REJECTED, DOCUMENTS)
+UPDATE_ACCEPTED = "update/accepted"
+UPDATE_REJECTED = "update/rejected"
+UPDATE_REPLIES = (UPDATE_ACCEPTED, UPDATE_REJECTED)
 # Failed starts in a row that deny a camera.
 DENY_STRIKES = 2
+
+
+class WriteResult(StrEnum):
+    """The answer of AWS IoT to a desired write."""
+
+    ACCEPTED = "accepted"
+    # AWS IoT did not answer in time, the publish failed after it started, or
+    # the connection closed after the publish. The app does not wait for an
+    # answer either, so the change goes on.
+    UNCONFIRMED = "unconfirmed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +143,14 @@ class ShadowLink:
         self._versions: dict[tuple[str, str], int] = {}
         self._pending: dict[tuple[str, str], asyncio.Future[None]] = {}
         self._started: set[str] = set()
+        self._writable: set[str] = set()
+        self._writes_refused: set[str] = set()
+        self._writes_paused: dict[str, datetime] = {}
+        # Cameras whose write replies this connection skipped, because their
+        # writes were on hold at the write-reply step, or because that step
+        # failed and paused them.
+        self._writes_skipped: set[str] = set()
+        self._writes: dict[str, asyncio.Future[bool]] = {}
         self._denied: dict[str, datetime] = {}
         self._denied_logged: set[str] = set()
         self._callback_warned: set[str] = set()
@@ -168,6 +191,10 @@ class ShadowLink:
             for sn, shadows in self._cameras.items()
             for kind in SHADOW_KINDS
             for suffix in REPLIES
+        } | {
+            shadow_topic(sn, shadows.config, suffix): (sn, CONFIG_SHADOW, suffix)
+            for sn, shadows in self._cameras.items()
+            for suffix in UPDATE_REPLIES
         }
 
     async def run(self) -> None:
@@ -222,7 +249,6 @@ class ShadowLink:
             )
         session = MqttSession(ws, self._handle_message, write_limit=self._timings.reply)
         self._session = session
-        self._started.clear()
         try:
             await session.connect(
                 f"{credentials.identity_id}:{uuid4().hex}",
@@ -238,6 +264,11 @@ class ShadowLink:
             await self._serve(session, credentials)
         finally:
             self._session = None
+            # Each camera starts again on the next connection, and that start
+            # decides its write replies again.
+            self._started.clear()
+            self._writable.clear()
+            self._writes_skipped.clear()
             await session.close()
 
     async def _current_credentials(self) -> IotCredentials:
@@ -278,7 +309,15 @@ class ShadowLink:
             await self._start_cameras(session)
 
     async def _start_cameras(self, session: MqttSession) -> None:
-        """Start each camera that is not started, unless it waits after a denial."""
+        """Start each camera that is not started, unless it waits after a denial.
+
+        In one round, every camera reads first, and then the cameras that
+        started subscribe to their write replies. AWS IoT limits the
+        subscriptions of one connection, so in that round a limit reached by
+        the write replies costs no camera its reads. A camera that starts in a
+        later round reads after the write replies of the earlier rounds.
+        """
+        started: list[tuple[str, CameraShadows]] = []
         for sn in list(self._cameras):
             shadows = self._cameras.get(sn)
             if shadows is None or sn in self._started:
@@ -290,15 +329,25 @@ class ShadowLink:
             ):
                 continue
             await self._start_camera(session, sn, shadows)
+            started.append((sn, shadows))
+        for sn, shadows in started:
+            # set_cameras can replace or remove a camera, and a read can deny
+            # it, while other cameras start.
+            if self._cameras.get(sn) != shadows or sn not in self._started:
+                continue
+            if self._writes_on_hold(sn):
+                self._writes_skipped.add(sn)
+                continue
+            await self._subscribe_updates(session, sn, shadows)
 
     async def _start_camera(
         self, session: MqttSession, sn: str, shadows: CameraShadows
     ) -> None:
-        """Subscribe to the replies of both shadows, then read both.
+        """Subscribe to the replies of both shadows, and read both.
 
-        A refused subscription denies the camera at once. An MqttError is a
-        strike, and `DENY_STRIKES` strikes in a row deny the camera. The error
-        still ends the connection.
+        A refused read subscription denies the camera at once. An MqttError
+        in the reads is a strike, and `DENY_STRIKES` strikes in a row deny the
+        camera. The error still ends the connection.
         """
         # A retry after the denied wait starts clean, so its replies are read.
         self._denied.pop(sn, None)
@@ -343,6 +392,157 @@ class ShadowLink:
             self._denied_logged.discard(sn)
             self._strikes.pop(sn, None)
             self._started.add(sn)
+
+    async def _subscribe_updates(
+        self, session: MqttSession, sn: str, shadows: CameraShadows
+    ) -> None:
+        """Subscribe to the replies of desired writes.
+
+        AWS IoT can refuse these topics to an account that may read. A refusal
+        only means that the camera cannot be written, so it never denies the
+        camera. A subscription that fails pauses the writes of the camera, so
+        the connection goes on without them, and the next start reads it
+        without them. Neither counts a strike. The error ends the connection
+        only when the connection is already closed.
+        """
+        topics = [shadow_topic(sn, shadows.config, suffix) for suffix in UPDATE_REPLIES]
+        try:
+            granted = await session.subscribe(topics, self._timings.reply)
+        except MqttError:
+            self._pause_writes(sn, shadows)
+            if session.closed:
+                raise
+            if self._cameras.get(sn) == shadows:
+                self._writes_skipped.add(sn)
+            return
+        if self._cameras.get(sn) != shadows:
+            return
+        if not all(granted):
+            self._writes_refused.add(sn)
+            _LOGGER.debug("SiiPet refused the write replies of %s", self._label(sn))
+            return
+        self._writes_refused.discard(sn)
+        self._writes_paused.pop(sn, None)
+        self._writes_skipped.discard(sn)
+        self._writable.add(sn)
+
+    def _pause_writes(self, sn: str, shadows: CameraShadows) -> None:
+        """Make the camera not writable, and skip its write replies for the retry time."""
+        self._writable.discard(sn)
+        if self._stopping or self._cameras.get(sn) != shadows:
+            return
+        self._writes_paused[sn] = self._clock()
+        _LOGGER.debug(
+            "Writes to %s pause for %s", self._label(sn), self._timings.denied_retry
+        )
+
+    def _pause_if_dropped(
+        self, session: MqttSession, sn: str, shadows: CameraShadows
+    ) -> None:
+        """Pause the writes of the camera when the connection dropped during a write.
+
+        AWS IoT can close the connection for a publish that the policy forbids,
+        so the reads go on without the writes. A close that the link started,
+        such as a planned reconnect or `stop()`, pauses nothing.
+        """
+        if session.dropped:
+            self._pause_writes(sn, shadows)
+
+    def _writes_on_hold(self, sn: str) -> bool:
+        """True while the writes of the camera are paused."""
+        paused_at = self._writes_paused.get(sn)
+        return paused_at is not None and (
+            self._clock() - paused_at < self._timings.denied_retry
+        )
+
+    def writes_refused(self, sn: str) -> bool:
+        """True when a change to the camera must go without a desired write.
+
+        This holds when AWS IoT refused the write replies of the camera, while
+        its writes are paused, and for the rest of a connection on which the
+        write-reply step of the camera was skipped during a pause or failed
+        and started one. A refusal lasts until AWS IoT grants the write
+        replies on a later start. After the pause, a camera that has not
+        reached its write-reply step on the current connection is not refused
+        because of the pause, because that step tries the write replies again.
+        """
+        return (
+            sn in self._writes_refused
+            or self._writes_on_hold(sn)
+            or sn in self._writes_skipped
+        )
+
+    def can_write(self, sn: str) -> bool:
+        """True while the link is connected and can confirm writes for the camera."""
+        session = self._session
+        return (
+            self._connected
+            and not self._stopping
+            and session is not None
+            and not session.closed
+            and sn in self._writable
+        )
+
+    async def update_desired(
+        self, sn: str, key: str, value: Mapping[str, Any], *, limit: float
+    ) -> WriteResult:
+        """Write `{key: value}` to the desired state of the camera's config shadow.
+
+        Wait up to `limit` seconds for the answer of AWS IoT. Raise
+        ShadowWriteError("not_ready") when the write cannot leave, and
+        ShadowWriteError("rejected") when AWS IoT rejects it.
+        """
+        session = self._session
+        shadows = self._cameras.get(sn)
+        if limit <= 0 or session is None or shadows is None or not self.can_write(sn):
+            raise ShadowWriteError("not_ready")
+        token = uuid4().hex
+        body = json.dumps(
+            {"state": {"desired": {key: value}}, "clientToken": token},
+            separators=(",", ":"),
+        ).encode()
+        future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+        self._writes[token] = future
+        try:
+            async with asyncio.timeout(limit):
+                try:
+                    await session.publish(
+                        shadow_topic(sn, shadows.config, "update"), body
+                    )
+                except MqttNotSent as err:
+                    # The connection closed before the publish, so the message
+                    # did not leave.
+                    raise ShadowWriteError("not_ready") from err
+                except MqttError:
+                    # The write failed or stalled after it started, so the
+                    # message can still reach AWS IoT.
+                    pass
+                else:
+                    await self._wait_answer(session, future)
+        except TimeoutError:
+            pass
+        finally:
+            self._writes.pop(token, None)
+        # An answer can arrive while the publish fails or the limit runs out,
+        # so it decides the result whenever it is there.
+        if future.done():
+            if not future.result():
+                raise ShadowWriteError("rejected")
+            return WriteResult.ACCEPTED
+        self._pause_if_dropped(session, sn, shadows)
+        return WriteResult.UNCONFIRMED
+
+    async def _wait_answer(
+        self, session: MqttSession, future: asyncio.Future[bool]
+    ) -> None:
+        """Wait until the answer arrives or the connection closes."""
+        closed = asyncio.ensure_future(session.wait_closed())
+        try:
+            await asyncio.wait({future, closed}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            closed.cancel()
+            with suppress(asyncio.CancelledError):
+                await closed
 
     def _strike(self, sn: str) -> None:
         strikes = self._strikes.get(sn, 0) + 1
@@ -389,6 +589,9 @@ class ShadowLink:
             return
         sn, kind, suffix = target
         self._last_message = self._clock()
+        if suffix in UPDATE_REPLIES:
+            self._answer_write(payload, accepted=suffix == UPDATE_ACCEPTED)
+            return
         if sn in self._denied:
             # A partial SUBACK can leave a granted topic subscribed, but a
             # denied camera keeps no state until its retry starts clean.
@@ -422,6 +625,15 @@ class ShadowLink:
             )
         if suffix == ACCEPTED:
             self._resolve(sn, kind)
+
+    def _answer_write(self, payload: bytes, *, accepted: bool) -> None:
+        try:
+            token = json.loads(payload).get("clientToken")
+        except ValueError, AttributeError:
+            return
+        future = self._writes.get(token) if isinstance(token, str) else None
+        if future is not None and not future.done():
+            future.set_result(accepted)
 
     def _notify(self, sn: str, state: DeviceState | None) -> None:
         """Call `on_state`. An error in it does not end the connection."""
@@ -461,6 +673,8 @@ class ShadowLink:
         """Skip the camera for the retry time, and drop its state."""
         self._denied[sn] = self._clock()
         self._started.discard(sn)
+        self._writable.discard(sn)
+        self._writes_skipped.discard(sn)
         self._strikes.pop(sn, None)
         self._parts.pop(sn, None)
         for kind in SHADOW_KINDS:
@@ -482,6 +696,10 @@ class ShadowLink:
     def _forget(self, sn: str) -> None:
         self._parts.pop(sn, None)
         self._started.discard(sn)
+        self._writable.discard(sn)
+        self._writes_refused.discard(sn)
+        self._writes_paused.pop(sn, None)
+        self._writes_skipped.discard(sn)
         self._denied.pop(sn, None)
         self._denied_logged.discard(sn)
         self._callback_warned.discard(sn)

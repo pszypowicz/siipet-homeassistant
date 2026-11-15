@@ -18,6 +18,8 @@ from custom_components.siipet.api import (
     CalendarDay,
     Camera,
     Cat,
+    DeviceSettings,
+    FeatureRules,
     MediaCredentials,
     Session,
 )
@@ -46,6 +48,15 @@ def no_deprecated_calls(caplog: pytest.LogCaptureFixture) -> Generator[None]:
         if record.name == "homeassistant.helpers.frame"
     ]
     assert not reports
+
+
+@pytest.fixture(autouse=True)
+def mock_control() -> Generator[AsyncMock]:
+    """Replace the realtime control client, so tests send no command over a socket."""
+    with patch("custom_components.siipet.LrtmClient") as control_class:
+        control = control_class.return_value
+        control.send = AsyncMock()
+        yield control
 
 
 @pytest.fixture(autouse=True)
@@ -119,6 +130,12 @@ def mock_client_class() -> Generator[MagicMock]:
         client.get_calendar.return_value = tuple(
             CalendarDay.from_api(item)
             for item in load_data("pet_calendar.json")["DataCalendar"]
+        )
+        client.get_feature_rules.return_value = FeatureRules.from_api(
+            load_data("system_config.json")
+        )
+        client.get_device_settings.return_value = DeviceSettings.from_api(
+            load_data("device_detail.json")
         )
         yield client_class
 

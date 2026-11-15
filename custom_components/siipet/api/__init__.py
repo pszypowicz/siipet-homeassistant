@@ -3,11 +3,18 @@
 from .auth import Session, hash_password
 from .client import SiiPetClient
 from .errors import (
+    LrtmError,
+    LrtmServerError,
+    LrtmTransportError,
+    LrtmUnconfirmedError,
+    SettingUnavailableError,
+    ShadowWriteError,
     SiiPetApiError,
     SiiPetAuthError,
     SiiPetConnectionError,
     SiiPetError,
 )
+from .lrtm import LrtmClient
 from .models import (
     AbnormalLabels,
     CalendarDay,
@@ -16,7 +23,9 @@ from .models import (
     Cat,
     DaySummary,
     DayVisits,
+    DeviceSettings,
     DeviceState,
+    FeatureRules,
     IotCredentials,
     MediaCredentials,
     Visit,
@@ -31,10 +40,19 @@ __all__ = [
     "Cat",
     "DaySummary",
     "DayVisits",
+    "DeviceSettings",
     "DeviceState",
+    "FeatureRules",
     "IotCredentials",
+    "LrtmClient",
+    "LrtmError",
+    "LrtmServerError",
+    "LrtmTransportError",
+    "LrtmUnconfirmedError",
     "MediaCredentials",
     "Session",
+    "SettingUnavailableError",
+    "ShadowWriteError",
     "SiiPetApiError",
     "SiiPetAuthError",
     "SiiPetClient",
