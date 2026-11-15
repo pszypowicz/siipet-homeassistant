@@ -105,16 +105,16 @@ The Unknown cat has no baseline entities.
 
 ### Cameras
 
-| Entity               | Description                                                   |
-| -------------------- | ------------------------------------------------------------- |
-| Subscription expires | Diagnostic. The end of the camera subscription.               |
-| Battery              | The battery charge in percent, rounded like the SiiPet app.   |
-| Charging             | On while the camera reports that it charges.                  |
-| Online               | Diagnostic. On while the camera reports that it is online.    |
-| Last report          | Diagnostic. The time of the newest value in the device state. |
-| Wi-Fi signal         | Diagnostic, disabled by default. The Wi-Fi signal in dBm.     |
-| Cloud storage        | Diagnostic. On while cloud storage is on for the camera.      |
-| Firmware update mode | Diagnostic. Automatic or manual.                              |
+| Entity               | Description                                                                |
+| -------------------- | -------------------------------------------------------------------------- |
+| Subscription expires | Diagnostic. The end of the camera subscription.                            |
+| Battery              | The battery charge in percent, rounded like the SiiPet app.                |
+| Charging             | On while the camera reports that it charges.                               |
+| Online               | Diagnostic. On while the camera reports that it is online.                 |
+| Last report          | Diagnostic. The time of the newest value in the device state.              |
+| Wi-Fi signal         | Diagnostic, disabled by default. The Wi-Fi signal in dBm.                  |
+| Cloud storage        | Diagnostic. On while cloud storage is on for the camera.                   |
+| Firmware             | Diagnostic. The installed and the latest firmware, with the release notes. |
 
 The camera device shows the firmware version.
 
@@ -136,9 +136,11 @@ Each camera has these controls:
 - **Night vision fill light**: the light used for night vision.
 - **Motion sensitivity**: standard or high.
 - **Privacy mode**: while it is on, the camera stops capturing events. The app calls this mode Sleep.
+- **Automatic firmware updates**: the camera installs new firmware by itself in the update window that SiiPet sets, 2:00 to 4:00 on the tested cameras. Off means you install updates in the SiiPet app.
 
 A change waits until the camera reports the new value. This takes a few seconds.
-If the camera does not confirm the change in 15 seconds, Home Assistant shows an error,
+A camera on battery sleeps between visits, so a change of Automatic firmware updates wakes it first and can take about 15 seconds.
+If the camera does not confirm the change in 30 seconds, Home Assistant shows an error,
 and the camera may still apply the change later.
 
 A change fails at once when the camera is offline, when its firmware does not support the setting,
@@ -148,6 +150,16 @@ The controls work for an invited account too.
 
 The controls replace the read-only Fill light, Motion sensitivity, and Privacy mode entities of earlier versions.
 Update automations and dashboards that use them.
+Automatic firmware updates replaces the read-only Firmware update mode sensor of earlier versions.
+
+### Firmware
+
+Each camera has a Firmware entity. It shows the installed firmware, the latest firmware from SiiPet, and the release notes.
+It is on when SiiPet has a newer firmware for the camera.
+
+Home Assistant does not install firmware. Install it in the SiiPet app, or turn on Automatic firmware updates.
+In manual mode you can skip a version. In automatic mode the camera installs it.
+The integration checks for a new firmware every 6 hours.
 
 ### Removed cats and cameras
 

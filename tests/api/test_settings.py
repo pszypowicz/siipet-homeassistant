@@ -12,11 +12,16 @@ from custom_components.siipet.api import (
     SettingUnavailableError,
 )
 from custom_components.siipet.api.settings import (
+    UPDATE_MODE_AUTOMATIC,
+    UPDATE_MODE_MANUAL,
     FillLightChange,
     MotionChange,
+    PlannedChange,
     PrivacyChange,
     SettingGroup,
+    UpdateModeChange,
     group_of,
+    needs_device_data,
     plan_change,
     reports,
 )
@@ -40,12 +45,14 @@ def test_fill_light_level() -> None:
     assert planned.group is SettingGroup.FILL_LIGHT
     assert planned.desired_key == "fillLight"
     assert planned.command == "config.fillLight"
-    assert planned.payload == {
+    assert planned.desired_value == {
         "level": 3,
         "brightness2": 120,
         "autoLight": True,
         "lowLight": True,
     }
+    assert planned.command_payload == planned.desired_value
+    assert not planned.needs_desired
     assert planned.expected == {
         "fill_light": 3,
         "fill_light_auto": True,
@@ -57,19 +64,24 @@ def test_fill_light_switch_keeps_the_other_fields() -> None:
     """Turning auto off keeps the reported level and night vision."""
     planned = plan_change(FillLightChange(auto=False), STATE, SETTINGS)
     assert planned is not None
-    assert planned.payload == {
+    assert planned.desired_value == {
         "level": 2,
         "brightness2": 70,
         "autoLight": False,
         "lowLight": True,
     }
+    assert planned.command_payload == planned.desired_value
+    assert not planned.needs_desired
 
 
 def test_fill_light_brightness_fallback() -> None:
     """Without a map entry, brightness2 is 60, as in the app."""
     planned = plan_change(FillLightChange(night_vision=False), STATE, DeviceSettings())
     assert planned is not None
-    assert planned.payload["brightness2"] == 60
+    assert planned.desired_value is not None
+    assert planned.desired_value["brightness2"] == 60
+    assert planned.command_payload == planned.desired_value
+    assert not planned.needs_desired
 
 
 def test_fill_light_missing_sibling() -> None:
@@ -94,7 +106,9 @@ def test_motion() -> None:
     assert planned.group is SettingGroup.MOTION
     assert planned.desired_key == "pir"
     assert planned.command == "config.pir.sense"
-    assert planned.payload == {"sense": 75, "level": 2}
+    assert planned.desired_value == {"sense": 75, "level": 2}
+    assert planned.command_payload == planned.desired_value
+    assert not planned.needs_desired
     assert planned.expected == {"motion_level": 2}
 
 
@@ -104,7 +118,10 @@ def test_motion_sense_fallback(level: int, sense: int) -> None:
     state = replace(STATE, motion_level=None)
     planned = plan_change(MotionChange(level=level), state, DeviceSettings())
     assert planned is not None
-    assert planned.payload["sense"] == sense
+    assert planned.desired_value is not None
+    assert planned.desired_value["sense"] == sense
+    assert planned.command_payload == planned.desired_value
+    assert not planned.needs_desired
 
 
 def test_privacy() -> None:
@@ -113,8 +130,9 @@ def test_privacy() -> None:
     assert planned is not None
     assert planned.group is SettingGroup.PRIVACY
     assert planned.desired_key is None
+    assert planned.desired_value is None
     assert planned.command == "config.privacyMode"
-    assert planned.payload == {"active": True}
+    assert planned.command_payload == {"active": True}
     assert planned.expected == {"privacy": True}
 
 
@@ -155,6 +173,7 @@ def test_group_of() -> None:
     assert group_of(FillLightChange(level=1)) is SettingGroup.FILL_LIGHT
     assert group_of(MotionChange(level=2)) is SettingGroup.MOTION
     assert group_of(PrivacyChange(active=True)) is SettingGroup.PRIVACY
+    assert group_of(UpdateModeChange(automatic=True)) is SettingGroup.UPDATE_MODE
 
 
 def test_reports() -> None:
@@ -162,3 +181,84 @@ def test_reports() -> None:
     assert reports(STATE, {"fill_light": 2, "privacy": False})
     assert not reports(STATE, {"fill_light": 3, "privacy": False})
     assert not reports(replace(STATE, privacy=None), {"privacy": False})
+
+
+@pytest.mark.parametrize(
+    ("automatic", "reported", "mode"),
+    [(True, 1, UPDATE_MODE_AUTOMATIC), (False, 0, UPDATE_MODE_MANUAL)],
+)
+def test_update_mode(automatic: bool, reported: int, mode: int) -> None:
+    """The update mode writes only the mode to desired, then wakes the camera."""
+    planned = plan_change(
+        UpdateModeChange(automatic=automatic),
+        replace(STATE, update_mode=reported),
+        DeviceSettings(),
+    )
+    assert planned == PlannedChange(
+        group=SettingGroup.UPDATE_MODE,
+        desired_key="otaMode",
+        desired_value={"mode": mode},
+        command="wakeup.lowpower",
+        command_payload={},
+        expected={"update_mode": mode},
+        needs_desired=True,
+    )
+
+
+@pytest.mark.parametrize("reported", [2, None])
+def test_update_mode_from_an_unknown_mode(reported: int | None) -> None:
+    """A mode that the app does not name differs from both requests."""
+    for automatic in (True, False):
+        planned = plan_change(
+            UpdateModeChange(automatic=automatic),
+            replace(STATE, update_mode=reported),
+            DeviceSettings(),
+        )
+        assert planned is not None
+
+
+def test_update_mode_already_reported_is_still_planned() -> None:
+    """A mode the camera already reports still gets its plan."""
+    state = replace(STATE, update_mode=UPDATE_MODE_AUTOMATIC)
+    planned = plan_change(UpdateModeChange(automatic=True), state, DeviceSettings())
+    assert planned == PlannedChange(
+        group=SettingGroup.UPDATE_MODE,
+        desired_key="otaMode",
+        desired_value={"mode": UPDATE_MODE_AUTOMATIC},
+        command="wakeup.lowpower",
+        command_payload={},
+        expected={"update_mode": UPDATE_MODE_AUTOMATIC},
+        needs_desired=True,
+    )
+
+
+def test_planned_change_checks_its_fields() -> None:
+    """The desired key and value go together, and needs_desired needs them."""
+    base = {
+        "group": SettingGroup.PRIVACY,
+        "command": "config.privacyMode",
+        "command_payload": {},
+        "expected": {},
+    }
+    with pytest.raises(ValueError, match="together"):
+        PlannedChange(**base, desired_key="otaMode", desired_value=None)
+    with pytest.raises(ValueError, match="together"):
+        PlannedChange(**base, desired_key=None, desired_value={"mode": 0})
+    with pytest.raises(ValueError, match="must write"):
+        PlannedChange(**base, desired_key=None, desired_value=None, needs_desired=True)
+
+
+def test_unknown_change_type() -> None:
+    """A change type without a branch fails loudly."""
+    with pytest.raises(AssertionError):
+        group_of(object())  # type: ignore[arg-type]
+    with pytest.raises(AssertionError):
+        plan_change(object(), STATE, SETTINGS)  # type: ignore[arg-type]
+
+
+def test_needs_device_data() -> None:
+    """Only fill light and motion need feature 6 and the device detail values."""
+    assert {group for group in SettingGroup if needs_device_data(group)} == {
+        SettingGroup.FILL_LIGHT,
+        SettingGroup.MOTION,
+    }

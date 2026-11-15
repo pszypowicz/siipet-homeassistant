@@ -6,6 +6,40 @@
       "FeatureOpen": [
         { "FeatureId": ["6"], "MinimumVersion": "1.0.0" },
         { "FeatureId": ["5"], "MinimumVersion": "1.0.0" }
+      ],
+      "Firmware": [
+        {
+          "ProductId": "JOY1",
+          "ProductName": "LitterLens",
+          "FaqSettingLink": "https://example.com/faq",
+          "DeviceGuideLink": "https://example.com/guide",
+          "Force": { "MinimumVersion": "0.0.3.17", "SpecialVersion": [""] },
+          "Notify": { "MinimumVersion": "", "SpecialVersion": [""] },
+          "LatestVersion": {
+            "ProtocolVersion": 1,
+            "Version": "1.2.3",
+            "UpgradeType": "normal",
+            "Url": "https://firmware.example.com/fake-joy1.bin",
+            "Sha256": "fake-sha256-0001",
+            "AesCfb256Key": "fake-aes-key-0001",
+            "Size": 1000,
+            "ReleaseNote": "",
+            "ReleaseNoteFormat": [
+              { "title": "Smarter detection", "items": ["Better cat recognition."] },
+              { "title": "Fixes", "items": ["Fewer missed visits.", "Faster start."] }
+            ],
+            "EventId": "fake-event-0001"
+          }
+        },
+        {
+          "ProductId": "LC01",
+          "ProductName": "PawTrack Camera",
+          "LatestVersion": { "Version": "1.0.7.13", "ReleaseNoteFormat": [] }
+        },
+        { "ProductId": "", "LatestVersion": { "Version": "9.9.9" } },
+        { "ProductId": "NOVER", "LatestVersion": { "Version": "" } },
+        { "ProductId": "NOLATEST" },
+        "not an object"
       ]
     },
     "Memory": {

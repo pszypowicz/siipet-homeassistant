@@ -12,7 +12,10 @@ from custom_components.siipet.api import (
     Camera,
     Cat,
     DayVisits,
+    FirmwareRelease,
     MediaCredentials,
+    ReleaseNoteSection,
+    SystemConfig,
     Visit,
     VisitType,
 )
@@ -251,3 +254,73 @@ def test_visit_video_size_and_md5(
     visit = Visit.from_api({"EventId": "ev-x", "ToiletVideo": {"RawInfo": raw_info}})
     assert visit.video_size == size
     assert visit.video_md5 == md5
+
+
+FAKE_PRIVATE = (
+    "https://firmware.example.com/fake-joy1.bin",
+    "fake-sha256-0001",
+    "fake-aes-key-0001",
+    "fake-event-0001",
+)
+
+
+def test_system_config_parses_every_part() -> None:
+    """One parse gives the labels, the feature rules, and the firmware releases."""
+    config = SystemConfig.from_api(load_data("system_config.json"))
+    assert config.labels.event == {301: "Potty Overtime"}
+    assert config.features.enabled("6", "1.2.3")
+    assert not config.features.enabled("6", "0.9.9")
+    assert config.firmware == {
+        "JOY1": FirmwareRelease(
+            version="1.2.3",
+            title="LitterLens",
+            notes=(
+                ReleaseNoteSection("Smarter detection", ("Better cat recognition.",)),
+                ReleaseNoteSection("Fixes", ("Fewer missed visits.", "Faster start.")),
+            ),
+        ),
+        "LC01": FirmwareRelease(version="1.0.7.13", title="PawTrack Camera", notes=()),
+    }
+
+
+def test_system_config_keeps_no_download_fields() -> None:
+    """The parsed config holds no firmware URL, hash, key, or event id."""
+    text = repr(SystemConfig.from_api(load_data("system_config.json")))
+    for private in FAKE_PRIVATE:
+        assert private not in text
+
+
+def test_firmware_release_skips_bad_note_parts() -> None:
+    """Note titles and lines that are not text are skipped, and so are empty sections."""
+    data = {
+        "Device": {
+            "Firmware": [
+                {
+                    "ProductId": "JOY1",
+                    "LatestVersion": {
+                        "Version": "1.0.0",
+                        "ReleaseNoteFormat": [
+                            {"title": 5, "items": ["Kept.", 7, " "]},
+                            {"title": " ", "items": []},
+                            {"title": "Only a title"},
+                            "not an object",
+                        ],
+                    },
+                }
+            ]
+        }
+    }
+    release = SystemConfig.from_api(data).firmware["JOY1"]
+    assert release.title == "JOY1"
+    assert release.notes == (
+        ReleaseNoteSection("", ("Kept.",)),
+        ReleaseNoteSection("Only a title", ()),
+    )
+
+
+def test_system_config_without_parts() -> None:
+    """A config without the parts gives empty labels, no rules, and no firmware."""
+    config = SystemConfig.from_api({})
+    assert config.labels.event == {}
+    assert config.features.minimums == {}
+    assert config.firmware == {}

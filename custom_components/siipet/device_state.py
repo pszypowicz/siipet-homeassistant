@@ -20,7 +20,6 @@ from .api import (
     CameraShadows,
     DeviceSettings,
     DeviceState,
-    FeatureRules,
     LrtmClient,
     LrtmUnconfirmedError,
     SettingUnavailableError,
@@ -35,6 +34,7 @@ from .api.settings import (
     SettingChange,
     SettingGroup,
     group_of,
+    needs_device_data,
     plan_change,
     reports,
 )
@@ -113,7 +113,6 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         self._locks: dict[tuple[str, SettingGroup], asyncio.Lock] = {}
         self._waiters: dict[str, list[_Waiter]] = {}
         self._device_settings: dict[str, tuple[str, DeviceSettings]] = {}
-        self._features: FeatureRules | None = None
         self._stopped = False
 
     @property
@@ -179,19 +178,22 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         # The state can change while the change waits in line.
         state = self._ready_state(sn)
         settings = DeviceSettings()
-        if group is not SettingGroup.PRIVACY:
+        if needs_device_data(group):
             if remaining() <= 0:
                 raise self._error("change_timed_out", sn)
+            system = self._coordinator.system_config
+            if system is None:
+                raise self._error("settings_not_loaded", sn)
+            if not system.features.enabled(FEATURE_PIR_AND_FILL_LIGHT, state.firmware):
+                raise self._error("setting_not_supported", sn)
             try:
                 async with asyncio.timeout(remaining()):
-                    if not await self._async_feature_enabled(state):
-                        raise self._error("setting_not_supported", sn)
                     settings = await self._async_device_settings(sn, state)
             except TimeoutError as err:
                 raise self._error("change_timed_out", sn) from err
             except SiiPetError as err:
                 raise self._request_failed(sn, err) from err
-            # The camera can leave, or the entry unload, during the reads.
+            # The camera can leave, or the entry unload, during the read.
             # A waiter registered after this check is abandoned in both cases.
             state = self._ready_state(sn)
         try:
@@ -202,14 +204,24 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
             return
         waiter = _Waiter(planned.expected, asyncio.get_running_loop().create_future())
         self._waiters.setdefault(sn, []).append(waiter)
+        reported = planned.needs_desired and reports(state, planned.expected)
+        if reported:
+            # The camera has the value. The desired write only replaces an
+            # older request, so the report needs no wait.
+            waiter.future.set_result(None)
         try:
             try:
-                await self._async_send(sn, planned, waiter, remaining)
+                await self._async_send(
+                    sn, planned, waiter, remaining, reported=reported
+                )
             except HomeAssistantError:
                 # A camera can apply the desired write and report it before
                 # the command fails. It then has the setting, so the change
-                # succeeded.
-                if waiter.confirmed():
+                # succeeded. When the camera reported the value before the
+                # write, an error means that the write did not go through or
+                # was not confirmed, so desired can still keep the older
+                # request.
+                if waiter.confirmed() and not reported:
                     return
                 raise
             try:
@@ -230,29 +242,52 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         planned: PlannedChange,
         waiter: _Waiter,
         remaining: Callable[[], float],
+        *,
+        reported: bool,
     ) -> None:
-        """Write desired when the link can, then send the command."""
+        """Write desired when the link can, then send the command.
+
+        A change that needs desired fails when the shadow writes are refused.
+        It sends no command when the camera already reports the value.
+        `reported` is True when the camera reported the value before the
+        write. An unconfirmed write then fails the change.
+        """
         desired_written = False
-        if planned.desired_key is not None and self._may_write_shadow(sn):
-            left = remaining()
-            if left <= 0:
-                raise self._error("change_timed_out", sn)
-            try:
-                result = await self._link.update_desired(
-                    sn,
-                    planned.desired_key,
-                    planned.payload,
-                    limit=min(left, SHADOW_WRITE_TIMEOUT.total_seconds()),
-                )
-            except ShadowWriteError as err:
-                if err.reason == "not_ready":
-                    raise self._error("connection_not_ready", sn) from err
-                raise self._error("change_not_sent", sn, error=str(err)) from err
-            desired_written = True
-            if result is WriteResult.UNCONFIRMED:
-                _LOGGER.debug(
-                    "AWS IoT did not confirm the desired write of %s", self._label(sn)
-                )
+        if planned.desired_key is not None and planned.desired_value is not None:
+            if self._may_write_shadow(sn):
+                left = remaining()
+                if left <= 0:
+                    raise self._error("change_timed_out", sn)
+                try:
+                    result = await self._link.update_desired(
+                        sn,
+                        planned.desired_key,
+                        planned.desired_value,
+                        limit=min(left, SHADOW_WRITE_TIMEOUT.total_seconds()),
+                    )
+                except ShadowWriteError as err:
+                    if err.reason == "not_ready":
+                        raise self._error("connection_not_ready", sn) from err
+                    raise self._error("change_not_sent", sn, error=str(err)) from err
+                desired_written = True
+                if result is WriteResult.UNCONFIRMED:
+                    if reported:
+                        # The write may not have reached AWS IoT, so desired
+                        # can still hold an older request. No report can tell,
+                        # because the camera already reports the value.
+                        raise self._error("change_unconfirmed", sn)
+                    _LOGGER.debug(
+                        "AWS IoT did not confirm the desired write of %s",
+                        self._label(sn),
+                    )
+            elif planned.needs_desired:
+                # The command alone does not make this change, so nothing goes out.
+                raise self._error("setting_not_writable", sn)
+        if planned.needs_desired and waiter.confirmed():
+            # The camera reports the value and desired now holds it too, so
+            # no wake is needed. This holds also when the entry unloaded or
+            # the camera left during the write.
+            return
         # The entry can unload, or the camera leave, during the desired write.
         # Nothing then waits for the report, so the command stays unsent.
         if self._abandoned(sn, waiter):
@@ -266,7 +301,7 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
             await self._lrtm.send(
                 sn,
                 planned.command,
-                planned.payload,
+                planned.command_payload,
                 limit=left,
                 # The same stop can come while the command connects.
                 still_wanted=lambda: not self._abandoned(sn, waiter),
@@ -298,7 +333,7 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         return self._error("connection_not_ready", sn)
 
     def _may_write_shadow(self, sn: str) -> bool:
-        """Return True to write the shadow, or False to send the command alone.
+        """Return True to write the shadow, or False when its writes are refused.
 
         Raise while the link is not ready for the camera yet, as while the
         cameras start again after a reconnect.
@@ -308,7 +343,7 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         if self._link.writes_refused(sn):
             # AWS IoT refused the write replies of this camera, or the link
             # skipped them because the writes of the camera were paused. The
-            # command alone still changes the setting.
+            # command alone still changes a setting that does not need desired.
             _LOGGER.debug("The shadow of %s cannot be written", self._label(sn))
             return False
         # The command alone would leave the old value in the desired state.
@@ -324,11 +359,6 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         if self._stopped or not self._link.status.connected:
             raise self._error("connection_not_ready", sn)
         return state
-
-    async def _async_feature_enabled(self, state: DeviceState) -> bool:
-        if self._features is None:
-            self._features = await self._client.get_feature_rules()
-        return self._features.enabled(FEATURE_PIR_AND_FILL_LIGHT, state.firmware)
 
     async def _async_device_settings(
         self, sn: str, state: DeviceState

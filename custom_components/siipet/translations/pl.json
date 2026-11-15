@@ -119,8 +119,14 @@
     "setting_unknown": {
       "message": "Kamera {camera} nie zgłosiła jeszcze tego ustawienia. Spróbuj ponownie później."
     },
+    "settings_not_loaded": {
+      "message": "Home Assistant nie odczytał jeszcze ustawień SiiPet. Spróbuj ponownie za kilka minut."
+    },
     "connection_not_ready": {
       "message": "Połączenie z kamerami SiiPet nie działa. Spróbuj ponownie za kilka minut."
+    },
+    "setting_not_writable": {
+      "message": "SiiPet nie pozwala teraz Home Assistantowi zmienić tego ustawienia kamery {camera}."
     },
     "change_not_sent": {
       "message": "Zmiana dla kamery {camera} nie została wysłana: {error}"
@@ -133,6 +139,9 @@
     },
     "change_not_confirmed": {
       "message": "Kamera {camera} nie potwierdziła zmiany w ciągu {seconds} s. Może jeszcze ją zastosować."
+    },
+    "change_unconfirmed": {
+      "message": "SiiPet nie potwierdził zmiany dla kamery {camera}. Spróbuj ponownie."
     }
   },
   "entity": {
@@ -201,13 +210,6 @@
       },
       "wifi_signal": {
         "name": "Sygnał Wi-Fi"
-      },
-      "update_mode": {
-        "name": "Tryb aktualizacji oprogramowania",
-        "state": {
-          "automatic": "Automatyczny",
-          "manual": "Ręczny"
-        }
       }
     },
     "select": {
@@ -236,6 +238,9 @@
       },
       "privacy_mode": {
         "name": "Tryb prywatności"
+      },
+      "automatic_firmware_updates": {
+        "name": "Automatyczne aktualizacje oprogramowania"
       }
     }
   },

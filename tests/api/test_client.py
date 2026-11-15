@@ -170,15 +170,19 @@ async def test_get_visit(
     assert body == {"EventId": "ev-1"}
 
 
-async def test_get_abnormal_labels(
+async def test_get_system_config(
     websession: aiohttp.ClientSession, aioclient_mock: AiohttpClientMocker
 ) -> None:
-    """Labels come from the system config."""
+    """One call gives the labels, the feature rules, and the firmware."""
     aioclient_mock.post(
         url("config/system/config"), json=load_fixture("system_config.json")
     )
-    labels = await make_client(websession).get_abnormal_labels()
-    assert labels.event == {301: "Potty Overtime"}
+    config = await make_client(websession).get_system_config()
+    assert config.labels.event == {301: "Potty Overtime"}
+    assert config.features.enabled("6", "1.2.3")
+    assert config.firmware["JOY1"].version == "1.2.3"
+    [(body, _headers)] = calls(aioclient_mock, "config/system/config")
+    assert body == {}
 
 
 async def test_get_media_credentials(
@@ -400,7 +404,7 @@ def _envelope(data: Any) -> dict[str, Any]:
         (
             "config/system/config",
             _envelope({"Memory": {"AbnormalToilet": [{"Shape": [{"Type": "x"}]}]}}),
-            lambda c: c.get_abnormal_labels(),
+            lambda c: c.get_system_config(),
         ),
         (
             "user/email/register/login",
@@ -955,15 +959,3 @@ async def test_get_device_settings(
     assert body == {"SN": "SN0001", "Version": "1.2.3"}
     assert settings.fill_light == {1: 40, 2: 70, 3: 120}
     assert settings.pir == {2: 75, 3: 60}
-
-
-async def test_get_feature_rules(
-    websession: aiohttp.ClientSession, aioclient_mock: AiohttpClientMocker
-) -> None:
-    """The system config gives the minimum firmware of each feature."""
-    aioclient_mock.post(
-        url("config/system/config"), json=load_fixture("system_config.json")
-    )
-    rules = await make_client(websession).get_feature_rules()
-    assert rules.enabled("6", "1.2.3")
-    assert not rules.enabled("6", "0.9.9")

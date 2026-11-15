@@ -119,8 +119,14 @@
     "setting_unknown": {
       "message": "{camera} has not reported this setting yet. Try again later."
     },
+    "settings_not_loaded": {
+      "message": "Home Assistant has not read the SiiPet settings yet. Try again in a few minutes."
+    },
     "connection_not_ready": {
       "message": "The connection to the SiiPet cameras is down. Try again in a few minutes."
+    },
+    "setting_not_writable": {
+      "message": "SiiPet does not let Home Assistant change this setting for {camera} right now."
     },
     "change_not_sent": {
       "message": "The change for {camera} was not sent: {error}"
@@ -133,6 +139,9 @@
     },
     "change_not_confirmed": {
       "message": "{camera} did not confirm the change in {seconds} seconds. It may still apply it."
+    },
+    "change_unconfirmed": {
+      "message": "SiiPet did not confirm the change for {camera}. Try again."
     }
   },
   "entity": {
@@ -201,13 +210,6 @@
       },
       "wifi_signal": {
         "name": "Wi-Fi signal"
-      },
-      "update_mode": {
-        "name": "Firmware update mode",
-        "state": {
-          "automatic": "Automatic",
-          "manual": "Manual"
-        }
       }
     },
     "select": {
@@ -236,6 +238,9 @@
       },
       "privacy_mode": {
         "name": "Privacy mode"
+      },
+      "automatic_firmware_updates": {
+        "name": "Automatic firmware updates"
       }
     }
   },

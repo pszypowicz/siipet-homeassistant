@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import timedelta
-import logging
 from unittest.mock import AsyncMock, PropertyMock, patch
 
 from freezegun.api import FrozenDateTimeFactory
@@ -40,7 +39,6 @@ async def _setup(
     [
         ("sensor.bathroom_battery", "72"),
         ("sensor.bathroom_last_report", "2026-09-26T11:55:00+00:00"),
-        ("sensor.bathroom_firmware_update_mode", "automatic"),
     ],
 )
 async def test_camera_state_sensors(
@@ -139,18 +137,15 @@ async def test_unavailable_battery_has_no_icon(
     assert "icon" not in state.attributes
 
 
-async def test_enum_options(
+async def test_no_update_mode_sensor(
     hass: HomeAssistant,
     mock_client: AsyncMock,
     config_entry: MockConfigEntry,
     shadow_links: list[FakeShadowLink],
 ) -> None:
-    """The enum sensors list the options that the app names."""
+    """The update mode is a switch, so no sensor shows it."""
     await _setup(hass, config_entry, shadow_links)
-    options = hass.states.get("sensor.bathroom_firmware_update_mode").attributes[
-        "options"
-    ]
-    assert options == ["automatic", "manual"]
+    assert hass.states.get("sensor.bathroom_firmware_update_mode") is None
 
 
 async def test_wifi_signal_is_disabled(
@@ -184,26 +179,6 @@ async def test_wifi_signal(
     state = hass.states.get("sensor.bathroom_wi_fi_signal")
     assert state.state == "-61"
     assert state.attributes["unit_of_measurement"] == "dBm"
-
-
-async def test_unknown_code(
-    hass: HomeAssistant,
-    caplog: pytest.LogCaptureFixture,
-    mock_client: AsyncMock,
-    config_entry: MockConfigEntry,
-    shadow_links: list[FakeShadowLink],
-) -> None:
-    """A code that the app does not name gives an unknown state and one log line."""
-    caplog.set_level(logging.DEBUG, logger="custom_components.siipet")
-    await _setup(hass, config_entry, shadow_links, replace(DEVICE_STATE, update_mode=7))
-    assert (
-        hass.states.get("sensor.bathroom_firmware_update_mode").state == STATE_UNKNOWN
-    )
-    shadow_links[0].on_state("SN0001", replace(DEVICE_STATE, update_mode=7, battery=70))
-    await hass.async_block_till_done()
-    lines = [r for r in caplog.records if "unknown code 7" in r.getMessage()]
-    assert len(lines) == 1
-    assert "sensor.bathroom_firmware_update_mode" in lines[0].getMessage()
 
 
 async def test_first_state_adds_entities(

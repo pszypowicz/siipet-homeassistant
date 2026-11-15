@@ -54,6 +54,7 @@ PLATFORMS: list[Platform] = [
     Platform.SELECT,
     Platform.SENSOR,
     Platform.SWITCH,
+    Platform.UPDATE,
 ]
 
 # Read-only entities that a select or switch replaced: (domain, unique id suffix).
@@ -61,6 +62,7 @@ REPLACED_ENTITIES: Final = (
     (Platform.SENSOR, "_fill_light"),
     (Platform.SENSOR, "_motion_sensitivity"),
     (Platform.BINARY_SENSOR, "_privacy_mode"),
+    (Platform.SENSOR, "_update_mode"),
 )
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)

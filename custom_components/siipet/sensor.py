@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-import logging
 from statistics import fmean
 from typing import Any
 
@@ -39,12 +38,7 @@ from .entity import (
     visit_attributes,
 )
 
-_LOGGER = logging.getLogger(__name__)
-
 PARALLEL_UPDATES = 0
-
-# The codes that the Android app names. Other codes give an unknown state.
-UPDATE_MODES: dict[int, str] = {0: "automatic", 1: "manual"}
 
 
 def _today(data: SiiPetData, cat_id: str) -> list[Visit]:
@@ -182,12 +176,10 @@ SUBSCRIPTION_SENSOR = SensorEntityDescription(
 class SiiPetCameraStateSensorDescription(SensorEntityDescription):
     """A sensor of the device state of a camera.
 
-    With `codes`, the sensor is an enum, and `value_fn` returns the code.
     With `icon_fn`, a returned icon replaces the default icon.
     """
 
     value_fn: Callable[[DeviceState], StateType | datetime]
-    codes: Mapping[int, str] | None = None
     icon_fn: Callable[[DeviceState], str | None] | None = None
 
 
@@ -205,20 +197,6 @@ def _battery_icon(state: DeviceState) -> str | None:
     if level == 100:
         return "mdi:battery-charging"
     return f"mdi:battery-charging-{level // 10 * 10}"
-
-
-def _enum(
-    key: str, codes: Mapping[int, str], value_fn: Callable[[DeviceState], int | None]
-) -> SiiPetCameraStateSensorDescription:
-    return SiiPetCameraStateSensorDescription(
-        key=key,
-        translation_key=key,
-        device_class=SensorDeviceClass.ENUM,
-        options=list(codes.values()),
-        entity_category=EntityCategory.DIAGNOSTIC,
-        codes=codes,
-        value_fn=value_fn,
-    )
 
 
 CAMERA_STATE_SENSORS: tuple[SiiPetCameraStateSensorDescription, ...] = (
@@ -248,7 +226,6 @@ CAMERA_STATE_SENSORS: tuple[SiiPetCameraStateSensorDescription, ...] = (
         entity_registry_enabled_default=False,
         value_fn=lambda state: state.rssi,
     ),
-    _enum("update_mode", UPDATE_MODES, lambda state: state.update_mode),
 )
 
 
@@ -346,20 +323,11 @@ class SiiPetCameraStateSensor(SiiPetCameraStateEntity, SensorEntity):
         """Create the sensor."""
         super().__init__(entry, sn, description.key)
         self.entity_description = description
-        self._logged_codes: set[int] = set()
 
     @property
     def native_value(self) -> StateType | datetime:
-        """The value, or the option name of an enum code."""
-        value = self.entity_description.value_fn(self.state_data)
-        codes = self.entity_description.codes
-        if codes is None or not isinstance(value, int):
-            return value
-        option = codes.get(value)
-        if option is None and value not in self._logged_codes:
-            self._logged_codes.add(value)
-            _LOGGER.debug("%s has the unknown code %s", self.entity_id, value)
-        return option
+        """The value."""
+        return self.entity_description.value_fn(self.state_data)
 
     @property
     def icon(self) -> str | None:

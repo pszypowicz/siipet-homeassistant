@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from unittest.mock import ANY, AsyncMock
 
-from homeassistant.const import STATE_OFF, STATE_ON, EntityCategory
+from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNKNOWN, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 import pytest
@@ -15,6 +16,7 @@ from .common import DEVICE_STATE, FakeShadowLink, camera_reports, setup_integrat
 AUTO = "switch.bathroom_auto_fill_light"
 NIGHT = "switch.bathroom_night_vision_fill_light"
 PRIVACY = "switch.bathroom_privacy_mode"
+FIRMWARE = "switch.bathroom_automatic_firmware_updates"
 
 
 async def _setup(
@@ -93,3 +95,50 @@ async def test_switch_changes(
         "SN0001", command, payload, limit=ANY, still_wanted=ANY
     )
     assert hass.states.get(entity_id).state == (STATE_ON if on else STATE_OFF)
+
+
+@pytest.mark.parametrize(
+    ("mode", "state"),
+    [(0, STATE_ON), (1, STATE_OFF), (2, STATE_UNKNOWN), (None, STATE_UNKNOWN)],
+)
+async def test_firmware_switch_state(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+    entity_registry: er.EntityRegistry,
+    mode: int | None,
+    state: str,
+) -> None:
+    """The switch is on in automatic mode, off in manual mode, and unknown otherwise."""
+    link = await _setup(hass, config_entry, shadow_links)
+    link.on_state("SN0001", replace(DEVICE_STATE, update_mode=mode))
+    await hass.async_block_till_done()
+    assert hass.states.get(FIRMWARE).state == state
+    assert entity_registry.async_get(FIRMWARE).entity_category is EntityCategory.CONFIG
+
+
+@pytest.mark.parametrize(("start", "on", "mode"), [(0, False, 1), (2, True, 0)])
+async def test_firmware_switch_changes(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    mock_control: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+    start: int,
+    on: bool,
+    mode: int,
+) -> None:
+    """The switch writes the mode, wakes the camera, and shows the reported mode."""
+    link = await _setup(hass, config_entry, shadow_links)
+    link.on_state("SN0001", replace(DEVICE_STATE, update_mode=start))
+    await hass.async_block_till_done()
+    mock_control.send.side_effect = camera_reports(link, update_mode=mode)
+    await _switch(hass, FIRMWARE, on)
+    link.update_desired.assert_awaited_once_with(
+        "SN0001", "otaMode", {"mode": mode}, limit=ANY
+    )
+    mock_control.send.assert_awaited_once_with(
+        "SN0001", "wakeup.lowpower", {}, limit=ANY, still_wanted=ANY
+    )
+    assert hass.states.get(FIRMWARE).state == (STATE_ON if on else STATE_OFF)

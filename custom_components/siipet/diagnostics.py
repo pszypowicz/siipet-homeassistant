@@ -94,6 +94,14 @@ async def async_get_config_entry_diagnostics(
             "color": len(data.labels.color),
             "event": len(data.labels.event),
         },
+        # Field by field: a firmware release holds no download field, and only
+        # the version goes out.
+        "firmware_versions": {
+            product: release.version
+            for product, release in sorted(
+                (data.system.firmware if data.system is not None else {}).items()
+            )
+        },
         "media_cache": media_cache,
         "device_state": {
             "last_update_success": device_state.last_update_success,
