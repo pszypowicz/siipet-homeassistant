@@ -181,7 +181,7 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         if needs_device_data(group):
             if remaining() <= 0:
                 raise self._error("change_timed_out", sn)
-            system = self._coordinator.data.system
+            system = self._coordinator.system_config
             if system is None:
                 raise self._error("settings_not_loaded", sn)
             if not system.features.enabled(FEATURE_PIR_AND_FILL_LIGHT, state.firmware):

@@ -140,6 +140,11 @@ class SiiPetCoordinator(DataUpdateCoordinator[SiiPetData]):
         # deleted visit, and the next snapshot then reports it as new.
         self._lock = asyncio.Lock()
 
+    @property
+    def system_config(self) -> SystemConfig | None:
+        """The last system config that was read, also when the update that read it failed later."""
+        return self._system
+
     async def _async_update_data(self) -> SiiPetData:
         async with self._lock:
             now = dt_util.now()

@@ -768,6 +768,41 @@ async def test_change_without_system_config(
     await hub.async_apply("SN0001", PrivacyChange(active=True))
 
 
+async def test_change_uses_config_of_a_failed_update(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    mock_client: AsyncMock,
+    mock_control: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+) -> None:
+    """A config read by an update that then fails still lets the fill light change."""
+    good = mock_client.get_system_config.return_value
+    mock_client.get_system_config.side_effect = SiiPetConnectionError("down")
+    hub, link = await _hub(hass, config_entry, shadow_links)
+    coordinator = config_entry.runtime_data.coordinator
+    mock_client.get_system_config.side_effect = None
+    mock_client.get_system_config.return_value = good
+    mock_client.get_day.side_effect = SiiPetConnectionError("down")
+    freezer.tick(timedelta(minutes=5))
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is False
+    assert coordinator.data.system is None
+    mock_control.send.side_effect = camera_reports(link, fill_light=3)
+    await hub.async_apply("SN0001", FillLightChange(level=3))
+    link.update_desired.assert_awaited_once_with(
+        "SN0001", "fillLight", FILL_PAYLOAD_HIGH, limit=ANY
+    )
+    mock_control.send.assert_awaited_once_with(
+        "SN0001",
+        "config.fillLight",
+        FILL_PAYLOAD_HIGH,
+        limit=ANY,
+        still_wanted=ANY,
+    )
+    assert hub.data["SN0001"].fill_light == 3
+
+
 async def test_detail_read_fails(
     hass: HomeAssistant,
     mock_client: AsyncMock,
