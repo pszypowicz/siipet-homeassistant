@@ -35,6 +35,7 @@ from .api.settings import (
     SettingChange,
     SettingGroup,
     group_of,
+    needs_device_data,
     plan_change,
     reports,
 )
@@ -179,7 +180,7 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         # The state can change while the change waits in line.
         state = self._ready_state(sn)
         settings = DeviceSettings()
-        if group is not SettingGroup.PRIVACY:
+        if needs_device_data(group):
             if remaining() <= 0:
                 raise self._error("change_timed_out", sn)
             try:
@@ -233,7 +234,11 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
     ) -> None:
         """Write desired when the link can, then send the command."""
         desired_written = False
-        if planned.desired_key is not None and self._may_write_shadow(sn):
+        if (
+            planned.desired_key is not None
+            and planned.desired_value is not None
+            and self._may_write_shadow(sn)
+        ):
             left = remaining()
             if left <= 0:
                 raise self._error("change_timed_out", sn)
@@ -241,7 +246,7 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
                 result = await self._link.update_desired(
                     sn,
                     planned.desired_key,
-                    planned.payload,
+                    planned.desired_value,
                     limit=min(left, SHADOW_WRITE_TIMEOUT.total_seconds()),
                 )
             except ShadowWriteError as err:
@@ -266,7 +271,7 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
             await self._lrtm.send(
                 sn,
                 planned.command,
-                planned.payload,
+                planned.command_payload,
                 limit=left,
                 # The same stop can come while the command connects.
                 still_wanted=lambda: not self._abandoned(sn, waiter),
