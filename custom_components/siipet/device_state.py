@@ -235,30 +235,31 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
     ) -> None:
         """Write desired when the link can, then send the command."""
         desired_written = False
-        if (
-            planned.desired_key is not None
-            and planned.desired_value is not None
-            and self._may_write_shadow(sn)
-        ):
-            left = remaining()
-            if left <= 0:
-                raise self._error("change_timed_out", sn)
-            try:
-                result = await self._link.update_desired(
-                    sn,
-                    planned.desired_key,
-                    planned.desired_value,
-                    limit=min(left, SHADOW_WRITE_TIMEOUT.total_seconds()),
-                )
-            except ShadowWriteError as err:
-                if err.reason == "not_ready":
-                    raise self._error("connection_not_ready", sn) from err
-                raise self._error("change_not_sent", sn, error=str(err)) from err
-            desired_written = True
-            if result is WriteResult.UNCONFIRMED:
-                _LOGGER.debug(
-                    "AWS IoT did not confirm the desired write of %s", self._label(sn)
-                )
+        if planned.desired_key is not None and planned.desired_value is not None:
+            if self._may_write_shadow(sn):
+                left = remaining()
+                if left <= 0:
+                    raise self._error("change_timed_out", sn)
+                try:
+                    result = await self._link.update_desired(
+                        sn,
+                        planned.desired_key,
+                        planned.desired_value,
+                        limit=min(left, SHADOW_WRITE_TIMEOUT.total_seconds()),
+                    )
+                except ShadowWriteError as err:
+                    if err.reason == "not_ready":
+                        raise self._error("connection_not_ready", sn) from err
+                    raise self._error("change_not_sent", sn, error=str(err)) from err
+                desired_written = True
+                if result is WriteResult.UNCONFIRMED:
+                    _LOGGER.debug(
+                        "AWS IoT did not confirm the desired write of %s",
+                        self._label(sn),
+                    )
+            elif planned.needs_desired:
+                # The command alone does not make this change, so nothing goes out.
+                raise self._error("setting_not_writable", sn)
         # The entry can unload, or the camera leave, during the desired write.
         # Nothing then waits for the report, so the command stays unsent.
         if self._abandoned(sn, waiter):
@@ -304,7 +305,7 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         return self._error("connection_not_ready", sn)
 
     def _may_write_shadow(self, sn: str) -> bool:
-        """Return True to write the shadow, or False to send the command alone.
+        """Return True to write the shadow, or False when its writes are refused.
 
         Raise while the link is not ready for the camera yet, as while the
         cameras start again after a reconnect.
@@ -314,7 +315,7 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         if self._link.writes_refused(sn):
             # AWS IoT refused the write replies of this camera, or the link
             # skipped them because the writes of the camera were paused. The
-            # command alone still changes the setting.
+            # command alone still changes a setting that does not need desired.
             _LOGGER.debug("The shadow of %s cannot be written", self._label(sn))
             return False
         # The command alone would leave the old value in the desired state.

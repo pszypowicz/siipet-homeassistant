@@ -40,6 +40,7 @@ from custom_components.siipet.api.settings import (
     FillLightChange,
     MotionChange,
     PrivacyChange,
+    UpdateModeChange,
 )
 from custom_components.siipet.api.shadow_link import WriteResult
 from custom_components.siipet.const import CHANGE_TIMEOUT, DOMAIN
@@ -487,7 +488,7 @@ async def test_apply_not_confirmed(
     with pytest.raises(HomeAssistantError) as err:
         await task
     assert err.value.translation_key == "change_not_confirmed"
-    assert err.value.translation_placeholders["seconds"] == "15"
+    assert err.value.translation_placeholders["seconds"] == "30"
     assert hub._waiters == {}
 
 
@@ -1329,4 +1330,166 @@ async def test_abandoned_change_publishes_nothing(
     if key == "change_partial":
         assert err.value.translation_placeholders["error"] == "the change was stopped"
     assert published == []
+    assert hub._waiters == {}
+
+
+async def test_apply_update_mode(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    mock_control: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+) -> None:
+    """The update mode writes desired, wakes the camera, and returns on its report."""
+    hub, link = await _hub(hass, config_entry, shadow_links)
+    mock_control.send.side_effect = camera_reports(link, update_mode=1)
+    await hub.async_apply("SN0001", UpdateModeChange(automatic=False))
+    link.update_desired.assert_awaited_once_with(
+        "SN0001", "otaMode", {"mode": 1}, limit=ANY
+    )
+    mock_control.send.assert_awaited_once_with(
+        "SN0001", "wakeup.lowpower", {}, limit=ANY, still_wanted=ANY
+    )
+    mock_client.get_device_settings.assert_not_awaited()
+    assert hub.data["SN0001"].update_mode == 1
+
+
+async def test_update_mode_needs_no_system_config(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    mock_control: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+) -> None:
+    """The update mode has no feature gate, so it works before the config is read."""
+    mock_client.get_system_config.side_effect = SiiPetConnectionError("down")
+    hub, link = await _hub(hass, config_entry, shadow_links)
+    mock_control.send.side_effect = camera_reports(link, update_mode=1)
+    await hub.async_apply("SN0001", UpdateModeChange(automatic=False))
+
+
+async def test_update_mode_not_writable(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    mock_control: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+) -> None:
+    """Refused shadow writes stop the update mode, because the wake alone changes nothing."""
+    hub, link = await _hub(hass, config_entry, shadow_links)
+    link.writable = False
+    link.refused = True
+    with pytest.raises(HomeAssistantError) as err:
+        await hub.async_apply("SN0001", UpdateModeChange(automatic=False))
+    assert err.value.translation_key == "setting_not_writable"
+    assert err.value.translation_placeholders["camera"] == "Bathroom"
+    link.update_desired.assert_not_awaited()
+    mock_control.send.assert_not_awaited()
+    assert hub._waiters == {}
+
+
+async def test_failed_wake_is_partial(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    mock_control: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+) -> None:
+    """A wake that fails after the desired write leaves a partial change."""
+    hub, _link = await _hub(hass, config_entry, shadow_links)
+    mock_control.send.side_effect = LrtmTransportError("Could not reach")
+    with pytest.raises(HomeAssistantError) as err:
+        await hub.async_apply("SN0001", UpdateModeChange(automatic=False))
+    assert err.value.translation_key == "change_partial"
+
+
+async def test_report_before_a_failed_wake_confirms(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    mock_control: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+) -> None:
+    """An awake camera that reports the mode after the write confirms it, even if the wake fails."""
+    hub, link = await _hub(hass, config_entry, shadow_links)
+
+    def write(*_args: Any, **_kwargs: Any) -> WriteResult:
+        link.on_state("SN0001", replace(DEVICE_STATE, update_mode=1))
+        return WriteResult.ACCEPTED
+
+    link.update_desired.side_effect = write
+    mock_control.send.side_effect = LrtmTransportError("Could not reach")
+    await hub.async_apply("SN0001", UpdateModeChange(automatic=False))
+    assert hub._waiters == {}
+
+
+async def test_unconfirmed_write_still_wakes(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    mock_control: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+) -> None:
+    """A desired write without an answer still sends the wake."""
+    hub, link = await _hub(hass, config_entry, shadow_links)
+    link.update_desired.return_value = WriteResult.UNCONFIRMED
+    mock_control.send.side_effect = camera_reports(link, update_mode=1)
+    await hub.async_apply("SN0001", UpdateModeChange(automatic=False))
+    mock_control.send.assert_awaited_once()
+
+
+async def test_update_mode_not_confirmed(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    mock_control: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+    frozen_time: FrozenDateTimeFactory,
+) -> None:
+    """A sleeping camera that does not report in time fails the change after 30 s."""
+    hub, _link = await _hub(hass, config_entry, shadow_links)
+    task = asyncio.ensure_future(
+        hub.async_apply("SN0001", UpdateModeChange(automatic=False))
+    )
+    await _until_sent(mock_control)
+    await _expire(hass, frozen_time)
+    with pytest.raises(HomeAssistantError) as err:
+        await task
+    assert err.value.translation_key == "change_not_confirmed"
+    assert err.value.translation_placeholders["seconds"] == "30"
+    assert hub._waiters == {}
+
+
+async def test_fill_light_and_update_mode_together(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    mock_control: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+) -> None:
+    """Two groups on one camera write desired at the same time, and both confirm."""
+    hub, link = await _hub(hass, config_entry, shadow_links)
+    release_fill = asyncio.Event()
+
+    async def write(sn: str, key: str, value: Any, *, limit: float) -> WriteResult:
+        if key == "fillLight":
+            await release_fill.wait()
+        return WriteResult.ACCEPTED
+
+    def send(sn: str, command: str, payload: Any, **_kwargs: Any) -> None:
+        current = hub.data[sn]
+        if command == "config.fillLight":
+            link.on_state(sn, replace(current, fill_light=3))
+        else:
+            link.on_state(sn, replace(current, update_mode=1))
+
+    link.update_desired.side_effect = write
+    mock_control.send.side_effect = send
+    fill = asyncio.ensure_future(hub.async_apply("SN0001", FillLightChange(level=3)))
+    await _until_awaited(link.update_desired)
+    await hub.async_apply("SN0001", UpdateModeChange(automatic=False))
+    release_fill.set()
+    await fill
+    assert hub.data["SN0001"].fill_light == 3
+    assert hub.data["SN0001"].update_mode == 1
     assert hub._waiters == {}

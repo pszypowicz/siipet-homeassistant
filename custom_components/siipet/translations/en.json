@@ -125,6 +125,9 @@
     "connection_not_ready": {
       "message": "The connection to the SiiPet cameras is down. Try again in a few minutes."
     },
+    "setting_not_writable": {
+      "message": "SiiPet does not let Home Assistant change this setting for {camera} right now."
+    },
     "change_not_sent": {
       "message": "The change for {camera} was not sent: {error}"
     },
