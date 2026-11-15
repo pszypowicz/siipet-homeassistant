@@ -1513,6 +1513,45 @@ async def test_reported_update_mode_write_rejected(
     assert hub._waiters == {}
 
 
+async def test_reported_update_mode_unconfirmed_write(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    mock_control: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+) -> None:
+    """An unconfirmed desired write fails a mode the camera already reports and sends no wake."""
+    hub, link = await _hub(hass, config_entry, shadow_links)
+    link.update_desired.return_value = WriteResult.UNCONFIRMED
+    with pytest.raises(HomeAssistantError) as err:
+        await hub.async_apply("SN0001", UpdateModeChange(automatic=True))
+    assert err.value.translation_key == "change_unconfirmed"
+    assert err.value.translation_placeholders["camera"] == "Bathroom"
+    mock_control.send.assert_not_awaited()
+    assert hub._waiters == {}
+
+
+async def test_reported_update_mode_camera_leaves_during_the_write(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    mock_control: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+) -> None:
+    """A camera that leaves during an accepted write of a mode it already reports gets no error and no wake."""
+    hub, link = await _hub(hass, config_entry, shadow_links)
+
+    def write(*_args: Any, **_kwargs: Any) -> WriteResult:
+        _remove_camera(config_entry)
+        return WriteResult.ACCEPTED
+
+    link.update_desired.side_effect = write
+    await hub.async_apply("SN0001", UpdateModeChange(automatic=True))
+    link.update_desired.assert_awaited_once()
+    mock_control.send.assert_not_awaited()
+    assert hub._waiters == {}
+
+
 async def test_reversal_after_a_failed_wake(
     hass: HomeAssistant,
     mock_client: AsyncMock,

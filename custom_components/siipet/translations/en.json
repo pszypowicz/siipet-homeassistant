@@ -139,6 +139,9 @@
     },
     "change_not_confirmed": {
       "message": "{camera} did not confirm the change in {seconds} seconds. It may still apply it."
+    },
+    "change_unconfirmed": {
+      "message": "SiiPet did not confirm the change for {camera}. Try again."
     }
   },
   "entity": {

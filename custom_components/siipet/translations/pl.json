@@ -139,6 +139,9 @@
     },
     "change_not_confirmed": {
       "message": "Kamera {camera} nie potwierdziła zmiany w ciągu {seconds} s. Może jeszcze ją zastosować."
+    },
+    "change_unconfirmed": {
+      "message": "SiiPet nie potwierdził zmiany dla kamery {camera}. Spróbuj ponownie."
     }
   },
   "entity": {

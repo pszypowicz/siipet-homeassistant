@@ -120,7 +120,7 @@ Read `docs/api.md` before you change `api/`. These points cause most mistakes:
 - The realtime server answers an invalid or ended token with error 401.
 - The update mode change copies the app: a `desired` write of `{"otaMode": {"mode": 0|1}}` only.
   A camera on battery applies it only when it is awake, so the integration sends `wakeup.lowpower` after the write.
-  The integration writes `desired` also when the camera already reports the mode, so an older request cannot stay behind.
+  The integration writes `desired` also when the camera already reports the mode, so a successful change replaces an older request.
   It then sends no wake.
 - The latest firmware comes from `Data.Device.Firmware` of `/api/v1/config/system/config`, by `ProductId`.
   `LatestVersion` of `/api/v1/device/detail` is empty while the camera runs the latest version.

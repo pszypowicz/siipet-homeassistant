@@ -211,13 +211,16 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
             waiter.future.set_result(None)
         try:
             try:
-                await self._async_send(sn, planned, waiter, remaining)
+                await self._async_send(
+                    sn, planned, waiter, remaining, reported=reported
+                )
             except HomeAssistantError:
                 # A camera can apply the desired write and report it before
                 # the command fails. It then has the setting, so the change
                 # succeeded. When the camera reported the value before the
-                # write, a failed write still fails the change, because
-                # desired then keeps the older request.
+                # write, an error means that the write did not go through or
+                # was not confirmed, so desired can still keep the older
+                # request.
                 if waiter.confirmed() and not reported:
                     return
                 raise
@@ -239,11 +242,15 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         planned: PlannedChange,
         waiter: _Waiter,
         remaining: Callable[[], float],
+        *,
+        reported: bool,
     ) -> None:
         """Write desired when the link can, then send the command.
 
         A change that needs desired fails when the shadow writes are refused.
         It sends no command when the camera already reports the value.
+        `reported` is True when the camera reported the value before the
+        write. An unconfirmed write then fails the change.
         """
         desired_written = False
         if planned.desired_key is not None and planned.desired_value is not None:
@@ -264,6 +271,11 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
                     raise self._error("change_not_sent", sn, error=str(err)) from err
                 desired_written = True
                 if result is WriteResult.UNCONFIRMED:
+                    if reported:
+                        # The write may not have reached AWS IoT, so desired
+                        # can still hold an older request. No report can tell,
+                        # because the camera already reports the value.
+                        raise self._error("change_unconfirmed", sn)
                     _LOGGER.debug(
                         "AWS IoT did not confirm the desired write of %s",
                         self._label(sn),
@@ -271,14 +283,15 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
             elif planned.needs_desired:
                 # The command alone does not make this change, so nothing goes out.
                 raise self._error("setting_not_writable", sn)
+        if planned.needs_desired and waiter.confirmed():
+            # The camera reports the value and desired now holds it too, so
+            # no wake is needed. This holds also when the entry unloaded or
+            # the camera left during the write.
+            return
         # The entry can unload, or the camera leave, during the desired write.
         # Nothing then waits for the report, so the command stays unsent.
         if self._abandoned(sn, waiter):
             raise self._stopped_error(sn, desired_written)
-        if planned.needs_desired and waiter.confirmed():
-            # The camera reports the value and desired now holds it too, so
-            # no wake is needed.
-            return
         left = remaining()
         if left <= 0:
             if desired_written:
