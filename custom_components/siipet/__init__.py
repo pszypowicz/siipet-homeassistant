@@ -54,6 +54,7 @@ PLATFORMS: list[Platform] = [
     Platform.SELECT,
     Platform.SENSOR,
     Platform.SWITCH,
+    Platform.UPDATE,
 ]
 
 # Read-only entities that a select or switch replaced: (domain, unique id suffix).

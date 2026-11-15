@@ -62,6 +62,7 @@ async def test_diagnostics(
     assert result["visits_per_day"]["2026-09-26"] == 6
     assert result["unassigned_visits"] == 1
     assert result["abnormal_labels"] == {"shape": 2, "color": 1, "event": 1}
+    assert result["firmware_versions"] == {"JOY1": "1.2.3", "LC01": "1.0.7.13"}
 
     entry = result["entry"]
     assert entry["unique_id"] == REDACTED
@@ -84,6 +85,10 @@ async def test_diagnostics(
         "pet-luna",
         "group-0001",
         "ev-1",
+        "https://firmware.example.com/fake-joy1.bin",
+        "fake-sha256-0001",
+        "fake-aes-key-0001",
+        "fake-event-0001",
     ):
         assert private not in text
 
