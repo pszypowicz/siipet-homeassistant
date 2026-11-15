@@ -20,7 +20,6 @@ from .api import (
     CameraShadows,
     DeviceSettings,
     DeviceState,
-    FeatureRules,
     LrtmClient,
     LrtmUnconfirmedError,
     SettingUnavailableError,
@@ -114,7 +113,6 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         self._locks: dict[tuple[str, SettingGroup], asyncio.Lock] = {}
         self._waiters: dict[str, list[_Waiter]] = {}
         self._device_settings: dict[str, tuple[str, DeviceSettings]] = {}
-        self._features: FeatureRules | None = None
         self._stopped = False
 
     @property
@@ -183,16 +181,19 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         if needs_device_data(group):
             if remaining() <= 0:
                 raise self._error("change_timed_out", sn)
+            system = self._coordinator.data.system
+            if system is None:
+                raise self._error("settings_not_loaded", sn)
+            if not system.features.enabled(FEATURE_PIR_AND_FILL_LIGHT, state.firmware):
+                raise self._error("setting_not_supported", sn)
             try:
                 async with asyncio.timeout(remaining()):
-                    if not await self._async_feature_enabled(state):
-                        raise self._error("setting_not_supported", sn)
                     settings = await self._async_device_settings(sn, state)
             except TimeoutError as err:
                 raise self._error("change_timed_out", sn) from err
             except SiiPetError as err:
                 raise self._request_failed(sn, err) from err
-            # The camera can leave, or the entry unload, during the reads.
+            # The camera can leave, or the entry unload, during the read.
             # A waiter registered after this check is abandoned in both cases.
             state = self._ready_state(sn)
         try:
@@ -329,11 +330,6 @@ class SiiPetDeviceCoordinator(DataUpdateCoordinator[dict[str, DeviceState]]):
         if self._stopped or not self._link.status.connected:
             raise self._error("connection_not_ready", sn)
         return state
-
-    async def _async_feature_enabled(self, state: DeviceState) -> bool:
-        if self._features is None:
-            self._features = await self._client.get_feature_rules()
-        return self._features.enabled(FEATURE_PIR_AND_FILL_LIGHT, state.firmware)
 
     async def _async_device_settings(
         self, sn: str, state: DeviceState

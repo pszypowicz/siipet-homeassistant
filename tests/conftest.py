@@ -14,14 +14,13 @@ import pytest
 from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.siipet.api import (
-    AbnormalLabels,
     CalendarDay,
     Camera,
     Cat,
     DeviceSettings,
-    FeatureRules,
     MediaCredentials,
     Session,
+    SystemConfig,
 )
 from custom_components.siipet.const import (
     AUTH_EMAIL,
@@ -118,7 +117,7 @@ def mock_client_class() -> Generator[MagicMock]:
         client.get_day.side_effect = lambda requested, **_: (
             day if requested == TODAY else EMPTY_DAY
         )
-        client.get_abnormal_labels.return_value = AbnormalLabels.from_api(
+        client.get_system_config.return_value = SystemConfig.from_api(
             load_data("system_config.json")
         )
         login = load_data("login.json")
@@ -130,9 +129,6 @@ def mock_client_class() -> Generator[MagicMock]:
         client.get_calendar.return_value = tuple(
             CalendarDay.from_api(item)
             for item in load_data("pet_calendar.json")["DataCalendar"]
-        )
-        client.get_feature_rules.return_value = FeatureRules.from_api(
-            load_data("system_config.json")
         )
         client.get_device_settings.return_value = DeviceSettings.from_api(
             load_data("device_detail.json")

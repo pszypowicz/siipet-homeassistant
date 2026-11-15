@@ -9,7 +9,7 @@ import logging
 from unittest.mock import AsyncMock
 
 from freezegun.api import FrozenDateTimeFactory
-from homeassistant.config_entries import SOURCE_REAUTH
+from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
 from homeassistant.core import HomeAssistant
 import pytest
 from pytest_homeassistant.common import MockConfigEntry
@@ -21,7 +21,11 @@ from custom_components.siipet.api import (
     Visit,
     VisitType,
 )
-from custom_components.siipet.const import DOMAIN, UNKNOWN_CAT_ID
+from custom_components.siipet.const import (
+    DOMAIN,
+    SYSTEM_CONFIG_INTERVAL,
+    UNKNOWN_CAT_ID,
+)
 from custom_components.siipet.coordinator import SiiPetCoordinator
 
 from .common import EMPTY_DAY, TODAY, fixture_day, setup_integration
@@ -82,13 +86,16 @@ async def _coordinator(
 async def test_first_refresh_reads_window(
     hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
 ) -> None:
-    """The first update reads 7 days, the cats, the cameras, and the labels."""
+    """The first update reads 7 days, the cats, the cameras, and the system config."""
     coordinator = await _coordinator(hass, config_entry)
     assert _days(mock_client) == [TODAY - timedelta(days=n) for n in range(7)]
     mock_client.get_cats.assert_awaited_once()
     mock_client.get_cameras.assert_awaited_once()
-    mock_client.get_abnormal_labels.assert_awaited_once()
     data = coordinator.data
+    mock_client.get_system_config.assert_awaited_once()
+    assert data.system is not None
+    assert data.system.firmware["JOY1"].version == "1.2.3"
+    assert data.labels.event == {301: "Potty Overtime"}
     assert data.today == TODAY
     assert data.updated_at.isoformat() == "2026-09-26T12:00:00+00:00"
     assert len(data.days) == 7
@@ -381,43 +388,95 @@ async def test_past_day_failure_keeps_data(
     assert [visit.event_id for visit in coordinator.data.days[failing]] == ["ev-old"]
 
 
-async def test_labels_failure_is_not_fatal(
+async def test_system_config_failure_is_not_fatal(
     hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
 ) -> None:
-    """Setup works without the abnormal labels."""
-    mock_client.get_abnormal_labels.side_effect = SiiPetConnectionError("down")
+    """Setup works without the system config, with empty labels."""
+    mock_client.get_system_config.side_effect = SiiPetConnectionError("down")
     coordinator = await _coordinator(hass, config_entry)
     assert coordinator.last_update_success is True
+    assert coordinator.data.system is None
     assert coordinator.data.labels.event == {}
 
 
-async def test_labels_failure_retries_hourly_and_warns_once(
+async def test_system_config_is_read_every_6_hours(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    frozen_time: FrozenDateTimeFactory,
+) -> None:
+    """The regular update reads the system config again after 6 hours."""
+    coordinator = await _coordinator(hass, config_entry)
+    frozen_time.tick(timedelta(minutes=5))
+    await coordinator.async_refresh()
+    assert mock_client.get_system_config.await_count == 1
+    frozen_time.tick(SYSTEM_CONFIG_INTERVAL)
+    await coordinator.async_refresh()
+    assert mock_client.get_system_config.await_count == 2
+    assert coordinator.data.new_visits == ()
+
+
+async def test_missing_system_config_is_retried_at_every_update(
     hass: HomeAssistant,
     mock_client: AsyncMock,
     config_entry: MockConfigEntry,
     frozen_time: FrozenDateTimeFactory,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A failing labels read waits an hour before retrying, and warns once."""
-    mock_client.get_abnormal_labels.side_effect = SiiPetConnectionError("down")
+    """Without a config, each regular update reads again, and one warning is logged."""
+    good = mock_client.get_system_config.return_value
+    mock_client.get_system_config.side_effect = SiiPetConnectionError("down")
     coordinator = await _coordinator(hass, config_entry)
-    assert mock_client.get_abnormal_labels.await_count == 1
-
     frozen_time.tick(timedelta(minutes=5))
     await coordinator.async_refresh()
-    assert mock_client.get_abnormal_labels.await_count == 1
-
-    frozen_time.tick(timedelta(minutes=55))
+    assert mock_client.get_system_config.await_count == 2
+    mock_client.get_system_config.side_effect = None
+    mock_client.get_system_config.return_value = good
+    frozen_time.tick(timedelta(minutes=5))
     await coordinator.async_refresh()
-    assert mock_client.get_abnormal_labels.await_count == 2
-
+    assert mock_client.get_system_config.await_count == 3
+    assert coordinator.data.system == good
     warnings = [
         record
         for record in caplog.records
-        if record.levelno == logging.WARNING
-        and "abnormal labels" in record.getMessage()
+        if record.levelno == logging.WARNING and "system config" in record.getMessage()
     ]
     assert len(warnings) == 1
+
+
+async def test_failed_system_config_keeps_the_old_one(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    config_entry: MockConfigEntry,
+    frozen_time: FrozenDateTimeFactory,
+) -> None:
+    """A failed read keeps the older config, and the retry comes an hour later."""
+    coordinator = await _coordinator(hass, config_entry)
+    good = coordinator.data.system
+    mock_client.get_system_config.side_effect = SiiPetConnectionError("down")
+    frozen_time.tick(SYSTEM_CONFIG_INTERVAL)
+    await coordinator.async_refresh()
+    assert mock_client.get_system_config.await_count == 2
+    assert coordinator.data.system == good
+    frozen_time.tick(timedelta(minutes=5))
+    await coordinator.async_refresh()
+    assert mock_client.get_system_config.await_count == 2
+    frozen_time.tick(timedelta(minutes=55))
+    await coordinator.async_refresh()
+    assert mock_client.get_system_config.await_count == 3
+
+
+async def test_system_config_auth_error_fails_the_update(
+    hass: HomeAssistant, mock_client: AsyncMock, config_entry: MockConfigEntry
+) -> None:
+    """An ended session during the config read asks the user to sign in again."""
+    mock_client.get_system_config.side_effect = SiiPetAuthError("ended")
+    # setup_integration asserts a loaded entry, so this test sets up directly.
+    assert not await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert config_entry.state is ConfigEntryState.SETUP_ERROR
+    flows = hass.config_entries.flow.async_progress()
+    assert [flow["context"]["source"] for flow in flows] == ["reauth"]
 
 
 async def test_late_first_read_of_past_day_is_not_new(

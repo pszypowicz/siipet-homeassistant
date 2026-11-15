@@ -35,7 +35,8 @@ UNKNOWN_CAT_NAME: Final = "Unknown cat"
 UPDATE_INTERVAL: Final = timedelta(minutes=5)
 SYNC_INTERVAL: Final = timedelta(hours=1)
 PAST_DAY_INTERVAL: Final = timedelta(hours=1)
-LABELS_INTERVAL: Final = timedelta(hours=24)
+# Labels, feature rules, and firmware releases change rarely.
+SYSTEM_CONFIG_INTERVAL: Final = timedelta(hours=6)
 MIDNIGHT_GRACE: Final = timedelta(hours=1)
 WINDOW_DAYS: Final = 7
 # How long the device state entities keep their values without a connection.

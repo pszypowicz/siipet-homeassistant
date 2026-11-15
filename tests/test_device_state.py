@@ -33,6 +33,8 @@ from custom_components.siipet.api import (
     LrtmUnconfirmedError,
     ShadowWriteError,
     SiiPetAuthError,
+    SiiPetConnectionError,
+    SystemConfig,
 )
 from custom_components.siipet.api.settings import (
     FillLightChange,
@@ -736,11 +738,34 @@ async def test_feature_off(
     shadow_links: list[FakeShadowLink],
 ) -> None:
     """Old firmware without feature 6 cannot change the fill light."""
-    mock_client.get_feature_rules.return_value = FeatureRules({"6": ("9.0.0",)})
+    mock_client.get_system_config.return_value = SystemConfig(
+        features=FeatureRules({"6": ("9.0.0",)})
+    )
     hub, _link = await _hub(hass, config_entry, shadow_links)
     with pytest.raises(HomeAssistantError) as err:
         await hub.async_apply("SN0001", FillLightChange(level=1))
     assert err.value.translation_key == "setting_not_supported"
+
+
+async def test_change_without_system_config(
+    hass: HomeAssistant,
+    mock_client: AsyncMock,
+    mock_control: AsyncMock,
+    config_entry: MockConfigEntry,
+    shadow_links: list[FakeShadowLink],
+) -> None:
+    """Without the system config, fill light and motion cannot start, and privacy can."""
+    mock_client.get_system_config.side_effect = SiiPetConnectionError("down")
+    hub, link = await _hub(hass, config_entry, shadow_links)
+    for change in (FillLightChange(level=1), MotionChange(level=2)):
+        with pytest.raises(HomeAssistantError) as err:
+            await hub.async_apply("SN0001", change)
+        assert err.value.translation_key == "settings_not_loaded"
+    link.update_desired.assert_not_awaited()
+    mock_control.send.assert_not_awaited()
+    mock_client.get_device_settings.assert_not_awaited()
+    mock_control.send.side_effect = camera_reports(link, privacy=True)
+    await hub.async_apply("SN0001", PrivacyChange(active=True))
 
 
 async def test_detail_read_fails(

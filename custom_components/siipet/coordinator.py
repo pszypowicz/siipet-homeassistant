@@ -24,14 +24,15 @@ from .api import (
     SiiPetAuthError,
     SiiPetClient,
     SiiPetError,
+    SystemConfig,
     Visit,
 )
 from .const import (
     DOMAIN,
-    LABELS_INTERVAL,
     MIDNIGHT_GRACE,
     PAST_DAY_INTERVAL,
     SYNC_INTERVAL,
+    SYSTEM_CONFIG_INTERVAL,
     UNKNOWN_CAT_ID,
     UPDATE_INTERVAL,
     WINDOW_DAYS,
@@ -48,6 +49,8 @@ _LOGGER = logging.getLogger(__name__)
 # Scheduler jitter can end the twelfth update a moment before an hour has
 # passed. Half an update of tolerance keeps an hourly read on that update.
 DUE_TOLERANCE = UPDATE_INTERVAL / 2
+
+_NO_LABELS = AbnormalLabels()
 
 
 @dataclass(slots=True)
@@ -73,11 +76,16 @@ class SiiPetData:
     cameras: Mapping[str, Camera]
     days: Mapping[date, tuple[Visit, ...]]
     summaries: Mapping[str, DaySummary]
-    labels: AbnormalLabels
+    system: SystemConfig | None
     today: date
     new_visits: tuple[Visit, ...]
     more: bool
     updated_at: datetime
+
+    @property
+    def labels(self) -> AbnormalLabels:
+        """The abnormal code titles, empty until the system config is read."""
+        return self.system.labels if self.system is not None else _NO_LABELS
 
     def cat_ids(self, visit: Visit) -> tuple[str, ...]:
         """Return the known cats of a visit, or the Unknown cat."""
@@ -114,16 +122,16 @@ class SiiPetCoordinator(DataUpdateCoordinator[SiiPetData]):
         self.client = client
         self._cats: dict[str, Cat] = {}
         self._cameras: dict[str, Camera] = {}
-        self._labels = AbnormalLabels()
         self._days: dict[date, DayVisits] = {}
         # These times are in UTC. Local times that share a time zone subtract
         # without the offset change, so an interval would be off by an hour
         # across a DST change.
         self._read_at: dict[date, datetime] = {}
         self._synced_at: datetime | None = None
-        self._labels_at: datetime | None = None
-        self._labels_failed_at: datetime | None = None
-        self._labels_warned = False
+        self._system: SystemConfig | None = None
+        self._system_at: datetime | None = None
+        self._system_failed_at: datetime | None = None
+        self._system_warned = False
         self._unknown_refs: set[str] = set()
         self._seen: set[str] | None = None
         self._warned_more = False
@@ -167,8 +175,8 @@ class SiiPetCoordinator(DataUpdateCoordinator[SiiPetData]):
         if _due(self._synced_at, SYNC_INTERVAL, now):
             await self._async_sync(now)
             synced = True
-        if self._labels_due(now):
-            await self._async_read_labels(now)
+        if self._system_config_due(now):
+            await self._async_read_system_config(now)
 
         self._store(today, await self.client.get_day(today, until=now.time()), now)
         for offset in range(1, WINDOW_DAYS):
@@ -208,27 +216,31 @@ class SiiPetCoordinator(DataUpdateCoordinator[SiiPetData]):
         self._cameras = await self.client.get_cameras()
         self._synced_at = dt_util.as_utc(now)
 
-    def _labels_due(self, now: datetime) -> bool:
-        if self._labels_failed_at is not None:
-            return _due(self._labels_failed_at, SYNC_INTERVAL, now)
-        return _due(self._labels_at, LABELS_INTERVAL, now)
+    def _system_config_due(self, now: datetime) -> bool:
+        # Fill light and motion changes need the feature rules, so a missing
+        # config is read again at every regular update.
+        if self._system is None:
+            return True
+        if self._system_failed_at is not None:
+            return _due(self._system_failed_at, SYNC_INTERVAL, now)
+        return _due(self._system_at, SYSTEM_CONFIG_INTERVAL, now)
 
-    async def _async_read_labels(self, now: datetime) -> None:
+    async def _async_read_system_config(self, now: datetime) -> None:
         try:
-            self._labels = await self.client.get_abnormal_labels()
+            self._system = await self.client.get_system_config()
         except SiiPetAuthError:
             raise
         except SiiPetError as err:
-            if self._labels_warned:
-                _LOGGER.debug("Could not read the abnormal labels: %s", err)
+            if self._system_warned:
+                _LOGGER.debug("Could not read the system config: %s", err)
             else:
-                _LOGGER.warning("Could not read the abnormal labels: %s", err)
-                self._labels_warned = True
-            self._labels_failed_at = dt_util.as_utc(now)
+                _LOGGER.warning("Could not read the system config: %s", err)
+                self._system_warned = True
+            self._system_failed_at = dt_util.as_utc(now)
             return
-        self._labels_at = dt_util.as_utc(now)
-        self._labels_failed_at = None
-        self._labels_warned = False
+        self._system_at = dt_util.as_utc(now)
+        self._system_failed_at = None
+        self._system_warned = False
 
     def _past_day_due(self, day: date, today: date, now: datetime) -> bool:
         read_at = self._read_at.get(day)
@@ -281,7 +293,7 @@ class SiiPetCoordinator(DataUpdateCoordinator[SiiPetData]):
             cameras=dict(self._cameras),
             days=days,
             summaries=dict(today_visits.summaries) if today_visits else {},
-            labels=self._labels,
+            system=self._system,
             today=today,
             new_visits=new,
             more=any(visits.more for visits in self._days.values()),

@@ -16,13 +16,11 @@ import aiohttp
 from .auth import Session, encrypt_challenge, needs_renewal
 from .errors import SiiPetApiError, SiiPetAuthError, SiiPetConnectionError, SiiPetError
 from .models import (
-    AbnormalLabels,
     CalendarDay,
     Camera,
     Cat,
     DayVisits,
     DeviceSettings,
-    FeatureRules,
     IotCredentials,
     MediaCredentials,
     SystemConfig,
@@ -224,13 +222,6 @@ class SiiPetClient:
         with _parsing(path):
             return Visit.from_api(data or {})
 
-    async def get_abnormal_labels(self) -> AbnormalLabels:
-        """Return the abnormal code titles from the system config."""
-        path = "/api/v1/config/system/config"
-        data = await self._post(path, {})
-        with _parsing(path):
-            return AbnormalLabels.from_api(data or {})
-
     async def annotate(
         self, event_id: str, operation: int, result: Mapping[str, Any]
     ) -> None:
@@ -274,13 +265,6 @@ class SiiPetClient:
         data = await self._post(path, {"SN": sn, "Version": version})
         with _parsing(path):
             return DeviceSettings.from_api(data or {})
-
-    async def get_feature_rules(self) -> FeatureRules:
-        """Return the minimum firmware version of each app feature."""
-        path = "/api/v1/config/system/config"
-        data = await self._post(path, {})
-        with _parsing(path):
-            return FeatureRules.from_api(data or {})
 
     async def get_system_config(self) -> SystemConfig:
         """Return the labels, the feature rules, and the firmware releases."""

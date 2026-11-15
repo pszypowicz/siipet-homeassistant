@@ -119,6 +119,9 @@
     "setting_unknown": {
       "message": "Kamera {camera} nie zgłosiła jeszcze tego ustawienia. Spróbuj ponownie później."
     },
+    "settings_not_loaded": {
+      "message": "Home Assistant nie odczytał jeszcze ustawień SiiPet. Spróbuj ponownie za kilka minut."
+    },
     "connection_not_ready": {
       "message": "Połączenie z kamerami SiiPet nie działa. Spróbuj ponownie za kilka minut."
     },
