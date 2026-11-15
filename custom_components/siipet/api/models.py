@@ -582,3 +582,79 @@ class FeatureRules:
         if not firmware or not versions:
             return True
         return _version_key(firmware) >= max(_version_key(v) for v in versions)
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseNoteSection:
+    """One section of firmware release notes: a title and its lines."""
+
+    title: str
+    lines: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class FirmwareRelease:
+    """The latest firmware of one product. It holds no download field."""
+
+    version: str
+    title: str
+    notes: tuple[ReleaseNoteSection, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SystemConfig:
+    """The parts of `/api/v1/config/system/config` that the integration uses."""
+
+    labels: AbnormalLabels = field(default_factory=AbnormalLabels)
+    features: FeatureRules = field(default_factory=FeatureRules)
+    firmware: Mapping[str, FirmwareRelease] = field(default_factory=dict)
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> SystemConfig:
+        """Parse `Data`. A malformed part raises, so one response gives one result."""
+        return cls(
+            labels=AbnormalLabels.from_api(data),
+            features=FeatureRules.from_api(data),
+            firmware=_firmware_releases(data),
+        )
+
+
+def _firmware_releases(data: Mapping[str, Any]) -> dict[str, FirmwareRelease]:
+    """Read `Device.Firmware` by product id. `Url`, `Sha256`, `AesCfb256Key`, and `EventId` stay unread."""
+    device = data.get("Device")
+    items = device.get("Firmware") if isinstance(device, Mapping) else None
+    releases: dict[str, FirmwareRelease] = {}
+    for item in items if isinstance(items, list) else ():
+        if not isinstance(item, Mapping):
+            continue
+        product = _as_text(item.get("ProductId"))
+        latest = item.get("LatestVersion")
+        if product is None or not isinstance(latest, Mapping):
+            continue
+        version = _as_text(latest.get("Version"))
+        if version is None:
+            continue
+        releases[product] = FirmwareRelease(
+            version=version,
+            title=_as_text(item.get("ProductName")) or product,
+            notes=_release_notes(latest.get("ReleaseNoteFormat")),
+        )
+    return releases
+
+
+def _release_notes(value: Any) -> tuple[ReleaseNoteSection, ...]:
+    sections: list[ReleaseNoteSection] = []
+    for item in value if isinstance(value, list) else ():
+        if not isinstance(item, Mapping):
+            continue
+        raw_title = item.get("title")
+        title = raw_title.strip() if isinstance(raw_title, str) else ""
+        raw_lines = item.get("items")
+        lines = tuple(
+            line.strip()
+            for line in (raw_lines if isinstance(raw_lines, list) else ())
+            if isinstance(line, str) and line.strip()
+        )
+        if title or lines:
+            sections.append(ReleaseNoteSection(title, lines))
+    return tuple(sections)

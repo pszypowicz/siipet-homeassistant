@@ -25,6 +25,7 @@ from .models import (
     FeatureRules,
     IotCredentials,
     MediaCredentials,
+    SystemConfig,
     Visit,
 )
 
@@ -280,6 +281,13 @@ class SiiPetClient:
         data = await self._post(path, {})
         with _parsing(path):
             return FeatureRules.from_api(data or {})
+
+    async def get_system_config(self) -> SystemConfig:
+        """Return the labels, the feature rules, and the firmware releases."""
+        path = "/api/v1/config/system/config"
+        data = await self._post(path, {})
+        with _parsing(path):
+            return SystemConfig.from_api(data or {})
 
     async def get_session(self) -> Session:
         """Return the session for another service, renewed first when due."""
