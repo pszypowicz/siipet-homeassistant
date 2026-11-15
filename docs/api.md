@@ -586,7 +586,8 @@ It does not contain a motion event in the inspected replies.
 The presence of `recordInfo.recording` also does not establish whether a live stream is active.
 The shadow can retain either value after its reporting time.
 
-Android `JoyFillLightSetActivity.initStepViewData` labels levels `1`, `2`, and `3` as low, medium, and high.
+Android `JoyFillLightSetActivity.initStepViewData` labels levels `1`, `2`, and `3` "Low", "Standard", and "High".
+Level `2` uses the string resource `joy1_level_medium`, and its text is "Standard".
 Its slider fallback values are `40`, `70`, and `120`.
 `JoyFillLightSetVM.requestConfigFillLight` obtains `brightness2` from a configuration map and falls back to `60` when the selected level has no entry.
 These client defaults do not establish device limits or a percentage scale.
@@ -642,7 +643,7 @@ with `{"active": <boolean>}`. Other commands seen in the app:
 `config.sleepMode`, `control.picture`, `control.video.start` / `stop`,
 `config.upgrade.info` / `start.upgrade`.
 
-Android `JoyPirSenseSetActivity.initPirSenseLevelData` offers level `2` as medium and level `3` as high.
+Android `JoyPirSenseSetActivity.initPirSenseLevelData` offers level `2` as "Standard(Recommended)" and level `3` as "High (Reduces Missed Events)".
 Its fallback `sense` values are `75` and `60`, respectively.
 The app can replace those values through a configuration map.
 The inspected UI does not establish a physical unit for `sense`.
@@ -1193,6 +1194,8 @@ These results come from tests against a real account.
   and reported the change. The shadow then showed a `delta` for the stale
   `desired`. Whether the camera applies a stale `desired` at a reconnect is an
   open point, so the integration writes `desired` as the app does.
+- A `desired` write without the command did not change the fill light level.
+  The camera kept the old level through two visits (reported in #21).
 - AWS IoT accepted a `desired` write for `fillLight` to the config shadow from the
   owner account and from an invited account. It answered `update/accepted` in about
   150 ms. Both accounts were granted the `update/accepted` and `update/rejected`
@@ -1252,8 +1255,7 @@ These results come from tests against a real account.
   invited account. Operation 3 works (see Live checks). The answer decides whether
   an invited account can replace the owner account for all edits.
 - Whether the server checks `x-device-os`. `iOS 27.0` works with both model prefixes.
-- Whether the camera acts on the command or on the `desired` delta, and whether it
-  applies a stale `desired` at boot.
+- Whether the camera applies a stale `desired` at boot.
 - Whether the server also answers an ended session with `Code` -4. The live check saw -2 for an expired token.
 - Whether an account allows more than one active session. The earlier -2 results
   came from the model header, so they do not answer this. A password sign-in
